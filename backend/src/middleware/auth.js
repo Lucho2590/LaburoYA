@@ -8,7 +8,7 @@ async function authMiddleware(req, res, next) {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const idToken = authHeader.split('Bearer ')[1];
+    const idToken = authHeader.split(' ')[1];
 
     // Verify the token with Firebase Admin
     const decodedToken = await getAuth().verifyIdToken(idToken);
