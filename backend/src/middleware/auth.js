@@ -21,8 +21,9 @@ async function authMiddleware(req, res, next) {
 
     next();
   } catch (error) {
-    console.error('Auth error:', error.message);
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    console.error('Auth error FULL:', error);
+    return res.status(401).json({ error: error.message });
+    // return res.status(401).json({ error: 'Invalid or expired token' });
   }
 }
 
