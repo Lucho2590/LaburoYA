@@ -61,6 +61,12 @@ export default function WorkerProfilePage() {
     toast.success('Video grabado correctamente');
   };
 
+  const handleVideoDeleted = () => {
+    setVideoBlob(null);
+    setVideoUrl('');
+    toast.success('Video eliminado');
+  };
+
   const uploadVideo = async (): Promise<string | null> => {
     if (!videoBlob || !user || !storage) return null;
 
@@ -249,6 +255,7 @@ export default function WorkerProfilePage() {
           ) : (
             <VideoRecorder
               onVideoRecorded={handleVideoRecorded}
+              onVideoDeleted={handleVideoDeleted}
               maxDuration={45}
               existingVideoUrl={videoUrl}
             />

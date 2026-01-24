@@ -4,12 +4,14 @@ import { useState, useRef, useEffect } from 'react';
 
 interface VideoRecorderProps {
   onVideoRecorded: (blob: Blob) => void;
+  onVideoDeleted?: () => void;
   maxDuration?: number; // in seconds
   existingVideoUrl?: string;
 }
 
 export function VideoRecorder({
   onVideoRecorded,
+  onVideoDeleted,
   maxDuration = 45,
   existingVideoUrl
 }: VideoRecorderProps) {
@@ -144,6 +146,12 @@ export function VideoRecorder({
     setMode('idle');
   };
 
+  const deleteVideo = () => {
+    if (onVideoDeleted) {
+      onVideoDeleted();
+    }
+  };
+
   // Show existing video
   if (mode === 'idle' && existingVideoUrl) {
     return (
@@ -154,13 +162,22 @@ export function VideoRecorder({
           className="w-full rounded-xl bg-black"
           playsInline
         />
-        <button
-          type="button"
-          onClick={startCamera}
-          className="w-full p-4 rounded-xl border-2 border-dashed border-gray-300 text-gray-600 active:bg-gray-50"
-        >
-          🎥 Grabar nuevo video
-        </button>
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={startCamera}
+            className="flex-1 p-3 rounded-xl border-2 border-gray-300 text-gray-600 active:bg-gray-50"
+          >
+            🎥 Grabar nuevo
+          </button>
+          <button
+            type="button"
+            onClick={deleteVideo}
+            className="flex-1 p-3 rounded-xl border-2 border-red-300 text-red-600 active:bg-red-50"
+          >
+            🗑️ Eliminar video
+          </button>
+        </div>
       </div>
     );
   }
@@ -195,6 +212,7 @@ export function VideoRecorder({
           <video
             ref={videoRef}
             className="w-full aspect-[9/16] max-h-[400px] object-cover"
+            autoPlay
             playsInline
             muted
           />
