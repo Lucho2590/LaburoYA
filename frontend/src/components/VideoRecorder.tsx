@@ -20,6 +20,7 @@ export function VideoRecorder({
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(maxDuration);
   const [error, setError] = useState<string | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -35,22 +36,26 @@ export function VideoRecorder({
     };
   }, []);
 
+  // Attach stream to video element when both are ready
+  useEffect(() => {
+    if (stream && videoRef.current && (mode === 'preview' || mode === 'recording')) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(err => {
+        console.error('Error playing video:', err);
+      });
+    }
+  }, [stream, mode]);
+
   const startCamera = async () => {
     try {
       setError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } },
         audio: true
       });
 
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.muted = true;
-        await videoRef.current.play();
-      }
-
+      streamRef.current = mediaStream;
+      setStream(mediaStream);
       setMode('preview');
     } catch (err) {
       console.error('Camera error:', err);
@@ -66,6 +71,7 @@ export function VideoRecorder({
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    setStream(null);
   };
 
   const startRecording = () => {
