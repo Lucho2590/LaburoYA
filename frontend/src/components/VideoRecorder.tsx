@@ -217,7 +217,7 @@ export function VideoRecorder({
         <div className="relative rounded-xl overflow-hidden bg-black">
           <video
             ref={videoRef}
-            className="w-full aspect-[9/16] max-h-[400px] object-cover"
+            className="w-full aspect-[9/16] max-h-[400px] object-cover -scale-x-100"
             autoPlay
             playsInline
             muted
