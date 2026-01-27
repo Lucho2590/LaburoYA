@@ -172,14 +172,14 @@ export function VideoRecorder({
           <button
             type="button"
             onClick={startCamera}
-            className="flex-1 p-3 rounded-xl border-2 border-gray-300 text-gray-600 active:bg-gray-50"
+            className="flex-1 p-3 rounded-xl border-2 border-[#344054] text-[#98A2B3] active:bg-[#1F2937]"
           >
             🎥 Grabar nuevo
           </button>
           <button
             type="button"
             onClick={deleteVideo}
-            className="flex-1 p-3 rounded-xl border-2 border-red-300 text-red-600 active:bg-red-50"
+            className="flex-1 p-3 rounded-xl border-2 border-[#E10600]/50 text-[#E10600] active:bg-[#E10600]/10"
           >
             🗑️ Eliminar video
           </button>
@@ -193,18 +193,18 @@ export function VideoRecorder({
     return (
       <div className="space-y-3">
         {error && (
-          <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm">
+          <div className="bg-[#E10600]/20 text-[#E10600] p-3 rounded-xl text-sm">
             {error}
           </div>
         )}
         <button
           type="button"
           onClick={startCamera}
-          className="w-full p-6 rounded-xl border-2 border-dashed border-blue-300 bg-blue-50 text-blue-600 active:bg-blue-100 flex flex-col items-center"
+          className="w-full p-6 rounded-xl border-2 border-dashed border-[#E10600]/50 bg-[#E10600]/10 text-[#E10600] active:bg-[#E10600]/20 flex flex-col items-center"
         >
           <span className="text-4xl mb-2">🎥</span>
           <span className="font-medium">Grabar video de presentación</span>
-          <span className="text-sm text-blue-500 mt-1">Máximo {maxDuration} segundos</span>
+          <span className="text-sm text-[#FF6A00] mt-1">Máximo {maxDuration} segundos</span>
         </button>
       </div>
     );
@@ -225,7 +225,7 @@ export function VideoRecorder({
 
           {/* Recording indicator */}
           {mode === 'recording' && (
-            <div className="absolute top-4 left-4 flex items-center bg-red-600 text-white px-3 py-1 rounded-full text-sm font-medium">
+            <div className="absolute top-4 left-4 flex items-center bg-[#E10600] text-white px-3 py-1 rounded-full text-sm font-medium">
               <span className="w-2 h-2 bg-white rounded-full animate-pulse mr-2" />
               {timeLeft}s
             </div>
@@ -243,7 +243,7 @@ export function VideoRecorder({
                 </button>
                 <button
                   onClick={startRecording}
-                  className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center text-white active:scale-95 border-4 border-white"
+                  className="w-16 h-16 bg-[#E10600] rounded-full flex items-center justify-center text-white active:scale-95 border-4 border-white"
                 >
                   <div className="w-6 h-6 bg-white rounded-full" />
                 </button>
@@ -252,7 +252,7 @@ export function VideoRecorder({
               <div className="flex justify-center">
                 <button
                   onClick={stopRecording}
-                  className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center text-white active:scale-95 border-4 border-white"
+                  className="w-16 h-16 bg-[#E10600] rounded-full flex items-center justify-center text-white active:scale-95 border-4 border-white"
                 >
                   <div className="w-6 h-6 bg-white rounded-sm" />
                 </button>
@@ -261,7 +261,7 @@ export function VideoRecorder({
           </div>
         </div>
 
-        <p className="text-center text-gray-500 text-sm">
+        <p className="text-center text-[#98A2B3] text-sm">
           {mode === 'preview'
             ? 'Tocá el botón rojo para grabar'
             : 'Tocá para detener la grabación'}
@@ -287,14 +287,14 @@ export function VideoRecorder({
           <button
             type="button"
             onClick={retryRecording}
-            className="flex-1 py-3 rounded-xl border-2 border-gray-200 text-gray-700 font-medium active:bg-gray-50"
+            className="flex-1 py-3 rounded-xl border-2 border-[#344054] text-[#98A2B3] font-medium active:bg-[#1F2937]"
           >
             🔄 Grabar otro
           </button>
           <button
             type="button"
             onClick={confirmVideo}
-            className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-medium active:scale-[0.98]"
+            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white font-medium active:scale-[0.98]"
           >
             ✓ Usar este video
           </button>

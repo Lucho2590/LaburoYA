@@ -96,8 +96,8 @@ export default function EmployerJobsPage() {
 
   if (loading || loadingJobs) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center theme-bg-primary">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#E10600]"></div>
       </div>
     );
   }
@@ -109,7 +109,7 @@ export default function EmployerJobsPage() {
         <div className="px-4 py-6 space-y-6">
           {/* Rubro */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-[#98A2B3] mb-2">
               Rubro *
             </label>
             <div className="grid grid-cols-2 gap-2">
@@ -120,8 +120,8 @@ export default function EmployerJobsPage() {
                   onClick={() => setFormData({ ...formData, rubro: key, puesto: '' })}
                   className={`p-3 rounded-xl border-2 text-left transition-all active:scale-95 ${
                     formData.rubro === key
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 bg-white'
+                      ? 'border-[#E10600] bg-[#E10600]/10'
+                      : 'border-[#344054] bg-[#1F2937]'
                   }`}
                 >
                   <span className="text-xl">
@@ -132,7 +132,7 @@ export default function EmployerJobsPage() {
                     {key === 'transporte' && '🚗'}
                     {key === 'administracion' && '💼'}
                   </span>
-                  <span className="font-medium text-gray-900 ml-2 text-sm">{value.label}</span>
+                  <span className="font-medium text-white ml-2 text-sm">{value.label}</span>
                 </button>
               ))}
             </div>
@@ -141,7 +141,7 @@ export default function EmployerJobsPage() {
           {/* Puesto */}
           {formData.rubro && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-[#98A2B3] mb-2">
                 Puesto *
               </label>
               <div className="flex flex-wrap gap-2">
@@ -152,8 +152,8 @@ export default function EmployerJobsPage() {
                     onClick={() => setFormData({ ...formData, puesto })}
                     className={`px-4 py-2 rounded-full border-2 transition-all active:scale-95 ${
                       formData.puesto === puesto
-                        ? 'border-blue-500 bg-blue-500 text-white'
-                        : 'border-gray-200 bg-white text-gray-700'
+                        ? 'border-[#E10600] bg-[#E10600] text-white'
+                        : 'border-[#344054] bg-[#1F2937] text-[#98A2B3]'
                     }`}
                   >
                     {puesto}
@@ -165,7 +165,7 @@ export default function EmployerJobsPage() {
 
           {/* Salary */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-[#98A2B3] mb-2">
               Salario (opcional)
             </label>
             <input
@@ -173,13 +173,13 @@ export default function EmployerJobsPage() {
               value={formData.salary}
               onChange={(e) => setFormData({ ...formData, salary: e.target.value })}
               placeholder="Ej: $500.000 mensuales"
-              className="w-full p-4 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none"
+              className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none"
             />
           </div>
 
           {/* Schedule */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-[#98A2B3] mb-2">
               Horario (opcional)
             </label>
             <input
@@ -187,13 +187,13 @@ export default function EmployerJobsPage() {
               value={formData.schedule}
               onChange={(e) => setFormData({ ...formData, schedule: e.target.value })}
               placeholder="Ej: Lun-Vie 9 a 18hs"
-              className="w-full p-4 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none"
+              className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none"
             />
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-[#98A2B3] mb-2">
               Descripción (opcional)
             </label>
             <textarea
@@ -201,7 +201,7 @@ export default function EmployerJobsPage() {
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="Describí las tareas del puesto..."
               rows={3}
-              className="w-full p-4 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none resize-none"
+              className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none resize-none"
             />
           </div>
 
@@ -209,7 +209,7 @@ export default function EmployerJobsPage() {
           <button
             onClick={handleSubmit}
             disabled={saving || !formData.rubro || !formData.puesto}
-            className="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform"
+            className="w-full bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white py-4 rounded-xl font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform"
           >
             {saving ? 'Publicando...' : 'Publicar oferta'}
           </button>
@@ -225,7 +225,7 @@ export default function EmployerJobsPage() {
         {/* Add Button */}
         <button
           onClick={() => setShowForm(true)}
-          className="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold mb-6 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+          className="w-full bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white py-4 rounded-xl font-semibold mb-6 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -236,29 +236,32 @@ export default function EmployerJobsPage() {
         {jobs.length === 0 ? (
           <div className="text-center py-12">
             <span className="text-5xl">📋</span>
-            <p className="text-gray-500 mt-4">No tenés ofertas publicadas</p>
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-[#98A2B3] mt-4">No tenés ofertas publicadas</p>
+            <p className="text-[#667085] text-sm mt-1">
               Creá tu primera oferta para encontrar candidatos
             </p>
           </div>
         ) : (
           <div className="space-y-3">
             {jobs.map((job) => (
-              <div key={job.id} className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+              <div key={job.id} className="bg-[#1F2937] rounded-2xl border border-[#344054] overflow-hidden">
                 <div className="p-4">
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-gray-900">{job.puesto}</h3>
-                        <Badge variant={job.active ? 'default' : 'secondary'} className="text-xs">
+                        <h3 className="font-semibold text-white">{job.puesto}</h3>
+                        <Badge
+                          variant={job.active ? 'default' : 'secondary'}
+                          className={`text-xs ${job.active ? 'bg-[#12B76A] text-white' : 'bg-[#344054] text-[#98A2B3]'}`}
+                        >
                           {job.active ? 'Activa' : 'Pausada'}
                         </Badge>
                       </div>
-                      <p className="text-gray-500 text-sm mt-1">
+                      <p className="text-[#98A2B3] text-sm mt-1">
                         {JOB_CATEGORIES[job.rubro as Rubro]?.label || job.rubro}
                       </p>
                       {(job.salary || job.schedule) && (
-                        <p className="text-gray-400 text-sm mt-1">
+                        <p className="text-[#667085] text-sm mt-1">
                           {job.salary && `💰 ${job.salary}`}
                           {job.salary && job.schedule && ' • '}
                           {job.schedule && `🕐 ${job.schedule}`}
@@ -269,21 +272,21 @@ export default function EmployerJobsPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex border-t">
+                <div className="flex border-t border-[#344054]">
                   <button
                     onClick={() => toggleJobStatus(job.id, job.active)}
-                    className="flex-1 py-3 text-gray-600 text-sm font-medium active:bg-gray-50"
+                    className="flex-1 py-3 text-[#98A2B3] text-sm font-medium active:bg-[#111827]"
                   >
                     {job.active ? '⏸️ Pausar' : '▶️ Activar'}
                   </button>
-                  <div className="w-px bg-gray-200" />
+                  <div className="w-px bg-[#344054]" />
                   <button
                     onClick={() => {
                       if (confirm('¿Eliminar esta oferta?')) {
                         deleteJob(job.id);
                       }
                     }}
-                    className="flex-1 py-3 text-red-500 text-sm font-medium active:bg-red-50"
+                    className="flex-1 py-3 text-[#E10600] text-sm font-medium active:bg-[#E10600]/10"
                   >
                     🗑️ Eliminar
                   </button>

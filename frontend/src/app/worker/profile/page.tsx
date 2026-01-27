@@ -119,8 +119,8 @@ export default function WorkerProfilePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center theme-bg-primary">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#E10600]"></div>
       </div>
     );
   }
@@ -130,7 +130,7 @@ export default function WorkerProfilePage() {
       <div className="px-4 py-6 space-y-6">
         {/* Rubro */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#98A2B3] mb-2">
             ¿En qué rubro trabajás? *
           </label>
           <div className="grid grid-cols-2 gap-2">
@@ -141,8 +141,8 @@ export default function WorkerProfilePage() {
                 onClick={() => setFormData({ ...formData, rubro: key, puesto: '' })}
                 className={`p-4 rounded-xl border-2 text-left transition-all active:scale-95 ${
                   formData.rubro === key
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 bg-white'
+                    ? 'border-[#e05f5a] bg-[#e05f5a]/10'
+                    : 'theme-border theme-bg-card'
                 }`}
               >
                 <span className="text-2xl block mb-1">
@@ -153,7 +153,7 @@ export default function WorkerProfilePage() {
                   {key === 'transporte' && '🚗'}
                   {key === 'administracion' && '💼'}
                 </span>
-                <span className="font-medium text-gray-900">{value.label}</span>
+                <span className="font-medium theme-text-primary">{value.label}</span>
               </button>
             ))}
           </div>
@@ -162,7 +162,7 @@ export default function WorkerProfilePage() {
         {/* Puesto */}
         {formData.rubro && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-[#98A2B3] mb-2">
               ¿Qué puesto buscás? *
             </label>
             <div className="flex flex-wrap gap-2">
@@ -173,8 +173,8 @@ export default function WorkerProfilePage() {
                   onClick={() => setFormData({ ...formData, puesto })}
                   className={`px-4 py-2 rounded-full border-2 transition-all active:scale-95 ${
                     formData.puesto === puesto
-                      ? 'border-blue-500 bg-blue-500 text-white'
-                      : 'border-gray-200 bg-white text-gray-700'
+                      ? 'border-[#E10600] bg-[#E10600] text-white'
+                      : 'theme-border theme-bg-card theme-text-secondary'
                   }`}
                 >
                   {puesto}
@@ -186,13 +186,13 @@ export default function WorkerProfilePage() {
 
         {/* Zona */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#98A2B3] mb-2">
             ¿En qué zona preferís trabajar?
           </label>
           <select
             value={formData.zona}
             onChange={(e) => setFormData({ ...formData, zona: e.target.value })}
-            className="w-full p-4 rounded-xl border-2 border-gray-200 bg-white text-gray-900 focus:border-blue-500 focus:outline-none"
+            className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary focus:border-[#E10600] focus:outline-none"
           >
             <option value="">Cualquier zona</option>
             {ZONAS_MDP.map((zona) => (
@@ -203,7 +203,7 @@ export default function WorkerProfilePage() {
 
         {/* Experience */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#98A2B3] mb-2">
             Experiencia
           </label>
           <input
@@ -211,13 +211,13 @@ export default function WorkerProfilePage() {
             value={formData.experience}
             onChange={(e) => setFormData({ ...formData, experience: e.target.value })}
             placeholder="Ej: 3 años en gastronomía"
-            className="w-full p-4 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none"
+            className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
           />
         </div>
 
         {/* Description */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#98A2B3] mb-2">
             Contanos sobre vos
           </label>
           <textarea
@@ -225,29 +225,29 @@ export default function WorkerProfilePage() {
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             placeholder="Describí tu experiencia y habilidades..."
             rows={3}
-            className="w-full p-4 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none resize-none"
+            className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none resize-none"
           />
         </div>
 
         {/* Video */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#98A2B3] mb-2">
             Video de presentación
           </label>
-          <p className="text-gray-500 text-sm mb-3">
+          <p className="text-[#667085] text-sm mb-3">
             Grabá un video corto presentándote (máx 45 seg). Esto ayuda mucho a los empleadores a conocerte.
           </p>
 
           {videoBlob ? (
             <div className="space-y-3">
-              <div className="bg-green-50 text-green-700 p-3 rounded-xl flex items-center">
+              <div className="bg-[#12B76A]/20 text-[#12B76A] p-3 rounded-xl flex items-center">
                 <span className="mr-2">✓</span>
                 <span>Video grabado y listo para subir</span>
               </div>
               <button
                 type="button"
                 onClick={() => setVideoBlob(null)}
-                className="w-full p-3 rounded-xl border-2 border-gray-200 text-gray-600"
+                className="w-full p-3 rounded-xl border-2 theme-border theme-text-secondary"
               >
                 🎥 Grabar otro video
               </button>
@@ -266,7 +266,7 @@ export default function WorkerProfilePage() {
         <button
           onClick={handleSubmit}
           disabled={saving || !formData.rubro || !formData.puesto}
-          className="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform"
+          className="w-full bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white py-4 rounded-xl font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform"
         >
           {saving ? 'Guardando...' : 'Guardar perfil'}
         </button>

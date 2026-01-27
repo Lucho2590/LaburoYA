@@ -65,8 +65,8 @@ export default function EmployerProfilePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center theme-bg-primary">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#E10600]"></div>
       </div>
     );
   }
@@ -76,7 +76,7 @@ export default function EmployerProfilePage() {
       <div className="px-4 py-6 space-y-6">
         {/* Business Name */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#98A2B3] mb-2">
             Nombre del negocio *
           </label>
           <input
@@ -84,13 +84,13 @@ export default function EmployerProfilePage() {
             value={formData.businessName}
             onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
             placeholder="Ej: Restaurante El Puerto"
-            className="w-full p-4 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none"
+            className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none"
           />
         </div>
 
         {/* Rubro */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#98A2B3] mb-2">
             Rubro *
           </label>
           <div className="grid grid-cols-2 gap-2">
@@ -101,8 +101,8 @@ export default function EmployerProfilePage() {
                 onClick={() => setFormData({ ...formData, rubro: key })}
                 className={`p-4 rounded-xl border-2 text-left transition-all active:scale-95 ${
                   formData.rubro === key
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 bg-white'
+                    ? 'border-[#E10600] bg-[#E10600]/10'
+                    : 'border-[#344054] bg-[#1F2937]'
                 }`}
               >
                 <span className="text-2xl block mb-1">
@@ -113,7 +113,7 @@ export default function EmployerProfilePage() {
                   {key === 'transporte' && '🚗'}
                   {key === 'administracion' && '💼'}
                 </span>
-                <span className="font-medium text-gray-900">{value.label}</span>
+                <span className="font-medium text-white">{value.label}</span>
               </button>
             ))}
           </div>
@@ -121,7 +121,7 @@ export default function EmployerProfilePage() {
 
         {/* Phone */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#98A2B3] mb-2">
             Teléfono de contacto
           </label>
           <input
@@ -129,13 +129,13 @@ export default function EmployerProfilePage() {
             value={formData.phone}
             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
             placeholder="223-4567890"
-            className="w-full p-4 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none"
+            className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none"
           />
         </div>
 
         {/* Address */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#98A2B3] mb-2">
             Dirección
           </label>
           <input
@@ -143,13 +143,13 @@ export default function EmployerProfilePage() {
             value={formData.address}
             onChange={(e) => setFormData({ ...formData, address: e.target.value })}
             placeholder="Av. Colón 1234, Mar del Plata"
-            className="w-full p-4 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none"
+            className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none"
           />
         </div>
 
         {/* Description */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-[#98A2B3] mb-2">
             Sobre el negocio
           </label>
           <textarea
@@ -157,7 +157,7 @@ export default function EmployerProfilePage() {
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             placeholder="Contá sobre tu negocio..."
             rows={3}
-            className="w-full p-4 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none resize-none"
+            className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none resize-none"
           />
         </div>
 
@@ -165,7 +165,7 @@ export default function EmployerProfilePage() {
         <button
           onClick={handleSubmit}
           disabled={saving || !formData.businessName || !formData.rubro}
-          className="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform"
+          className="w-full bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white py-4 rounded-xl font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform"
         >
           {saving ? 'Guardando...' : 'Guardar perfil'}
         </button>

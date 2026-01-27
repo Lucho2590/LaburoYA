@@ -53,8 +53,8 @@ export default function ChatPage() {
 
   if (loading || chatLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen flex items-center justify-center theme-bg-primary">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#E10600]"></div>
       </div>
     );
   }
@@ -62,25 +62,25 @@ export default function ChatPage() {
   const isWorker = userData?.role === 'worker';
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
+    <div className="min-h-screen theme-bg-primary flex flex-col">
       {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-40 safe-area-top">
+      <header className="theme-bg-secondary border-b theme-border sticky top-0 z-40 safe-area-top">
         <div className="flex items-center px-2 h-14">
           <Link href="/chats" className="p-2 touch-manipulation">
-            <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6 theme-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
 
           <div className="flex items-center flex-1 ml-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white font-semibold mr-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-[#E10600] to-[#FF6A00] rounded-full flex items-center justify-center text-white font-semibold mr-3">
               {isWorker ? '🏢' : '👤'}
             </div>
             <div>
-              <h1 className="font-semibold text-gray-900">
+              <h1 className="font-semibold theme-text-primary">
                 {isWorker ? 'Empleador' : 'Trabajador'}
               </h1>
-              <p className="text-xs text-green-500">En línea</p>
+              <p className="text-xs text-[#12B76A]">En línea</p>
             </div>
           </div>
         </div>
@@ -90,11 +90,11 @@ export default function ChatPage() {
       <main className="flex-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+            <div className="w-16 h-16 bg-[#E10600]/20 rounded-full flex items-center justify-center mb-4">
               <span className="text-3xl">👋</span>
             </div>
-            <p className="text-gray-500">¡Empezá la conversación!</p>
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="theme-text-secondary">¡Empezá la conversación!</p>
+            <p className="theme-text-muted text-sm mt-1">
               Presentate y coordiná una entrevista
             </p>
           </div>
@@ -113,15 +113,15 @@ export default function ChatPage() {
                   <div
                     className={`max-w-[80%] px-4 py-2 rounded-2xl ${
                       isOwn
-                        ? 'bg-blue-600 text-white rounded-br-md'
-                        : 'bg-white text-gray-900 rounded-bl-md shadow-sm'
+                        ? 'bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-br-md'
+                        : 'theme-bg-card theme-text-primary rounded-bl-md'
                     }`}
                   >
                     <p className="break-words">{message.text}</p>
                     {showTime && (
                       <p
                         className={`text-[10px] mt-1 ${
-                          isOwn ? 'text-blue-200' : 'text-gray-400'
+                          isOwn ? 'text-white/60' : 'theme-text-muted'
                         }`}
                       >
                         {new Date(message.createdAt).toLocaleTimeString([], {
@@ -140,7 +140,7 @@ export default function ChatPage() {
       </main>
 
       {/* Input */}
-      <div className="bg-white border-t safe-area-bottom">
+      <div className="theme-bg-secondary border-t theme-border safe-area-bottom">
         <form onSubmit={handleSend} className="flex items-center p-2 gap-2">
           <input
             ref={inputRef}
@@ -148,13 +148,13 @@ export default function ChatPage() {
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder="Escribí un mensaje..."
-            className="flex-1 bg-gray-100 rounded-full px-4 py-3 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 theme-bg-card rounded-full px-4 py-3 theme-text-primary placeholder:theme-text-muted focus:outline-none focus:ring-2 focus:ring-[#E10600]"
             disabled={sending}
           />
           <button
             type="submit"
             disabled={sending || !newMessage.trim()}
-            className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white disabled:opacity-50 active:scale-95 transition-transform"
+            className="w-12 h-12 bg-gradient-to-r from-[#E10600] to-[#FF6A00] rounded-full flex items-center justify-center text-white disabled:opacity-50 active:scale-95 transition-transform"
           >
             {sending ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
