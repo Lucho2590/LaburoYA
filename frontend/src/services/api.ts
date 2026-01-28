@@ -4,7 +4,12 @@ import {
   CreateWorkerProfileData,
   CreateEmployerProfileData,
   CreateJobOfferData,
-  JobOffer
+  JobOffer,
+  AdminStats,
+  AdminUser,
+  AdminUserDetail,
+  AdminJobOffer,
+  AdminMatch
 } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -62,7 +67,14 @@ class ApiService {
   }
 
   async getCurrentUser() {
-    return this.request<{ user: { role: string }; profile: unknown }>('/auth/me');
+    return this.request<{ user: { role: string; secondaryRole?: string }; profile: unknown }>('/auth/me');
+  }
+
+  async setSecondaryRole(secondaryRole: 'worker' | 'employer') {
+    return this.request<{ message: string; secondaryRole: string }>('/auth/secondary-role', {
+      method: 'PATCH',
+      body: { secondaryRole },
+    });
   }
 
   // Workers
@@ -154,6 +166,62 @@ class ApiService {
 
   async getMyChats() {
     return this.request('/chats');
+  }
+
+  // Admin
+  async getAdminStats() {
+    return this.request<AdminStats>('/admin/stats');
+  }
+
+  async getAdminUsers(params?: { role?: UserRole; limit?: number; offset?: number }) {
+    const searchParams = new URLSearchParams();
+    if (params?.role) searchParams.set('role', params.role);
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    if (params?.offset) searchParams.set('offset', params.offset.toString());
+    const query = searchParams.toString();
+    return this.request<{ users: AdminUser[]; total: number; limit: number; offset: number }>(
+      `/admin/users${query ? `?${query}` : ''}`
+    );
+  }
+
+  async getAdminUser(uid: string) {
+    return this.request<AdminUserDetail>(`/admin/users/${uid}`);
+  }
+
+  async updateAdminUser(uid: string, data: { role?: UserRole; disabled?: boolean }) {
+    return this.request<{ message: string; user: AdminUser }>(`/admin/users/${uid}`, {
+      method: 'PATCH',
+      body: data,
+    });
+  }
+
+  async deleteAdminUser(uid: string, hard = false) {
+    return this.request<{ message: string }>(`/admin/users/${uid}${hard ? '?hard=true' : ''}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getAdminJobOffers(params?: { active?: boolean; employerId?: string; limit?: number; offset?: number }) {
+    const searchParams = new URLSearchParams();
+    if (params?.active !== undefined) searchParams.set('active', params.active.toString());
+    if (params?.employerId) searchParams.set('employerId', params.employerId);
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    if (params?.offset) searchParams.set('offset', params.offset.toString());
+    const query = searchParams.toString();
+    return this.request<{ jobOffers: AdminJobOffer[]; total: number; limit: number; offset: number }>(
+      `/admin/job-offers${query ? `?${query}` : ''}`
+    );
+  }
+
+  async getAdminMatches(params?: { status?: string; limit?: number; offset?: number }) {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    if (params?.offset) searchParams.set('offset', params.offset.toString());
+    const query = searchParams.toString();
+    return this.request<{ matches: AdminMatch[]; total: number; limit: number; offset: number }>(
+      `/admin/matches${query ? `?${query}` : ''}`
+    );
   }
 }
 

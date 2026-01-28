@@ -14,7 +14,7 @@ import {
 } from 'firebase/auth';
 import { auth } from '@/config/firebase';
 import { api } from '@/services/api';
-import { UserData, UserRole, WorkerProfile, EmployerProfile } from '@/types';
+import { UserData, UserRole, AppRole, WorkerProfile, EmployerProfile } from '@/types';
 
 interface AuthContextType {
   user: User | null;
@@ -26,7 +26,10 @@ interface AuthContextType {
   signInWithFacebook: () => Promise<void>;
   signOut: () => Promise<void>;
   setRole: (role: UserRole) => Promise<void>;
+  setSecondaryRole: (role: AppRole) => Promise<void>;
   refreshUserData: () => Promise<void>;
+  // Helper to get the effective app role (for superusers returns secondaryRole)
+  getEffectiveAppRole: () => AppRole | undefined;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -48,6 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         uid: user.uid,
         email: user.email,
         role: data.user?.role as UserRole | undefined,
+        secondaryRole: data.user?.secondaryRole as AppRole | undefined,
         profile: data.profile as WorkerProfile | EmployerProfile | undefined,
       });
     } catch {
@@ -76,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             uid: firebaseUser.uid,
             email: firebaseUser.email,
             role: data.user?.role as UserRole | undefined,
+            secondaryRole: data.user?.secondaryRole as AppRole | undefined,
             profile: data.profile as WorkerProfile | EmployerProfile | undefined,
           });
         } catch {
@@ -127,6 +132,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await refreshUserData();
   };
 
+  const setSecondaryRole = async (role: AppRole) => {
+    await api.setSecondaryRole(role);
+    await refreshUserData();
+  };
+
+  const getEffectiveAppRole = (): AppRole | undefined => {
+    if (!userData) return undefined;
+    if (userData.role === 'superuser') {
+      return userData.secondaryRole;
+    }
+    return userData.role as AppRole | undefined;
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -139,7 +157,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signInWithFacebook,
         signOut,
         setRole,
+        setSecondaryRole,
         refreshUserData,
+        getEffectiveAppRole,
       }}
     >
       {children}

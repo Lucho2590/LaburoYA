@@ -10,8 +10,11 @@ import { Badge } from '@/components/ui/badge';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, userData, loading, signOut } = useAuth();
+  const { user, userData, loading, signOut, getEffectiveAppRole } = useAuth();
   const { matches, loading: matchesLoading } = useMatches();
+
+  const effectiveRole = getEffectiveAppRole();
+  const isSuperuser = userData?.role === 'superuser';
 
   useEffect(() => {
     if (!loading && !user) {
@@ -20,7 +23,11 @@ export default function DashboardPage() {
     if (!loading && user && !userData?.role) {
       router.push('/onboarding');
     }
-  }, [loading, user, userData, router]);
+    // Superuser without secondaryRole should go to admin panel to set it
+    if (!loading && user && isSuperuser && !userData?.secondaryRole) {
+      router.push('/sudo');
+    }
+  }, [loading, user, userData, router, isSuperuser]);
 
   if (loading || !userData?.role) {
     return (
@@ -30,7 +37,16 @@ export default function DashboardPage() {
     );
   }
 
-  const isWorker = userData.role === 'worker';
+  // Superuser without secondaryRole - show loading while redirecting
+  if (isSuperuser && !effectiveRole) {
+    return (
+      <div className="min-h-screen flex items-center justify-center theme-bg-primary">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#E10600]"></div>
+      </div>
+    );
+  }
+
+  const isWorker = effectiveRole === 'worker';
   const pendingMatches = matches.filter(m => m.status === 'pending').length;
   const acceptedMatches = matches.filter(m => m.status === 'accepted').length;
 

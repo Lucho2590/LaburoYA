@@ -12,7 +12,7 @@ import { JobOffer } from '@/types';
 
 export default function EmployerJobsPage() {
   const router = useRouter();
-  const { user, userData, loading } = useAuth();
+  const { user, userData, loading, getEffectiveAppRole } = useAuth();
   const [jobs, setJobs] = useState<JobOffer[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -26,14 +26,17 @@ export default function EmployerJobsPage() {
     schedule: '',
   });
 
+  const effectiveRole = getEffectiveAppRole();
+
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
     }
-    if (!loading && userData?.role !== 'employer') {
+    // Allow employers OR superusers with employer secondaryRole
+    if (!loading && effectiveRole !== 'employer') {
       router.push('/home');
     }
-  }, [loading, user, userData, router]);
+  }, [loading, user, effectiveRole, router]);
 
   useEffect(() => {
     fetchJobs();

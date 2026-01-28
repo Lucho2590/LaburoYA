@@ -2,12 +2,14 @@
 // User Types
 // ============================================
 
-export type UserRole = 'worker' | 'employer';
+export type UserRole = 'worker' | 'employer' | 'superuser';
+export type AppRole = 'worker' | 'employer';
 
 export interface UserData {
   uid: string;
   email: string | null;
   role?: UserRole;
+  secondaryRole?: AppRole; // For superusers: their role in the app
   profile?: WorkerProfile | EmployerProfile;
 }
 
@@ -144,4 +146,74 @@ export interface CreateJobOfferData {
   description?: string;
   salary?: string;
   schedule?: string;
+}
+
+// ============================================
+// Admin Types
+// ============================================
+
+export interface AdminUser {
+  uid: string;
+  email?: string;
+  displayName?: string;
+  photoURL?: string;
+  phoneNumber?: string;
+  emailVerified?: boolean;
+  authDisabled?: boolean;
+  role: UserRole;
+  disabled?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  deletedAt?: string;
+  profile?: WorkerProfile | EmployerProfile | null;
+  jobOffers?: JobOffer[];
+}
+
+export interface AdminUserDetail {
+  user: AdminUser & {
+    displayName?: string;
+    photoURL?: string;
+    phoneNumber?: string;
+    emailVerified?: boolean;
+  };
+  profile: WorkerProfile | EmployerProfile | null;
+  stats: {
+    matches: number;
+    jobOffers: number;
+    chats: number;
+  };
+}
+
+export interface AdminStats {
+  totalUsers: number;
+  usersByRole: {
+    worker: number;
+    employer: number;
+    superuser: number;
+  };
+  totalMatches: number;
+  matchesByStatus: {
+    pending: number;
+    accepted: number;
+    rejected: number;
+  };
+  totalJobOffers: number;
+  activeJobOffers: number;
+  inactiveJobOffers: number;
+}
+
+export interface AdminJobOffer extends JobOffer {
+  employer?: EmployerProfile;
+}
+
+export interface AdminMatch extends Match {
+  worker?: WorkerProfile;
+  employer?: EmployerProfile;
+}
+
+export interface PaginatedResponse<T> {
+  total: number;
+  limit: number;
+  offset: number;
+  [key: string]: T[] | number;
 }

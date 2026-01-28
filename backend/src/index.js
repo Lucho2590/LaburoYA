@@ -9,6 +9,7 @@ const employerRoutes = require('./routes/employers');
 const jobOfferRoutes = require('./routes/jobOffers');
 const matchRoutes = require('./routes/matches');
 const chatRoutes = require('./routes/chats');
+const adminRoutes = require('./routes/admin');
 
 // Initialize Firebase Admin
 initializeFirebase();
@@ -31,6 +32,7 @@ app.use('/api/employers', employerRoutes);
 app.use('/api/job-offers', jobOfferRoutes);
 app.use('/api/matches', matchRoutes);
 app.use('/api/chats', chatRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

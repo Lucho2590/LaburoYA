@@ -11,7 +11,7 @@ import { EmployerProfile } from '@/types';
 
 export default function EmployerProfilePage() {
   const router = useRouter();
-  const { user, userData, loading, refreshUserData } = useAuth();
+  const { user, userData, loading, refreshUserData, getEffectiveAppRole } = useAuth();
 
   const [formData, setFormData] = useState({
     businessName: '',
@@ -22,14 +22,17 @@ export default function EmployerProfilePage() {
   });
   const [saving, setSaving] = useState(false);
 
+  const effectiveRole = getEffectiveAppRole();
+
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
     }
-    if (!loading && userData?.role !== 'employer') {
+    // Allow employers OR superusers with employer secondaryRole
+    if (!loading && effectiveRole !== 'employer') {
       router.push('/home');
     }
-  }, [loading, user, userData, router]);
+  }, [loading, user, effectiveRole, router]);
 
   useEffect(() => {
     if (userData?.profile) {

@@ -16,9 +16,15 @@ router.post('/', authMiddleware, async (req, res, next) => {
 
     const db = getDb();
 
-    // Verify user is registered as employer
+    // Verify user is registered as employer (or superuser with employer secondaryRole)
     const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists || userDoc.data().role !== 'employer') {
+    if (!userDoc.exists) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    const userData = userDoc.data();
+    const isEmployer = userData.role === 'employer' ||
+      (userData.role === 'superuser' && userData.secondaryRole === 'employer');
+    if (!isEmployer) {
       return res.status(403).json({ error: 'User must be registered as employer' });
     }
 

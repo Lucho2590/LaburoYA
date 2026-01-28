@@ -14,7 +14,7 @@ import { WorkerProfile } from '@/types';
 
 export default function WorkerProfilePage() {
   const router = useRouter();
-  const { user, userData, loading, refreshUserData } = useAuth();
+  const { user, userData, loading, refreshUserData, getEffectiveAppRole } = useAuth();
 
   const [formData, setFormData] = useState({
     rubro: '',
@@ -27,14 +27,17 @@ export default function WorkerProfilePage() {
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const effectiveRole = getEffectiveAppRole();
+
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
     }
-    if (!loading && userData?.role !== 'worker') {
+    // Allow workers OR superusers with worker secondaryRole
+    if (!loading && effectiveRole !== 'worker') {
       router.push('/home');
     }
-  }, [loading, user, userData, router]);
+  }, [loading, user, effectiveRole, router]);
 
   useEffect(() => {
     if (userData?.profile) {

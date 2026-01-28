@@ -17,9 +17,15 @@ router.post('/', authMiddleware, async (req, res, next) => {
 
     const db = getDb();
 
-    // Verify user is registered as worker
+    // Verify user is registered as worker (or superuser with worker secondaryRole)
     const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists || userDoc.data().role !== 'worker') {
+    if (!userDoc.exists) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    const userData = userDoc.data();
+    const isWorker = userData.role === 'worker' ||
+      (userData.role === 'superuser' && userData.secondaryRole === 'worker');
+    if (!isWorker) {
       return res.status(403).json({ error: 'User must be registered as worker' });
     }
 
