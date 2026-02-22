@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMatches } from '@/hooks/useMatches';
-import { Match } from '@/types';
-import { JOB_CATEGORIES, Rubro } from '@/config/constants';
-import { MobileLayout } from '@/components/MobileLayout';
+import { IMatch } from '@/types';
+import { JOB_CATEGORIES, TRubro } from '@/config/constants';
+import { AppLayout } from '@/components/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 
@@ -17,11 +17,23 @@ export default function MatchesPage() {
   const { matches, loading: matchesLoading, updateMatchStatus } = useMatches();
   const [activeTab, setActiveTab] = useState<'pending' | 'accepted'>('pending');
 
+  // Calculate these before any conditional returns so we can use them in hooks
+  const pendingMatches = matches.filter(m => m.status === 'pending');
+  const acceptedMatches = matches.filter(m => m.status === 'accepted');
+
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
     }
   }, [loading, user, router]);
+
+  // Auto-switch to "Aceptados" tab if there are accepted matches but no pending
+  // This helps employers see their matches immediately after creating one
+  useEffect(() => {
+    if (!matchesLoading && acceptedMatches.length > 0 && pendingMatches.length === 0) {
+      setActiveTab('accepted');
+    }
+  }, [matchesLoading, acceptedMatches.length, pendingMatches.length]);
 
   const handleAccept = async (matchId: string) => {
     try {
@@ -49,12 +61,14 @@ export default function MatchesPage() {
     );
   }
 
-  const isWorker = userData?.role === 'worker';
-  const pendingMatches = matches.filter(m => m.status === 'pending');
-  const acceptedMatches = matches.filter(m => m.status === 'accepted');
+  const isWorker = userData?.role === 'worker' ||
+    (userData?.role === 'superuser' && userData?.secondaryRole === 'worker');
+  const isEmployer = userData?.role === 'employer' ||
+    (userData?.role === 'superuser' && userData?.secondaryRole === 'employer');
 
-  const MatchCard = ({ match }: { match: Match }) => {
+  const MatchCard = ({ match }: { match: IMatch }) => {
     const isPending = match.status === 'pending';
+    const isAccepted = match.status === 'accepted';
 
     return (
       <div className="theme-bg-card rounded-2xl border theme-border overflow-hidden">
@@ -71,7 +85,7 @@ export default function MatchesPage() {
                   : match.worker?.puesto || match.puesto}
               </h3>
               <p className="text-white/80 text-sm">
-                {JOB_CATEGORIES[match.rubro as Rubro]?.label || match.rubro}
+                {JOB_CATEGORIES[match.rubro as TRubro]?.label || match.rubro}
               </p>
             </div>
           </div>
@@ -139,19 +153,27 @@ export default function MatchesPage() {
               ✓ Aceptar
             </button>
           </div>
-        ) : (
+        ) : isAccepted && isEmployer ? (
+          // Employers can initiate/access chat
           <Link href={`/chat/${match.id}`}>
             <div className="border-t theme-border py-4 text-center text-[#FF6A00] font-medium active:bg-[#FF6A00]/10 transition-colors">
-              💬 Ir al chat
+              💬 Iniciar chat
             </div>
           </Link>
-        )}
+        ) : isAccepted && isWorker ? (
+          // Workers wait for employer to initiate - show link to chats page
+          <Link href="/chats">
+            <div className="border-t theme-border py-4 text-center theme-text-secondary font-medium active:opacity-70 transition-colors">
+              💬 Ver mis chats
+            </div>
+          </Link>
+        ) : null}
       </div>
     );
   };
 
   return (
-    <MobileLayout title="Matches">
+    <AppLayout title="Matches">
       <div className="px-4 py-4">
         {/* Tabs */}
         <div className="flex theme-bg-secondary rounded-xl p-1 mb-4">
@@ -212,6 +234,6 @@ export default function MatchesPage() {
           </div>
         )}
       </div>
-    </MobileLayout>
+    </AppLayout>
   );
 }

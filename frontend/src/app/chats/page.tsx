@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChats } from '@/hooks/useChat';
-import { MobileLayout } from '@/components/MobileLayout';
+import { AppLayout } from '@/components/AppLayout';
 
 export default function ChatsPage() {
   const router = useRouter();
@@ -26,10 +26,11 @@ export default function ChatsPage() {
     );
   }
 
-  const isWorker = userData?.role === 'worker';
+  const isWorker = userData?.role === 'worker' ||
+    (userData?.role === 'superuser' && userData?.secondaryRole === 'worker');
 
   return (
-    <MobileLayout title="Chats">
+    <AppLayout title="Chats">
       {chats.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-[60vh] px-8">
           <span className="text-6xl mb-4">💬</span>
@@ -48,9 +49,13 @@ export default function ChatsPage() {
       ) : (
         <div className="divide-y theme-border">
           {chats.map((chat) => {
+            // For workers: show employer business name
+            // For employers: show worker name (firstName + lastName) or puesto
             const participantName = isWorker
               ? chat.participant?.businessName || 'Empresa'
-              : chat.participant?.puesto || 'Trabajador';
+              : (chat.participant?.firstName && chat.participant?.lastName
+                  ? `${chat.participant.firstName} ${chat.participant.lastName}`
+                  : chat.participant?.puesto || 'Trabajador');
 
             const initials = participantName
               .split(' ')
@@ -104,7 +109,7 @@ export default function ChatsPage() {
           })}
         </div>
       )}
-    </MobileLayout>
+    </AppLayout>
   );
 }
 

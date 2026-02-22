@@ -2,22 +2,36 @@
 // User Types
 // ============================================
 
-export type UserRole = 'worker' | 'employer' | 'superuser';
-export type AppRole = 'worker' | 'employer';
+export enum EUserRole {
+  WORKER = 'worker',
+  EMPLOYER = 'employer',
+  SUPERUSER = 'superuser',
+}
 
-export interface UserData {
+export enum EAppRole {
+  WORKER = 'worker',
+  EMPLOYER = 'employer',
+}
+
+export interface IUserData {
   uid: string;
   email: string | null;
-  role?: UserRole;
-  secondaryRole?: AppRole; // For superusers: their role in the app
-  profile?: WorkerProfile | EmployerProfile;
+  role?: EUserRole;
+  secondaryRole?: EAppRole; // For superusers: their role in the app
+  profile?: IWorkerProfile | IEmployerProfile;
+  // Basic info from onboarding
+  firstName?: string;
+  lastName?: string;
+  age?: number;
+  nickname?: string;
+  onboardingCompleted?: boolean;
 }
 
 // ============================================
 // Worker Types
 // ============================================
 
-export interface WorkerProfile {
+export interface IWorkerProfile {
   uid?: string;
   rubro: string;
   puesto: string;
@@ -25,6 +39,7 @@ export interface WorkerProfile {
   videoUrl?: string;
   description?: string;
   experience?: string;
+  skills?: string[];
   active?: boolean;
 }
 
@@ -32,7 +47,7 @@ export interface WorkerProfile {
 // Employer Types
 // ============================================
 
-export interface EmployerProfile {
+export interface IEmployerProfile {
   uid?: string;
   businessName: string;
   rubro: string;
@@ -45,7 +60,7 @@ export interface EmployerProfile {
 // Job Types
 // ============================================
 
-export interface JobOffer {
+export interface IJobOffer {
   id: string;
   employerId?: string;
   rubro: string;
@@ -54,51 +69,53 @@ export interface JobOffer {
   requirements?: string;
   salary?: string;
   schedule?: string;
+  requiredSkills?: string[];
+  zona?: string;
   active: boolean;
   createdAt?: string;
 }
 
-export interface JobCategory {
+export interface IJobCategory {
   label: string;
   puestos: readonly string[];
 }
 
-export type JobCategories = {
-  [key: string]: JobCategory;
+export type TJobCategories = {
+  [key: string]: IJobCategory;
 };
 
 // ============================================
 // Match Types
 // ============================================
 
-export type MatchStatus = 'pending' | 'accepted' | 'rejected';
+export type TMatchStatus = 'pending' | 'accepted' | 'rejected';
 
-export interface Match {
+export interface IMatch {
   id: string;
   workerId: string;
   employerId: string;
   offerId: string;
   rubro: string;
   puesto: string;
-  status: MatchStatus;
+  status: TMatchStatus;
   createdAt: string;
-  worker?: WorkerProfile;
-  employer?: EmployerProfile;
-  jobOffer?: Pick<JobOffer, 'rubro' | 'puesto' | 'description' | 'salary'>;
+  worker?: IWorkerProfile;
+  employer?: IEmployerProfile;
+  jobOffer?: Pick<IJobOffer, 'rubro' | 'puesto' | 'description' | 'salary'>;
 }
 
 // ============================================
 // Chat Types
 // ============================================
 
-export interface Message {
+export interface IMessage {
   id: string;
   senderId: string;
   text: string;
   createdAt: string;
 }
 
-export interface Chat {
+export interface IChat {
   id: string;
   matchId: string;
   workerId: string;
@@ -106,33 +123,140 @@ export interface Chat {
   lastMessage?: string;
   lastMessageAt?: string;
   participant?: {
+    // Employer fields
     businessName?: string;
-    rubro?: string;
+    // Worker fields
     puesto?: string;
+    // Common fields
+    rubro?: string;
     zona?: string;
+    // User info
+    firstName?: string;
+    lastName?: string;
+    email?: string;
   };
+}
+
+// ============================================
+// Contact Request Types
+// ============================================
+
+export type TContactRequestStatus = 'pending' | 'accepted' | 'rejected' | 'matched';
+
+export interface IContactRequest {
+  id: string;
+  fromUid: string;
+  fromType: 'worker' | 'employer';
+  toUid: string;
+  toType: 'worker' | 'employer';
+  workerId: string;
+  employerId: string;
+  offerId: string;
+  status: TContactRequestStatus;
+  matchId?: string;
+  createdAt: string;
+  expiresAt?: string;
+  worker?: IWorkerProfile;
+  employer?: IEmployerProfile;
+  jobOffer?: IJobOffer;
+}
+
+// ============================================
+// Discovery Types
+// ============================================
+
+export type TMatchType = 'full_match' | 'partial_match' | 'skills_match';
+
+export interface IRelevanceDetails {
+  rubroMatch: boolean;
+  puestoMatch: boolean;
+  zonaMatch: boolean;
+  matchingSkills: string[];
+  bonuses: string[];
+}
+
+export interface IRelevance {
+  score: number;
+  matchType: TMatchType | null;
+  details: IRelevanceDetails;
+}
+
+export interface IRelevantOffer extends IJobOffer {
+  employer?: IEmployerProfile;
+  relevance: IRelevance;
+  hasRequested?: boolean;
+}
+
+export interface IRelevantWorker extends IWorkerProfile {
+  relevance: IRelevance;
+  bestScore?: number;
+  bestMatchType?: TMatchType;
+  bestOffer?: IJobOffer;
+  hasRequested?: boolean;
+  // User info (from users collection)
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+}
+
+export interface IDiscoveryOffersResponse {
+  fullMatch: IRelevantOffer[];
+  partialMatch: IRelevantOffer[];
+  skillsMatch: IRelevantOffer[];
+  total: number;
+}
+
+export interface IDiscoveryWorkersResponse {
+  fullMatch: IRelevantWorker[];
+  partialMatch: IRelevantWorker[];
+  skillsMatch: IRelevantWorker[];
+  total: number;
+}
+
+// ============================================
+// Notification Types
+// ============================================
+
+export type TNotificationType =
+  | 'contact_request_received'
+  | 'contact_request_accepted'
+  | 'contact_request_rejected'
+  | 'match_created'
+  | 'new_message';
+
+export interface IAppNotification {
+  id: string;
+  userId: string;
+  type: TNotificationType;
+  title: string;
+  body: string;
+  data?: Record<string, string>;
+  read: boolean;
+  readAt?: string;
+  createdAt: string;
 }
 
 // ============================================
 // API Types
 // ============================================
 
-export interface ApiResponse<T = unknown> {
+export interface IApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
 }
 
-export interface CreateWorkerProfileData {
+export interface ICreateWorkerProfileData {
   rubro: string;
   puesto: string;
   zona?: string;
   description?: string;
   experience?: string;
   videoUrl?: string;
+  skills?: string[];
 }
 
-export interface CreateEmployerProfileData {
+export interface ICreateEmployerProfileData {
   businessName: string;
   rubro: string;
   description?: string;
@@ -140,19 +264,21 @@ export interface CreateEmployerProfileData {
   phone?: string;
 }
 
-export interface CreateJobOfferData {
+export interface ICreateJobOfferData {
   rubro: string;
   puesto: string;
   description?: string;
   salary?: string;
   schedule?: string;
+  requiredSkills?: string[];
+  zona?: string;
 }
 
 // ============================================
 // Admin Types
 // ============================================
 
-export interface AdminUser {
+export interface IAdminUser {
   uid: string;
   email?: string;
   displayName?: string;
@@ -160,23 +286,23 @@ export interface AdminUser {
   phoneNumber?: string;
   emailVerified?: boolean;
   authDisabled?: boolean;
-  role: UserRole;
+  role: EUserRole;
   disabled?: boolean;
   createdAt?: string;
   updatedAt?: string;
   deletedAt?: string;
-  profile?: WorkerProfile | EmployerProfile | null;
-  jobOffers?: JobOffer[];
+  profile?: IWorkerProfile | IEmployerProfile | null;
+  jobOffers?: IJobOffer[];
 }
 
-export interface AdminUserDetail {
-  user: AdminUser & {
+export interface IAdminUserDetail {
+  user: IAdminUser & {
     displayName?: string;
     photoURL?: string;
     phoneNumber?: string;
     emailVerified?: boolean;
   };
-  profile: WorkerProfile | EmployerProfile | null;
+  profile: IWorkerProfile | IEmployerProfile | null;
   stats: {
     matches: number;
     jobOffers: number;
@@ -184,7 +310,7 @@ export interface AdminUserDetail {
   };
 }
 
-export interface AdminStats {
+export interface IAdminStats {
   totalUsers: number;
   usersByRole: {
     worker: number;
@@ -202,16 +328,16 @@ export interface AdminStats {
   inactiveJobOffers: number;
 }
 
-export interface AdminJobOffer extends JobOffer {
-  employer?: EmployerProfile;
+export interface IAdminJobOffer extends IJobOffer {
+  employer?: IEmployerProfile;
 }
 
-export interface AdminMatch extends Match {
-  worker?: WorkerProfile;
-  employer?: EmployerProfile;
+export interface IAdminMatch extends IMatch {
+  worker?: IWorkerProfile;
+  employer?: IEmployerProfile;
 }
 
-export interface PaginatedResponse<T> {
+export interface IPaginatedResponse<T> {
   total: number;
   limit: number;
   offset: number;

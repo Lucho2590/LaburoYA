@@ -3,28 +3,31 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { Match } from '@/types';
+import { IMatch } from '@/types';
 
 export function useMatches() {
-  const { user } = useAuth();
-  const [matches, setMatches] = useState<Match[]>([]);
+  const { user, authReady } = useAuth();
+  const [matches, setMatches] = useState<IMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchMatches = useCallback(async () => {
-    if (!user) return;
+    if (!user || !authReady) return;
 
     try {
       setLoading(true);
       setError(null);
-      const data = await api.getMatches() as Match[];
+      console.log('[useMatches] Fetching matches...');
+      const data = await api.getMatches() as IMatch[];
+      console.log('[useMatches] Matches received:', data.length, data);
       setMatches(data);
     } catch (err) {
+      console.error('[useMatches] Error:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch matches');
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, authReady]);
 
   useEffect(() => {
     fetchMatches();

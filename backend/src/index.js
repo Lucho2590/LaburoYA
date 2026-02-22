@@ -10,6 +10,9 @@ const jobOfferRoutes = require('./routes/jobOffers');
 const matchRoutes = require('./routes/matches');
 const chatRoutes = require('./routes/chats');
 const adminRoutes = require('./routes/admin');
+const contactRequestRoutes = require('./routes/contactRequests');
+const discoveryRoutes = require('./routes/discovery');
+const notificationRoutes = require('./routes/notifications');
 
 // Initialize Firebase Admin
 initializeFirebase();
@@ -33,6 +36,9 @@ app.use('/api/job-offers', jobOfferRoutes);
 app.use('/api/matches', matchRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/contact-requests', contactRequestRoutes);
+app.use('/api/discovery', discoveryRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

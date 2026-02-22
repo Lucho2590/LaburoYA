@@ -17,9 +17,18 @@ router.get('/', authMiddleware, async (req, res, next) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const { role } = userDoc.data();
-    const matches = await matchingService.getMatchesForUser(uid, role);
+    const userData = userDoc.data();
+    // Handle superusers - use their secondaryRole for app functionality
+    let effectiveRole = userData.role;
+    if (userData.role === 'superuser' && userData.secondaryRole) {
+      effectiveRole = userData.secondaryRole;
+    }
 
+    console.log('[Matches] GET / - User:', uid, 'Role:', userData.role, 'EffectiveRole:', effectiveRole);
+
+    const matches = await matchingService.getMatchesForUser(uid, effectiveRole);
+
+    console.log('[Matches] Found matches:', matches.length);
     res.json(matches);
   } catch (error) {
     next(error);

@@ -11,7 +11,7 @@ export default function ChatPage() {
   const params = useParams();
   const matchId = params.matchId as string;
   const { user, userData, loading } = useAuth();
-  const { chat, messages, loading: chatLoading, sendMessage, refreshMessages } = useChat(matchId);
+  const { chat, messages, loading: chatLoading, error: chatError, sendMessage, refreshMessages } = useChat(matchId);
 
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -59,7 +59,45 @@ export default function ChatPage() {
     );
   }
 
-  const isWorker = userData?.role === 'worker';
+  const isWorker = userData?.role === 'worker' ||
+    (userData?.role === 'superuser' && userData?.secondaryRole === 'worker');
+
+  // Handle error - e.g., worker trying to access a chat that hasn't been created yet
+  if (chatError || !chat) {
+    return (
+      <div className="min-h-screen theme-bg-primary flex flex-col">
+        <header className="theme-bg-secondary border-b theme-border sticky top-0 z-40 safe-area-top">
+          <div className="flex items-center px-2 h-14">
+            <Link href="/matches" className="p-2 touch-manipulation">
+              <svg className="w-6 h-6 theme-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </Link>
+            <h1 className="font-semibold theme-text-primary ml-2">Chat</h1>
+          </div>
+        </header>
+
+        <main className="flex-1 flex flex-col items-center justify-center px-8 text-center">
+          <div className="w-20 h-20 bg-[#FF6A00]/20 rounded-full flex items-center justify-center mb-4">
+            <span className="text-4xl">⏳</span>
+          </div>
+          <h2 className="text-xl font-semibold theme-text-primary mb-2">
+            {isWorker ? 'Esperando al empleador' : 'Chat no disponible'}
+          </h2>
+          <p className="theme-text-secondary mb-6">
+            {isWorker
+              ? 'El empleador te va a contactar pronto. Te avisaremos cuando inicie el chat.'
+              : 'Hubo un problema al cargar el chat.'}
+          </p>
+          <Link href="/matches">
+            <button className="bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white px-6 py-3 rounded-xl font-medium active:scale-95 transition-transform">
+              Volver a matches
+            </button>
+          </Link>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen theme-bg-primary flex flex-col">
@@ -78,9 +116,17 @@ export default function ChatPage() {
             </div>
             <div>
               <h1 className="font-semibold theme-text-primary">
-                {isWorker ? 'Empleador' : 'Trabajador'}
+                {isWorker
+                  ? (chat?.participant?.businessName || 'Empresa')
+                  : (chat?.participant?.firstName && chat?.participant?.lastName
+                      ? `${chat.participant.firstName} ${chat.participant.lastName}`
+                      : chat?.participant?.puesto || 'Trabajador')}
               </h1>
-              <p className="text-xs text-[#12B76A]">En línea</p>
+              <p className="text-xs theme-text-muted">
+                {isWorker
+                  ? (chat?.participant?.rubro || '')
+                  : (chat?.participant?.puesto || '')}
+              </p>
             </div>
           </div>
         </div>
@@ -93,9 +139,11 @@ export default function ChatPage() {
             <div className="w-16 h-16 bg-[#E10600]/20 rounded-full flex items-center justify-center mb-4">
               <span className="text-3xl">👋</span>
             </div>
-            <p className="theme-text-secondary">¡Empezá la conversación!</p>
+            <p className="theme-text-secondary">
+              {isWorker ? '¡El empleador inició el chat!' : '¡Empezá la conversación!'}
+            </p>
             <p className="theme-text-muted text-sm mt-1">
-              Presentate y coordiná una entrevista
+              {isWorker ? 'Presentate y contale sobre tu experiencia' : 'Presentate y coordiná una entrevista'}
             </p>
           </div>
         ) : (

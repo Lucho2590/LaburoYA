@@ -5,12 +5,14 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { NotificationBell } from '@/components/NotificationBell';
 
 interface MobileLayoutProps {
   children: ReactNode;
   title?: string;
   showBack?: boolean;
   backHref?: string;
+  onBack?: () => void;
   hideNav?: boolean;
 }
 
@@ -19,6 +21,7 @@ export function MobileLayout({
   title,
   showBack = false,
   backHref = '/home',
+  onBack,
   hideNav = false
 }: MobileLayoutProps) {
   const pathname = usePathname();
@@ -37,6 +40,15 @@ export function MobileLayout({
       icon: (active: boolean) => (
         <svg className={`w-6 h-6 ${active ? 'text-[#E10600]' : 'theme-text-muted'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+        </svg>
+      ),
+    },
+    {
+      href: '/discover',
+      label: isWorker ? 'Ofertas' : 'Candidatos',
+      icon: (active: boolean) => (
+        <svg className={`w-6 h-6 ${active ? 'text-[#E10600]' : 'theme-text-muted'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
       ),
     },
@@ -88,13 +100,23 @@ export function MobileLayout({
       <header className="theme-bg-secondary border-b theme-border sticky top-0 z-40 safe-area-top">
         <div className="flex items-center justify-between px-4 h-14">
           {showBack ? (
-            <Link href={backHref} className="p-2 -ml-2 touch-manipulation">
-              <svg className="w-6 h-6 theme-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </Link>
+            onBack ? (
+              <button onClick={onBack} className="p-2 -ml-2 touch-manipulation">
+                <svg className="w-6 h-6 theme-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            ) : (
+              <Link href={backHref} className="p-2 -ml-2 touch-manipulation">
+                <svg className="w-6 h-6 theme-text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </Link>
+            )
           ) : (
-            <img src="/logo.png" alt="LaburoYA" className="h-35 w-auto mb-2 mt-4 " />
+            <span className="text-lg font-bold bg-gradient-to-r from-[#E10600] to-[#FF6A00] bg-clip-text text-transparent">
+              LaburoYA
+            </span>
           )}
 
           {title && (
@@ -104,7 +126,10 @@ export function MobileLayout({
           )}
 
           {/* Right side buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            {/* Notification Bell */}
+            <NotificationBell />
+
             {/* Admin Panel Link for Superusers */}
             {isSuperuser && (
               <Link

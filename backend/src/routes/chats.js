@@ -4,36 +4,95 @@ const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Helper to check if user is employer
+function isUserEmployer(userData) {
+  return userData.role === 'employer' ||
+    (userData.role === 'superuser' && userData.secondaryRole === 'employer');
+}
+
+// Helper to check if user is worker
+function isUserWorker(userData) {
+  return userData.role === 'worker' ||
+    (userData.role === 'superuser' && userData.secondaryRole === 'worker');
+}
+
 // Get or create chat for a match
+// RULE: Only employers can initiate chats, and only if there's a match
 router.post('/:matchId', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
     const { matchId } = req.params;
 
+    console.log('[Chats] POST /:matchId - Starting:', { uid, matchId });
     const db = getDb();
+
+    // Get user role
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (!userDoc.exists) {
+      console.log('[Chats] User not found:', uid);
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const userData = userDoc.data();
+    const isWorker = isUserWorker(userData);
+    const isEmployer = isUserEmployer(userData);
+    console.log('[Chats] User role:', { role: userData.role, secondaryRole: userData.secondaryRole, isWorker, isEmployer });
 
     // Verify match exists and user is part of it
     const matchDoc = await db.collection('matches').doc(matchId).get();
     if (!matchDoc.exists) {
+      console.log('[Chats] Match not found:', matchId);
       return res.status(404).json({ error: 'Match not found' });
     }
 
     const matchData = matchDoc.data();
+    console.log('[Chats] Match data:', { workerId: matchData.workerId, employerId: matchData.employerId, status: matchData.status });
+
     if (matchData.workerId !== uid && matchData.employerId !== uid) {
+      console.log('[Chats] User not part of match:', { uid, workerId: matchData.workerId, employerId: matchData.employerId });
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
-    // Check if chat already exists
+    // Check if chat already exists - both parties can access existing chat
     const existingChat = await db.collection('chats')
       .where('matchId', '==', matchId)
       .limit(1)
       .get();
 
+    console.log('[Chats] Existing chat found:', !existingChat.empty);
+
+    // Get participant info
+    const otherUid = isWorker ? matchData.employerId : matchData.workerId;
+    const otherCollection = isWorker ? 'employers' : 'workers';
+    const otherDoc = await db.collection(otherCollection).doc(otherUid).get();
+    const participant = otherDoc.exists ? otherDoc.data() : null;
+
+    // Get participant user info (name, email)
+    const otherUserDoc = await db.collection('users').doc(otherUid).get();
+    const otherUserData = otherUserDoc.exists ? otherUserDoc.data() : {};
+
+    const enrichedParticipant = participant ? {
+      ...participant,
+      firstName: otherUserData.firstName,
+      lastName: otherUserData.lastName,
+      email: otherUserData.email
+    } : null;
+
     if (!existingChat.empty) {
       const chatDoc = existingChat.docs[0];
+      const chatData = chatDoc.data();
       return res.json({
         id: chatDoc.id,
-        ...chatDoc.data()
+        ...chatData,
+        participant: enrichedParticipant,
+        lastMessageAt: chatData.lastMessageAt?.toDate?.() || chatData.lastMessageAt
+      });
+    }
+
+    // Only employers can CREATE new chats
+    if (!isEmployer) {
+      console.log('[Chats] Non-employer trying to create chat:', { uid, role: userData.role, secondaryRole: userData.secondaryRole });
+      return res.status(403).json({
+        error: 'Solo el empleador puede iniciar el chat. Esperá a que te contacten.'
       });
     }
 
@@ -43,16 +102,20 @@ router.post('/:matchId', authMiddleware, async (req, res, next) => {
       workerId: matchData.workerId,
       employerId: matchData.employerId,
       createdAt: new Date(),
-      lastMessageAt: null
+      lastMessageAt: new Date() // Set to now so it shows in queries
     };
 
+    console.log('[Chats] Creating new chat:', chatData);
     const chatRef = await db.collection('chats').add(chatData);
+    console.log('[Chats] Chat created:', chatRef.id);
 
     res.status(201).json({
       id: chatRef.id,
-      ...chatData
+      ...chatData,
+      participant: enrichedParticipant
     });
   } catch (error) {
+    console.error('[Chats] POST /:matchId - Error:', error.message, error.stack);
     next(error);
   }
 });
@@ -155,40 +218,68 @@ router.get('/', authMiddleware, async (req, res, next) => {
     const { uid } = req.user;
     const db = getDb();
 
+    console.log('[Chats] GET / - Fetching chats for user:', uid);
+
     // Get user role
     const userDoc = await db.collection('users').doc(uid).get();
     if (!userDoc.exists) {
+      console.log('[Chats] GET / - User not found:', uid);
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const { role } = userDoc.data();
-    const field = role === 'worker' ? 'workerId' : 'employerId';
+    const userData = userDoc.data();
+    const isWorker = isUserWorker(userData);
+    const field = isWorker ? 'workerId' : 'employerId';
 
+    console.log('[Chats] GET / - Querying chats with field:', field, 'uid:', uid);
+
+    // Query without orderBy to avoid index requirement, then sort in memory
     const chatsSnapshot = await db.collection('chats')
       .where(field, '==', uid)
-      .orderBy('lastMessageAt', 'desc')
       .get();
+
+    console.log('[Chats] GET / - Found chats:', chatsSnapshot.size);
 
     const chats = [];
     for (const doc of chatsSnapshot.docs) {
       const chatData = doc.data();
 
       // Get other participant info
-      const otherUid = role === 'worker' ? chatData.employerId : chatData.workerId;
-      const otherCollection = role === 'worker' ? 'employers' : 'workers';
+      const otherUid = isWorker ? chatData.employerId : chatData.workerId;
+      const otherCollection = isWorker ? 'employers' : 'workers';
 
       const otherDoc = await db.collection(otherCollection).doc(otherUid).get();
+      const participant = otherDoc.exists ? otherDoc.data() : null;
+
+      // Get participant user info (name)
+      const otherUserDoc = await db.collection('users').doc(otherUid).get();
+      const otherUserData = otherUserDoc.exists ? otherUserDoc.data() : {};
+
+      const enrichedParticipant = participant ? {
+        ...participant,
+        firstName: otherUserData.firstName,
+        lastName: otherUserData.lastName
+      } : null;
 
       chats.push({
         id: doc.id,
         ...chatData,
-        participant: otherDoc.exists ? otherDoc.data() : null,
+        participant: enrichedParticipant,
         lastMessageAt: chatData.lastMessageAt?.toDate?.() || chatData.lastMessageAt
       });
     }
 
+    // Sort by lastMessageAt descending (newest first)
+    chats.sort((a, b) => {
+      const dateA = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+      const dateB = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      return dateB - dateA;
+    });
+
+    console.log('[Chats] GET / - Returning chats:', chats.length);
     res.json(chats);
   } catch (error) {
+    console.error('[Chats] GET / - Error:', error.message, error.stack);
     next(error);
   }
 });

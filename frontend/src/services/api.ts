@@ -1,15 +1,20 @@
 import { auth } from '@/config/firebase';
 import {
-  UserRole,
-  CreateWorkerProfileData,
-  CreateEmployerProfileData,
-  CreateJobOfferData,
-  JobOffer,
-  AdminStats,
-  AdminUser,
-  AdminUserDetail,
-  AdminJobOffer,
-  AdminMatch
+  EUserRole,
+  ICreateWorkerProfileData,
+  ICreateEmployerProfileData,
+  ICreateJobOfferData,
+  IJobOffer,
+  IAdminStats,
+  IAdminUser,
+  IAdminUserDetail,
+  IAdminJobOffer,
+  IAdminMatch,
+  IContactRequest,
+  IDiscoveryOffersResponse,
+  IDiscoveryWorkersResponse,
+  IAppNotification,
+  IMatch
 } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -59,15 +64,36 @@ class ApiService {
   }
 
   // Auth
-  async registerUser(role: UserRole) {
+  async registerUser(role: EUserRole) {
     return this.request('/auth/register', {
       method: 'POST',
       body: { role },
     });
   }
 
+  async updateBasicInfo(data: { firstName: string; lastName: string; age?: number; nickname?: string }) {
+    return this.request<{ message: string; firstName: string; lastName: string; age?: number; nickname?: string }>(
+      '/auth/basic-info',
+      {
+        method: 'PATCH',
+        body: data,
+      }
+    );
+  }
+
   async getCurrentUser() {
-    return this.request<{ user: { role: string; secondaryRole?: string }; profile: unknown }>('/auth/me');
+    return this.request<{
+      user: {
+        role: string;
+        secondaryRole?: string;
+        firstName?: string;
+        lastName?: string;
+        age?: number;
+        nickname?: string;
+        onboardingCompleted?: boolean;
+      };
+      profile: unknown;
+    }>('/auth/me');
   }
 
   async setSecondaryRole(secondaryRole: 'worker' | 'employer') {
@@ -78,7 +104,7 @@ class ApiService {
   }
 
   // Workers
-  async createWorkerProfile(data: CreateWorkerProfileData) {
+  async createWorkerProfile(data: ICreateWorkerProfileData) {
     return this.request('/workers', {
       method: 'POST',
       body: data,
@@ -97,7 +123,7 @@ class ApiService {
   }
 
   // Employers
-  async createEmployerProfile(data: CreateEmployerProfileData) {
+  async createEmployerProfile(data: ICreateEmployerProfileData) {
     return this.request('/employers', {
       method: 'POST',
       body: data,
@@ -109,7 +135,7 @@ class ApiService {
   }
 
   // Job Offers
-  async createJobOffer(data: CreateJobOfferData) {
+  async createJobOffer(data: ICreateJobOfferData) {
     return this.request('/job-offers', {
       method: 'POST',
       body: data,
@@ -120,7 +146,7 @@ class ApiService {
     return this.request('/job-offers/my-offers');
   }
 
-  async updateJobOffer(id: string, data: Partial<JobOffer>) {
+  async updateJobOffer(id: string, data: Partial<IJobOffer>) {
     return this.request(`/job-offers/${id}`, {
       method: 'PATCH',
       body: data,
@@ -170,26 +196,26 @@ class ApiService {
 
   // Admin
   async getAdminStats() {
-    return this.request<AdminStats>('/admin/stats');
+    return this.request<IAdminStats>('/admin/stats');
   }
 
-  async getAdminUsers(params?: { role?: UserRole; limit?: number; offset?: number }) {
+  async getAdminUsers(params?: { role?: EUserRole; limit?: number; offset?: number }) {
     const searchParams = new URLSearchParams();
     if (params?.role) searchParams.set('role', params.role);
     if (params?.limit) searchParams.set('limit', params.limit.toString());
     if (params?.offset) searchParams.set('offset', params.offset.toString());
     const query = searchParams.toString();
-    return this.request<{ users: AdminUser[]; total: number; limit: number; offset: number }>(
+    return this.request<{ users: IAdminUser[]; total: number; limit: number; offset: number }>(
       `/admin/users${query ? `?${query}` : ''}`
     );
   }
 
   async getAdminUser(uid: string) {
-    return this.request<AdminUserDetail>(`/admin/users/${uid}`);
+    return this.request<IAdminUserDetail>(`/admin/users/${uid}`);
   }
 
-  async updateAdminUser(uid: string, data: { role?: UserRole; disabled?: boolean }) {
-    return this.request<{ message: string; user: AdminUser }>(`/admin/users/${uid}`, {
+  async updateAdminUser(uid: string, data: { role?: EUserRole; disabled?: boolean }) {
+    return this.request<{ message: string; user: IAdminUser }>(`/admin/users/${uid}`, {
       method: 'PATCH',
       body: data,
     });
@@ -208,7 +234,7 @@ class ApiService {
     if (params?.limit) searchParams.set('limit', params.limit.toString());
     if (params?.offset) searchParams.set('offset', params.offset.toString());
     const query = searchParams.toString();
-    return this.request<{ jobOffers: AdminJobOffer[]; total: number; limit: number; offset: number }>(
+    return this.request<{ jobOffers: IAdminJobOffer[]; total: number; limit: number; offset: number }>(
       `/admin/job-offers${query ? `?${query}` : ''}`
     );
   }
@@ -219,8 +245,145 @@ class ApiService {
     if (params?.limit) searchParams.set('limit', params.limit.toString());
     if (params?.offset) searchParams.set('offset', params.offset.toString());
     const query = searchParams.toString();
-    return this.request<{ matches: AdminMatch[]; total: number; limit: number; offset: number }>(
+    return this.request<{ matches: IAdminMatch[]; total: number; limit: number; offset: number }>(
       `/admin/matches${query ? `?${query}` : ''}`
+    );
+  }
+
+  // ============================================
+  // Workers - Skills
+  // ============================================
+
+  async getSuggestedSkills(rubro: string, puesto: string) {
+    return this.request<{ suggested: string[]; allForRubro: string[] }>(
+      `/workers/skills/${encodeURIComponent(rubro)}/${encodeURIComponent(puesto)}`,
+      { requireAuth: false }
+    );
+  }
+
+  async getSkillsForRubro(rubro: string) {
+    return this.request<{ skills: string[] }>(
+      `/workers/skills/${encodeURIComponent(rubro)}`,
+      { requireAuth: false }
+    );
+  }
+
+  // ============================================
+  // Contact Requests
+  // ============================================
+
+  async sendWorkerToOfferRequest(offerId: string) {
+    return this.request<{ message: string; matchCreated: boolean; match?: IMatch; request?: IContactRequest }>(
+      '/contact-requests/worker-to-offer',
+      {
+        method: 'POST',
+        body: { offerId },
+      }
+    );
+  }
+
+  async sendEmployerToWorkerRequest(workerId: string, offerId: string) {
+    return this.request<{ message: string; matchCreated: boolean; match?: IMatch; request?: IContactRequest }>(
+      '/contact-requests/employer-to-worker',
+      {
+        method: 'POST',
+        body: { workerId, offerId },
+      }
+    );
+  }
+
+  async getReceivedContactRequests() {
+    return this.request<IContactRequest[]>('/contact-requests/received');
+  }
+
+  async getSentContactRequests() {
+    return this.request<IContactRequest[]>('/contact-requests/sent');
+  }
+
+  async respondToContactRequest(requestId: string, response: 'accepted' | 'rejected') {
+    return this.request<{ message: string; matchCreated: boolean; match?: IMatch }>(
+      `/contact-requests/${requestId}/respond`,
+      {
+        method: 'PATCH',
+        body: { response },
+      }
+    );
+  }
+
+  async getContactRequestStatus(offerId: string) {
+    return this.request<{
+      hasSentRequest: boolean;
+      sentRequest: { id: string; status: string } | null;
+      hasReceivedRequest: boolean;
+      receivedRequest: { id: string; status: string } | null;
+    }>(`/contact-requests/status/${offerId}`);
+  }
+
+  // ============================================
+  // Discovery
+  // ============================================
+
+  async discoverOffers() {
+    return this.request<IDiscoveryOffersResponse>('/discovery/offers');
+  }
+
+  async discoverWorkers() {
+    return this.request<IDiscoveryWorkersResponse>('/discovery/workers');
+  }
+
+  async discoverWorkersForOffer(offerId: string) {
+    return this.request<IDiscoveryWorkersResponse & { offerId: string }>(
+      `/discovery/workers/for-offer/${offerId}`
+    );
+  }
+
+  // ============================================
+  // Notifications
+  // ============================================
+
+  async getNotifications(params?: { limit?: number; unreadOnly?: boolean }) {
+    const searchParams = new URLSearchParams();
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    if (params?.unreadOnly) searchParams.set('unreadOnly', 'true');
+    const query = searchParams.toString();
+    return this.request<IAppNotification[]>(`/notifications${query ? `?${query}` : ''}`);
+  }
+
+  async getUnreadNotificationCount() {
+    return this.request<{ count: number }>('/notifications/unread-count');
+  }
+
+  async markNotificationAsRead(notificationId: string) {
+    return this.request<{ id: string; read: boolean }>(
+      `/notifications/${notificationId}/read`,
+      { method: 'PATCH' }
+    );
+  }
+
+  async markAllNotificationsAsRead() {
+    return this.request<{ markedAsRead: number }>(
+      '/notifications/read-all',
+      { method: 'POST' }
+    );
+  }
+
+  async registerFcmToken(token: string, deviceType: 'web' | 'android' | 'ios' = 'web') {
+    return this.request<{ success: boolean }>(
+      '/notifications/fcm-token',
+      {
+        method: 'POST',
+        body: { token, deviceType },
+      }
+    );
+  }
+
+  async removeFcmToken(token: string) {
+    return this.request<{ success: boolean }>(
+      '/notifications/fcm-token',
+      {
+        method: 'DELETE',
+        body: { token },
+      }
     );
   }
 }
