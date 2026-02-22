@@ -120,11 +120,12 @@ export function useRealtimeNotifications() {
     if (!db || !user) return;
 
     try {
-      const batch = writeBatch(db);
+      const firestore = db; // Local variable for TypeScript narrowing
+      const batch = writeBatch(firestore);
       const unreadNotifs = notifications.filter(n => !n.read);
 
       unreadNotifs.forEach((notif) => {
-        const notifRef = doc(db, 'notifications', notif.id);
+        const notifRef = doc(firestore, 'notifications', notif.id);
         batch.update(notifRef, {
           read: true,
           readAt: new Date(),
