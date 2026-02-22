@@ -14,30 +14,32 @@ import {
 } from 'firebase/auth';
 import { auth } from '@/config/firebase';
 import { api } from '@/services/api';
-import { UserData, UserRole, AppRole, WorkerProfile, EmployerProfile } from '@/types';
+import { IUserData, EUserRole, EAppRole, IWorkerProfile, IEmployerProfile } from '@/types';
 
 interface AuthContextType {
   user: User | null;
-  userData: UserData | null;
+  userData: IUserData | null;
   loading: boolean;
+  authReady: boolean; // Token listo para hacer llamadas API
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signInWithFacebook: () => Promise<void>;
   signOut: () => Promise<void>;
-  setRole: (role: UserRole) => Promise<void>;
-  setSecondaryRole: (role: AppRole) => Promise<void>;
+  setRole: (role: EUserRole) => Promise<void>;
+  setSecondaryRole: (role: EAppRole) => Promise<void>;
   refreshUserData: () => Promise<void>;
   // Helper to get the effective app role (for superusers returns secondaryRole)
-  getEffectiveAppRole: () => AppRole | undefined;
+  getEffectiveAppRole: () => EAppRole | undefined;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [userData, setUserData] = useState<UserData | null>(null);
+  const [userData, setUserData] = useState<IUserData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
 
   const refreshUserData = async () => {
     if (!user) {
@@ -50,9 +52,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserData({
         uid: user.uid,
         email: user.email,
-        role: data.user?.role as UserRole | undefined,
-        secondaryRole: data.user?.secondaryRole as AppRole | undefined,
-        profile: data.profile as WorkerProfile | EmployerProfile | undefined,
+        role: data.user?.role as EUserRole | undefined,
+        secondaryRole: data.user?.secondaryRole as EAppRole | undefined,
+        profile: data.profile as IWorkerProfile | IEmployerProfile | undefined,
+        firstName: data.user?.firstName,
+        lastName: data.user?.lastName,
+        age: data.user?.age,
+        nickname: data.user?.nickname,
+        onboardingCompleted: data.user?.onboardingCompleted,
       });
     } catch {
       // User not registered in backend yet
@@ -71,17 +78,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const unsubscribe = onAuthStateChanged(auth as Auth, async (firebaseUser) => {
+      setAuthReady(false); // Reset mientras procesamos
       setUser(firebaseUser);
 
       if (firebaseUser) {
         try {
+          // Esperar a que el token esté disponible antes de llamar a la API
+          await firebaseUser.getIdToken();
           const data = await api.getCurrentUser();
           setUserData({
             uid: firebaseUser.uid,
             email: firebaseUser.email,
-            role: data.user?.role as UserRole | undefined,
-            secondaryRole: data.user?.secondaryRole as AppRole | undefined,
-            profile: data.profile as WorkerProfile | EmployerProfile | undefined,
+            role: data.user?.role as EUserRole | undefined,
+            secondaryRole: data.user?.secondaryRole as EAppRole | undefined,
+            profile: data.profile as IWorkerProfile | IEmployerProfile | undefined,
+            firstName: data.user?.firstName,
+            lastName: data.user?.lastName,
+            age: data.user?.age,
+            nickname: data.user?.nickname,
+            onboardingCompleted: data.user?.onboardingCompleted,
           });
         } catch {
           setUserData({
@@ -89,8 +104,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             email: firebaseUser.email,
           });
         }
+        setAuthReady(true); // Token listo, se pueden hacer llamadas API
       } else {
         setUserData(null);
+        setAuthReady(true); // No hay usuario, pero auth está lista
       }
 
       setLoading(false);
@@ -127,22 +144,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserData(null);
   };
 
-  const setRole = async (role: UserRole) => {
+  const setRole = async (role: EUserRole) => {
     await api.registerUser(role);
     await refreshUserData();
   };
 
-  const setSecondaryRole = async (role: AppRole) => {
+  const setSecondaryRole = async (role: EAppRole) => {
     await api.setSecondaryRole(role);
     await refreshUserData();
   };
 
-  const getEffectiveAppRole = (): AppRole | undefined => {
+  const getEffectiveAppRole = (): EAppRole | undefined => {
     if (!userData) return undefined;
     if (userData.role === 'superuser') {
       return userData.secondaryRole;
     }
-    return userData.role as AppRole | undefined;
+    return userData.role as EAppRole | undefined;
   };
 
   return (
@@ -151,6 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         userData,
         loading,
+        authReady,
         signIn,
         signUp,
         signInWithGoogle,
