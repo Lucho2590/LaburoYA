@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { AppRole } from '@/types';
+import { EAppRole } from '@/types';
 
 interface AdminLayoutProps {
   children: ReactNode;
@@ -81,7 +81,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
     router.push('/');
   };
 
-  const handleSecondaryRoleChange = async (role: AppRole) => {
+  const handleSecondaryRoleChange = async (role: EAppRole) => {
     setChangingRole(true);
     try {
       await setSecondaryRole(role);
@@ -138,7 +138,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             <label className="block text-xs theme-text-muted mb-2">Mi rol en la app</label>
             <div className="flex gap-2">
               <button
-                onClick={() => handleSecondaryRoleChange('worker')}
+                onClick={() => handleSecondaryRoleChange(EAppRole.WORKER)}
                 disabled={changingRole}
                 className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
                   userData?.secondaryRole === 'worker'
@@ -149,7 +149,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
                 Trabajador
               </button>
               <button
-                onClick={() => handleSecondaryRoleChange('employer')}
+                onClick={() => handleSecondaryRoleChange(EAppRole.EMPLOYER)}
                 disabled={changingRole}
                 className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
                   userData?.secondaryRole === 'employer'

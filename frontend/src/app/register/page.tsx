@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { AuthLayout } from '@/components/AuthLayout';
 import { toast } from 'sonner';
 
 export default function RegisterPage() {
@@ -57,12 +58,13 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen theme-bg-primary flex flex-col">
-      {/* Header */}
-      <div className="px-4 pt-12 pb-8 text-center">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-[#E10600] to-[#FF6A00] bg-clip-text text-transparent">LaburoYA</h1>
-        <p className="theme-text-secondary mt-2">Creá tu cuenta gratis</p>
-      </div>
+    <AuthLayout>
+      <div className="min-h-screen md:min-h-0 flex flex-col">
+        {/* Header */}
+        <div className="px-4 pt-12 pb-8 text-center">
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-[#E10600] to-[#FF6A00] bg-clip-text text-transparent">LaburoYA</h1>
+          <p className="theme-text-secondary mt-2">Creá tu cuenta gratis</p>
+        </div>
 
       {/* Form */}
       <div className="flex-1 px-6">
@@ -133,15 +135,16 @@ export default function RegisterPage() {
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="px-6 py-8 text-center">
-        <p className="theme-text-secondary">
-          ¿Ya tenés cuenta?{' '}
-          <Link href="/login" className="text-[#FF6A00] font-medium">
-            Iniciá sesión
-          </Link>
-        </p>
+        {/* Footer */}
+        <div className="px-6 py-8 text-center">
+          <p className="theme-text-secondary">
+            ¿Ya tenés cuenta?{' '}
+            <Link href="/login" className="text-[#FF6A00] font-medium">
+              Iniciá sesión
+            </Link>
+          </p>
+        </div>
       </div>
-    </div>
+    </AuthLayout>
   );
 }

@@ -5,14 +5,14 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
-import { AdminUserDetail, UserRole, WorkerProfile, EmployerProfile } from '@/types';
+import { IAdminUserDetail, EUserRole, IWorkerProfile, IEmployerProfile } from '@/types';
 
 export default function AdminUserDetailPage() {
   const params = useParams();
   const router = useRouter();
   const uid = params.uid as string;
 
-  const [userDetail, setUserDetail] = useState<AdminUserDetail | null>(null);
+  const [userDetail, setUserDetail] = useState<IAdminUserDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [updating, setUpdating] = useState(false);
@@ -35,7 +35,7 @@ export default function AdminUserDetailPage() {
     }
   }, [uid]);
 
-  const handleRoleChange = async (newRole: UserRole) => {
+  const handleRoleChange = async (newRole: EUserRole) => {
     if (!userDetail) return;
     setUpdating(true);
     try {
@@ -89,11 +89,11 @@ export default function AdminUserDetailPage() {
     });
   };
 
-  const isWorkerProfile = (profile: WorkerProfile | EmployerProfile | null): profile is WorkerProfile => {
+  const isIWorkerProfile = (profile: IWorkerProfile | IEmployerProfile | null): profile is IWorkerProfile => {
     return profile !== null && 'puesto' in profile;
   };
 
-  const isEmployerProfile = (profile: WorkerProfile | EmployerProfile | null): profile is EmployerProfile => {
+  const isIEmployerProfile = (profile: IWorkerProfile | IEmployerProfile | null): profile is IEmployerProfile => {
     return profile !== null && 'businessName' in profile;
   };
 
@@ -251,7 +251,7 @@ export default function AdminUserDetailPage() {
               </svg>
               <p className="theme-text-muted">Sin perfil creado</p>
             </div>
-          ) : isWorkerProfile(profile) ? (
+          ) : isIWorkerProfile(profile) ? (
             <div className="space-y-3">
               <div>
                 <label className="block text-xs theme-text-muted mb-1">Rubro</label>
@@ -299,7 +299,7 @@ export default function AdminUserDetailPage() {
                 </div>
               )}
             </div>
-          ) : isEmployerProfile(profile) ? (
+          ) : isIEmployerProfile(profile) ? (
             <div className="space-y-3">
               <div>
                 <label className="block text-xs theme-text-muted mb-1">Nombre del negocio</label>
@@ -343,7 +343,7 @@ export default function AdminUserDetailPage() {
               <label className="block text-xs theme-text-muted mb-2">Cambiar rol</label>
               <select
                 value={user.role}
-                onChange={(e) => handleRoleChange(e.target.value as UserRole)}
+                onChange={(e) => handleRoleChange(e.target.value as EUserRole)}
                 disabled={updating || user.role === 'superuser'}
                 className="w-full theme-bg-secondary border theme-border rounded-lg px-3 py-2 theme-text-primary disabled:opacity-50"
               >

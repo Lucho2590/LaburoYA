@@ -4,13 +4,13 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
-import { AdminMatch, MatchStatus } from '@/types';
+import { IAdminMatch, TMatchStatus } from '@/types';
 
 export default function AdminMatchesPage() {
-  const [matches, setMatches] = useState<AdminMatch[]>([]);
+  const [matches, setMatches] = useState<IAdminMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [statusFilter, setStatusFilter] = useState<MatchStatus | ''>('');
+  const [statusFilter, setStatusFilter] = useState<TMatchStatus | ''>('');
   const [total, setTotal] = useState(0);
 
   const fetchMatches = async () => {
@@ -32,7 +32,7 @@ export default function AdminMatchesPage() {
     fetchMatches();
   }, [statusFilter]);
 
-  const getStatusBadge = (status: MatchStatus) => {
+  const getStatusBadge = (status: TMatchStatus) => {
     const styles = {
       pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
       accepted: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
@@ -67,7 +67,7 @@ export default function AdminMatchesPage() {
           <label className="theme-text-secondary text-sm">Filtrar por estado:</label>
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as MatchStatus | '')}
+            onChange={(e) => setStatusFilter(e.target.value as TMatchStatus | '')}
             className="theme-bg-card border theme-border rounded-lg px-3 py-2 text-sm theme-text-primary"
           >
             <option value="">Todos</option>

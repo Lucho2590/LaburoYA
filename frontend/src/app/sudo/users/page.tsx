@@ -4,17 +4,17 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
-import { AdminUser, UserRole, WorkerProfile, EmployerProfile, JobOffer } from '@/types';
+import { IAdminUser, EUserRole, IWorkerProfile, IEmployerProfile, IJobOffer } from '@/types';
 
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [users, setUsers] = useState<IAdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [roleFilter, setRoleFilter] = useState<UserRole | ''>('');
+  const [roleFilter, setRoleFilter] = useState<EUserRole | ''>('');
   const [total, setTotal] = useState(0);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
 
-  const fetchUsers = async (role?: UserRole | '') => {
+  const fetchUsers = async (role?: EUserRole | '') => {
     setLoading(true);
     try {
       const data = await api.getAdminUsers(role ? { role } : undefined);
@@ -31,7 +31,7 @@ export default function AdminUsersPage() {
     fetchUsers(roleFilter);
   }, [roleFilter]);
 
-  const getRoleBadge = (role: UserRole) => {
+  const getRoleBadge = (role: EUserRole) => {
     const styles = {
       worker: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
       employer: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
@@ -58,11 +58,11 @@ export default function AdminUsersPage() {
     });
   };
 
-  const isWorkerProfile = (profile: WorkerProfile | EmployerProfile | null | undefined): profile is WorkerProfile => {
+  const isIWorkerProfile = (profile: IWorkerProfile | IEmployerProfile | null | undefined): profile is IWorkerProfile => {
     return profile !== null && profile !== undefined && 'puesto' in profile;
   };
 
-  const isEmployerProfile = (profile: WorkerProfile | EmployerProfile | null | undefined): profile is EmployerProfile => {
+  const isIEmployerProfile = (profile: IWorkerProfile | IEmployerProfile | null | undefined): profile is IEmployerProfile => {
     return profile !== null && profile !== undefined && 'businessName' in profile;
   };
 
@@ -78,7 +78,7 @@ export default function AdminUsersPage() {
           <label className="theme-text-secondary text-sm">Filtrar por rol:</label>
           <select
             value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value as UserRole | '')}
+            onChange={(e) => setRoleFilter(e.target.value as EUserRole | '')}
             className="theme-bg-card border theme-border rounded-lg px-3 py-2 text-sm theme-text-primary"
           >
             <option value="">Todos</option>
@@ -154,7 +154,7 @@ export default function AdminUsersPage() {
 
                   {/* Profile Summary */}
                   <div className="hidden md:block text-right">
-                    {isWorkerProfile(user.profile) && (
+                    {isIWorkerProfile(user.profile) && (
                       <div>
                         <p className="text-sm font-medium theme-text-primary">{user.profile.puesto}</p>
                         <p className="text-xs theme-text-secondary">{user.profile.rubro}</p>
@@ -163,7 +163,7 @@ export default function AdminUsersPage() {
                         )}
                       </div>
                     )}
-                    {isEmployerProfile(user.profile) && (
+                    {isIEmployerProfile(user.profile) && (
                       <div>
                         <p className="text-sm font-medium theme-text-primary">{user.profile.businessName}</p>
                         <p className="text-xs theme-text-secondary">{user.profile.rubro}</p>
@@ -246,7 +246,7 @@ export default function AdminUsersPage() {
                       </h4>
                       {!user.profile ? (
                         <p className="text-sm theme-text-muted">Sin perfil creado</p>
-                      ) : isWorkerProfile(user.profile) ? (
+                      ) : isIWorkerProfile(user.profile) ? (
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="theme-text-muted">Rubro:</span>
@@ -289,7 +289,7 @@ export default function AdminUsersPage() {
                             </div>
                           )}
                         </div>
-                      ) : isEmployerProfile(user.profile) ? (
+                      ) : isIEmployerProfile(user.profile) ? (
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="theme-text-muted">Negocio:</span>
@@ -318,7 +318,7 @@ export default function AdminUsersPage() {
                     </div>
 
                     {/* Job Offers (for employers) */}
-                    {isEmployerProfile(user.profile) && (
+                    {isIEmployerProfile(user.profile) && (
                       <div>
                         <h4 className="font-semibold theme-text-primary mb-3 flex items-center gap-2">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -330,7 +330,7 @@ export default function AdminUsersPage() {
                           <p className="text-sm theme-text-muted">Sin ofertas publicadas</p>
                         ) : (
                           <div className="space-y-2 max-h-48 overflow-y-auto">
-                            {user.jobOffers.map((job: JobOffer) => (
+                            {user.jobOffers.map((job: IJobOffer) => (
                               <div
                                 key={job.id}
                                 className="p-2 theme-bg-card rounded-lg border theme-border text-sm"

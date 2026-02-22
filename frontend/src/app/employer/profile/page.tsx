@@ -4,10 +4,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/services/api';
-import { JOB_CATEGORIES, Rubro } from '@/config/constants';
-import { MobileLayout } from '@/components/MobileLayout';
+import { JOB_CATEGORIES } from '@/config/constants';
+import { AppLayout } from '@/components/AppLayout';
 import { toast } from 'sonner';
-import { EmployerProfile } from '@/types';
+import { IEmployerProfile } from '@/types';
 
 export default function EmployerProfilePage() {
   const router = useRouter();
@@ -36,7 +36,7 @@ export default function EmployerProfilePage() {
 
   useEffect(() => {
     if (userData?.profile) {
-      const profile = userData.profile as EmployerProfile;
+      const profile = userData.profile as IEmployerProfile;
       setFormData({
         businessName: profile.businessName || '',
         rubro: profile.rubro || '',
@@ -75,7 +75,7 @@ export default function EmployerProfilePage() {
   }
 
   return (
-    <MobileLayout title="Mi Negocio" showBack backHref="/home">
+    <AppLayout title="Mi Negocio" showBack backHref="/home">
       <div className="px-4 py-6 space-y-6">
         {/* Business Name */}
         <div>
@@ -173,6 +173,6 @@ export default function EmployerProfilePage() {
           {saving ? 'Guardando...' : 'Guardar perfil'}
         </button>
       </div>
-    </MobileLayout>
+    </AppLayout>
   );
 }

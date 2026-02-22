@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
-import { AdminStats } from '@/types';
+import { IAdminStats } from '@/types';
 
 export default function AdminDashboardPage() {
-  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [stats, setStats] = useState<IAdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 

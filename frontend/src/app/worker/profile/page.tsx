@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/services/api';
-import { JOB_CATEGORIES, ZONAS_MDP, Rubro } from '@/config/constants';
+import { JOB_CATEGORIES, ZONAS_MDP, TRubro, getSuggestedSkills } from '@/config/constants';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '@/config/firebase';
-import { MobileLayout } from '@/components/MobileLayout';
+import { AppLayout } from '@/components/AppLayout';
 import { VideoRecorder } from '@/components/VideoRecorder';
 import { toast } from 'sonner';
-import { WorkerProfile } from '@/types';
+import { IWorkerProfile } from '@/types';
+import { Check, Plus } from 'lucide-react';
 
 export default function WorkerProfilePage() {
   const router = useRouter();
@@ -23,6 +24,7 @@ export default function WorkerProfilePage() {
     description: '',
     experience: '',
   });
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [videoUrl, setVideoUrl] = useState('');
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
   const [saving, setSaving] = useState(false);
@@ -41,7 +43,7 @@ export default function WorkerProfilePage() {
 
   useEffect(() => {
     if (userData?.profile) {
-      const profile = userData.profile as WorkerProfile;
+      const profile = userData.profile as IWorkerProfile;
       setFormData({
         rubro: profile.rubro || '',
         puesto: profile.puesto || '',
@@ -49,12 +51,13 @@ export default function WorkerProfilePage() {
         description: profile.description || '',
         experience: profile.experience || '',
       });
+      setSelectedSkills(profile.skills || []);
       setVideoUrl(profile.videoUrl || '');
     }
   }, [userData]);
 
   const availablePuestos = formData.rubro
-    ? JOB_CATEGORIES[formData.rubro as Rubro]?.puestos || []
+    ? JOB_CATEGORIES[formData.rubro as TRubro]?.puestos || []
     : [];
 
   const handleVideoRecorded = (blob: Blob) => {
@@ -106,6 +109,7 @@ export default function WorkerProfilePage() {
 
       await api.createWorkerProfile({
         ...formData,
+        skills: selectedSkills,
         videoUrl: finalVideoUrl,
       });
 
@@ -129,7 +133,7 @@ export default function WorkerProfilePage() {
   }
 
   return (
-    <MobileLayout title="Mi Perfil" showBack backHref="/home">
+    <AppLayout title="Mi Perfil" showBack backHref="/home">
       <div className="px-4 py-6 space-y-6">
         {/* Rubro */}
         <div>
@@ -184,6 +188,49 @@ export default function WorkerProfilePage() {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Skills */}
+        {formData.rubro && formData.puesto && (
+          <div>
+            <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+              Tus habilidades
+            </label>
+            <p className="text-[#667085] text-sm mb-3">
+              Selecciona las habilidades que tenes. Esto mejora tu visibilidad.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {getSuggestedSkills(formData.rubro, formData.puesto).map((skill) => {
+                const isSelected = selectedSkills.includes(skill);
+                return (
+                  <button
+                    key={skill}
+                    type="button"
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedSkills(prev => prev.filter(s => s !== skill));
+                      } else {
+                        setSelectedSkills(prev => [...prev, skill]);
+                      }
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full border-2 text-sm transition-all active:scale-95 ${
+                      isSelected
+                        ? 'border-[#E10600] bg-[#E10600] text-white'
+                        : 'theme-border theme-bg-card theme-text-secondary'
+                    }`}
+                  >
+                    {isSelected ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                    {skill}
+                  </button>
+                );
+              })}
+            </div>
+            {selectedSkills.length > 0 && (
+              <p className="text-sm text-[#12B76A] mt-2">
+                {selectedSkills.length} habilidades seleccionadas
+              </p>
+            )}
           </div>
         )}
 
@@ -274,6 +321,6 @@ export default function WorkerProfilePage() {
           {saving ? 'Guardando...' : 'Guardar perfil'}
         </button>
       </div>
-    </MobileLayout>
+    </AppLayout>
   );
 }

@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
-import { AdminJobOffer } from '@/types';
+import { IAdminJobOffer } from '@/types';
 
 export default function AdminJobsPage() {
-  const [jobOffers, setJobOffers] = useState<AdminJobOffer[]>([]);
+  const [jobOffers, setJobOffers] = useState<IAdminJobOffer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeFilter, setActiveFilter] = useState<boolean | undefined>(undefined);
