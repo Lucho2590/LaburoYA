@@ -20,22 +20,20 @@ import {
 } from "lucide-react";
 
 export default function LandingPage() {
-  const { user, loading } = useAuth();
   const [showWaitlistModal, setShowWaitlistModal] = useState(false);
+  const { user, loading } = useAuth();
 
-  // Show modal on first visit (only for non-authenticated users)
+  // Show modal on first visit
   useEffect(() => {
-    if (!loading && !user) {
-      const hasSeenModal = localStorage.getItem('waitlistModalShown');
-      if (!hasSeenModal) {
-        // Small delay to let the page load first
-        const timer = setTimeout(() => {
-          setShowWaitlistModal(true);
-        }, 2000);
-        return () => clearTimeout(timer);
-      }
+    const hasSeenModal = localStorage.getItem("waitlistModalShown");
+    if (!hasSeenModal) {
+      // Small delay to let the page load first
+      const timer = setTimeout(() => {
+        setShowWaitlistModal(true);
+      }, 2000);
+      return () => clearTimeout(timer);
     }
-  }, [loading, user]);
+  }, []);
 
   const rubrosEmojis: Record<string, string> = {
     gastronomia: "🍳",
@@ -359,12 +357,12 @@ export default function LandingPage() {
               </ul>
 
               <button
-                  onClick={() => setShowWaitlistModal(true)}
-                  className="w-full py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-                >
-                  <Bell className="h-5 w-5" />
-                  Avisame cuando esté listo
-                </button>
+                onClick={() => setShowWaitlistModal(true)}
+                className="w-full py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+              >
+                <Bell className="h-5 w-5" />
+                Avisame cuando esté listo
+              </button>
             </div>
 
             {/* Employers */}
@@ -511,7 +509,9 @@ export default function LandingPage() {
               <span className="text-xl sm:text-2xl">=</span>
               <div className="flex items-center gap-2 bg-green-500 px-3 sm:px-4 py-2 rounded-xl">
                 <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5" />
-                <span className="text-sm sm:text-base font-semibold">¡Chat!</span>
+                <span className="text-sm sm:text-base font-semibold">
+                  ¡Chat!
+                </span>
               </div>
             </div>
           </div>
@@ -689,7 +689,7 @@ export default function LandingPage() {
                 <span className="text-xl font-bold">LaburoYA</span>
               </div>
               <p className="text-gray-400 text-sm">
-                Conectando talento con oportunidades en Mar del Plata
+                Conectando trabajadores con oportunidades en Mar del Plata
               </p>
             </div>
 
