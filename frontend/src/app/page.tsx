@@ -47,7 +47,7 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white overflow-x-hidden">
       {/* Waitlist Modal */}
       <WaitlistModal
         isOpen={showWaitlistModal}
@@ -140,7 +140,7 @@ export default function LandingPage() {
             </div>
 
             {/* Phone Mockup */}
-            <div className="relative flex justify-center lg:justify-end">
+            <div className="relative flex justify-center lg:justify-end overflow-hidden">
               <div className="relative">
                 {/* Phone Frame */}
                 <div className="w-[280px] sm:w-[320px] h-[560px] sm:h-[640px] bg-gray-900 rounded-[3rem] p-3 shadow-2xl">
@@ -497,21 +497,21 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <div className="mt-12 text-center">
-            <div className="inline-flex items-center gap-3 bg-white/10 backdrop-blur rounded-2xl px-6 py-4">
+          <div className="mt-12 text-center px-4">
+            <div className="inline-flex flex-wrap items-center justify-center gap-3 bg-white/10 backdrop-blur rounded-2xl px-4 sm:px-6 py-4 max-w-full">
               <div className="flex items-center gap-2">
-                <span className="text-2xl">👤</span>
-                <span className="text-sm">Trabajador muestra interés</span>
+                <span className="text-xl sm:text-2xl">👤</span>
+                <span className="text-xs sm:text-sm">Trabajador</span>
               </div>
-              <span className="text-2xl">+</span>
+              <span className="text-xl sm:text-2xl">+</span>
               <div className="flex items-center gap-2">
-                <span className="text-2xl">🏢</span>
-                <span className="text-sm">Empleador muestra interés</span>
+                <span className="text-xl sm:text-2xl">🏢</span>
+                <span className="text-xs sm:text-sm">Empleador</span>
               </div>
-              <span className="text-2xl">=</span>
-              <div className="flex items-center gap-2 bg-green-500 px-4 py-2 rounded-xl">
-                <MessageCircle className="h-5 w-5" />
-                <span className="font-semibold">¡Chat habilitado!</span>
+              <span className="text-xl sm:text-2xl">=</span>
+              <div className="flex items-center gap-2 bg-green-500 px-3 sm:px-4 py-2 rounded-xl">
+                <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5" />
+                <span className="text-sm sm:text-base font-semibold">¡Chat!</span>
               </div>
             </div>
           </div>
