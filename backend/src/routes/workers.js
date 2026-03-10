@@ -2,14 +2,35 @@ const express = require('express');
 const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const matchingService = require('../services/matchingService');
+const { getSuggestedSkills, getAllSkillsForRubro } = require('../utils/constants');
 
 const router = express.Router();
+
+// Get suggested skills for rubro/puesto
+router.get('/skills/:rubro/:puesto', (req, res) => {
+  const { rubro, puesto } = req.params;
+  const suggested = getSuggestedSkills(rubro, puesto);
+  const allForRubro = getAllSkillsForRubro(rubro);
+
+  res.json({
+    suggested,
+    allForRubro
+  });
+});
+
+// Get all skills for a rubro
+router.get('/skills/:rubro', (req, res) => {
+  const { rubro } = req.params;
+  const skills = getAllSkillsForRubro(rubro);
+
+  res.json({ skills });
+});
 
 // Create or update worker profile
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { rubro, puesto, zona, videoUrl, description, experience } = req.body;
+    const { rubro, puesto, zona, videoUrl, description, experience, skills } = req.body;
 
     if (!rubro || !puesto) {
       return res.status(400).json({ error: 'rubro and puesto are required' });
@@ -37,6 +58,7 @@ router.post('/', authMiddleware, async (req, res, next) => {
       videoUrl: videoUrl || null,
       description: description || null,
       experience: experience || null,
+      skills: Array.isArray(skills) ? skills : [],
       active: true,
       updatedAt: new Date()
     };

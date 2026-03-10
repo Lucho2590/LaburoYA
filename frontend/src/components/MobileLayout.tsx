@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { NotificationBell } from '@/components/NotificationBell';
+import { usePageTitle } from '@/contexts/PageTitleContext';
 
 interface MobileLayoutProps {
   children: ReactNode;
@@ -14,16 +15,26 @@ interface MobileLayoutProps {
   backHref?: string;
   onBack?: () => void;
   hideNav?: boolean;
+  useContext?: boolean;
 }
 
 export function MobileLayout({
   children,
-  title,
-  showBack = false,
-  backHref = '/home',
-  onBack,
-  hideNav = false
+  title: propTitle,
+  showBack: propShowBack = false,
+  backHref: propBackHref = '/home',
+  onBack: propOnBack,
+  hideNav: propHideNav = false,
+  useContext = false
 }: MobileLayoutProps) {
+  const pageContext = usePageTitle();
+
+  // Use context values if useContext is true, otherwise use props
+  const title = useContext ? pageContext.title : propTitle;
+  const showBack = useContext ? pageContext.showBack : propShowBack;
+  const backHref = useContext ? pageContext.backHref : propBackHref;
+  const onBack = useContext ? pageContext.onBack : propOnBack;
+  const hideNav = useContext ? pageContext.hideNav : propHideNav;
   const pathname = usePathname();
   const { userData, getEffectiveAppRole } = useAuth();
   const { theme, toggleTheme } = useTheme();

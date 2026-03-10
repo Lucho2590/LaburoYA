@@ -73,6 +73,40 @@ router.get('/me', authMiddleware, async (req, res, next) => {
   }
 });
 
+// Update basic info (name, lastName, age, nickname)
+router.patch('/basic-info', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const { firstName, lastName, age, nickname } = req.body;
+
+    if (!firstName || !lastName) {
+      return res.status(400).json({ error: 'firstName and lastName are required' });
+    }
+
+    const db = getDb();
+
+    // Update user document with basic info
+    await db.collection('users').doc(uid).update({
+      firstName,
+      lastName,
+      age: age || null,
+      nickname: nickname || null,
+      onboardingCompleted: true,
+      updatedAt: new Date()
+    });
+
+    res.json({
+      message: 'Basic info updated successfully',
+      firstName,
+      lastName,
+      age,
+      nickname
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Set secondary role for superusers
 router.patch('/secondary-role', authMiddleware, async (req, res, next) => {
   try {

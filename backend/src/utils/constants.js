@@ -26,6 +26,105 @@ const JOB_CATEGORIES = {
   }
 };
 
+// Skills por rubro y puesto
+const SKILLS_BY_RUBRO = {
+  gastronomia: {
+    _common: ['Trabajo en equipo', 'Puntualidad', 'Higiene y manipulación de alimentos', 'Resistencia física'],
+    'Cocinero': ['Cocina internacional', 'Parrilla', 'Pastelería', 'Cocina rápida', 'Menú del día', 'Manejo de stock'],
+    'Ayudante de cocina': ['Mise en place', 'Limpieza de cocina', 'Corte de verduras', 'Apoyo al cocinero'],
+    'Mozo': ['Atención al cliente', 'Manejo de bandeja', 'Conocimiento de vinos', 'Inglés básico', 'Trabajo bajo presión'],
+    'Bachero': ['Limpieza rápida', 'Organización', 'Resistencia física'],
+    'Barman': ['Coctelería clásica', 'Coctelería de autor', 'Atención al cliente', 'Manejo de caja', 'Inglés básico']
+  },
+  comercio: {
+    _common: ['Atención al cliente', 'Buena presencia', 'Comunicación', 'Trabajo en equipo'],
+    'Vendedor': ['Técnicas de venta', 'Conocimiento del producto', 'Negociación', 'Fidelización de clientes', 'Manejo de objeciones'],
+    'Cajero': ['Manejo de caja', 'Cobro con tarjetas', 'Arqueo de caja', 'Atención rápida', 'Matemáticas básicas'],
+    'Repositor': ['Organización de góndolas', 'Control de vencimientos', 'Manejo de stock', 'Orden y limpieza'],
+    'Encargado': ['Liderazgo', 'Manejo de personal', 'Control de stock', 'Apertura y cierre', 'Resolución de conflictos']
+  },
+  construccion: {
+    _common: ['Trabajo en altura', 'Uso de EPP', 'Lectura de planos básica', 'Trabajo en equipo'],
+    'Albañil': ['Levantamiento de paredes', 'Revoques', 'Contrapisos', 'Colocación de cerámicos', 'Mezcla de materiales'],
+    'Ayudante': ['Preparación de materiales', 'Limpieza de obra', 'Transporte de materiales', 'Apoyo general'],
+    'Electricista': ['Instalaciones domiciliarias', 'Tableros eléctricos', 'Lectura de planos eléctricos', 'Normas de seguridad'],
+    'Plomero': ['Instalaciones sanitarias', 'Termotanques', 'Destapaciones', 'Soldadura de caños'],
+    'Pintor': ['Pintura interior', 'Pintura exterior', 'Preparación de superficies', 'Empapelado', 'Técnicas decorativas']
+  },
+  limpieza: {
+    _common: ['Responsabilidad', 'Discreción', 'Organización', 'Uso de productos de limpieza'],
+    'Empleada doméstica': ['Limpieza profunda', 'Planchado', 'Cocina básica', 'Cuidado de ropa', 'Organización del hogar'],
+    'Personal de limpieza': ['Limpieza de oficinas', 'Limpieza de vidrios', 'Manejo de máquinas', 'Limpieza industrial'],
+    'Mucama': ['Tendido de camas', 'Limpieza de habitaciones', 'Atención a huéspedes', 'Reposición de amenities']
+  },
+  transporte: {
+    _common: ['Licencia de conducir', 'Conocimiento de calles', 'Puntualidad', 'Responsabilidad'],
+    'Chofer': ['Licencia profesional', 'Manejo defensivo', 'GPS', 'Atención al pasajero', 'Mantenimiento básico'],
+    'Repartidor': ['Moto propia', 'Conocimiento de zonas', 'Rapidez', 'Buen trato', 'Manejo de efectivo'],
+    'Fletero': ['Vehículo propio', 'Carga y descarga', 'Embalaje', 'Mudanzas', 'Armado de muebles']
+  },
+  administracion: {
+    _common: ['Manejo de PC', 'Microsoft Office', 'Organización', 'Comunicación escrita'],
+    'Administrativo': ['Facturación', 'Cuentas a pagar/cobrar', 'Archivo', 'Atención telefónica', 'Gestión de proveedores'],
+    'Recepcionista': ['Atención al público', 'Agenda de turnos', 'Atención telefónica', 'Inglés básico', 'Buena presencia'],
+    'Secretaria': ['Gestión de agenda', 'Redacción', 'Organización de reuniones', 'Confidencialidad', 'Multitasking'],
+    'Data entry': ['Tipeo rápido', 'Atención al detalle', 'Manejo de planillas', 'Carga de datos', 'Excel avanzado']
+  }
+};
+
+/**
+ * Obtiene las skills sugeridas para un rubro y puesto específico
+ * @param {string} rubro - El rubro (ej: 'gastronomia')
+ * @param {string} puesto - El puesto (ej: 'Cocinero')
+ * @returns {string[]} Array de skills sugeridas (comunes + específicas del puesto)
+ */
+function getSuggestedSkills(rubro, puesto) {
+  const rubroData = SKILLS_BY_RUBRO[rubro];
+  if (!rubroData) return [];
+
+  const commonSkills = rubroData._common || [];
+  const puestoSkills = rubroData[puesto] || [];
+
+  // Retorna skills comunes + skills del puesto sin duplicados
+  return [...new Set([...commonSkills, ...puestoSkills])];
+}
+
+/**
+ * Obtiene todas las skills disponibles para un rubro
+ * @param {string} rubro - El rubro (ej: 'gastronomia')
+ * @returns {string[]} Array de todas las skills del rubro
+ */
+function getAllSkillsForRubro(rubro) {
+  const rubroData = SKILLS_BY_RUBRO[rubro];
+  if (!rubroData) return [];
+
+  const allSkills = new Set();
+  Object.values(rubroData).forEach(skills => {
+    if (Array.isArray(skills)) {
+      skills.forEach(skill => allSkills.add(skill));
+    }
+  });
+
+  return [...allSkills].sort();
+}
+
+/**
+ * Obtiene todas las skills disponibles en el sistema
+ * @returns {string[]} Array de todas las skills
+ */
+function getAllSkills() {
+  const allSkills = new Set();
+  Object.values(SKILLS_BY_RUBRO).forEach(rubroData => {
+    Object.values(rubroData).forEach(skills => {
+      if (Array.isArray(skills)) {
+        skills.forEach(skill => allSkills.add(skill));
+      }
+    });
+  });
+
+  return [...allSkills].sort();
+}
+
 const ZONAS_MDP = [
   'Centro',
   'La Perla',
@@ -40,5 +139,9 @@ const ZONAS_MDP = [
 
 module.exports = {
   JOB_CATEGORIES,
-  ZONAS_MDP
+  ZONAS_MDP,
+  SKILLS_BY_RUBRO,
+  getSuggestedSkills,
+  getAllSkillsForRubro,
+  getAllSkills
 };

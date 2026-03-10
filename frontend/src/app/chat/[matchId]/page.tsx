@@ -73,7 +73,10 @@ export default function ChatPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </Link>
-            <h1 className="font-semibold theme-text-primary ml-2">Chat</h1>
+            <h1 className="font-semibold theme-text-primary ml-2 flex-1">Chat</h1>
+            <span className="text-sm font-bold bg-gradient-to-r from-[#E10600] to-[#FF6A00] bg-clip-text text-transparent mr-2">
+              LaburoYA
+            </span>
           </div>
         </header>
 
@@ -129,6 +132,11 @@ export default function ChatPage() {
               </p>
             </div>
           </div>
+
+          {/* Logo */}
+          <span className="text-sm font-bold bg-gradient-to-r from-[#E10600] to-[#FF6A00] bg-clip-text text-transparent mr-2">
+            LaburoYA
+          </span>
         </div>
       </header>
 

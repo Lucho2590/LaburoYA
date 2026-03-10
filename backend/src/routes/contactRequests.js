@@ -387,40 +387,68 @@ router.get('/received', authMiddleware, async (req, res, next) => {
       .where('status', '==', 'pending')
       .get();
 
-    const requests = [];
-    for (const doc of requestsSnapshot.docs) {
+    if (requestsSnapshot.empty) {
+      return res.json([]);
+    }
+
+    // Collect all IDs we need to fetch
+    const workerIds = new Set();
+    const employerIds = new Set();
+    const offerIds = new Set();
+
+    const requestsRaw = requestsSnapshot.docs.map(doc => {
       const data = doc.data();
-      let enrichedRequest = {
+      if (data.fromType === 'worker') {
+        workerIds.add(data.fromUid);
+      } else {
+        employerIds.add(data.fromUid);
+      }
+      offerIds.add(data.offerId);
+
+      return {
         id: doc.id,
         ...data,
         createdAt: data.createdAt?.toDate?.() || data.createdAt,
         expiresAt: data.expiresAt?.toDate?.() || data.expiresAt
       };
+    });
 
-      // Enrich with sender info
-      if (data.fromType === 'worker') {
-        const workerDoc = await db.collection('workers').doc(data.fromUid).get();
-        if (workerDoc.exists) {
-          enrichedRequest.worker = workerDoc.data();
-        }
+    // Batch fetch all related documents in parallel
+    const [workerDocs, employerDocs, offerDocs] = await Promise.all([
+      Promise.all(Array.from(workerIds).map(id => db.collection('workers').doc(id).get())),
+      Promise.all(Array.from(employerIds).map(id => db.collection('employers').doc(id).get())),
+      Promise.all(Array.from(offerIds).map(id => db.collection('jobOffers').doc(id).get()))
+    ]);
+
+    // Build lookup maps
+    const workerMap = new Map();
+    const employerMap = new Map();
+    const offerMap = new Map();
+
+    workerDocs.forEach(doc => {
+      if (doc.exists) workerMap.set(doc.id, doc.data());
+    });
+    employerDocs.forEach(doc => {
+      if (doc.exists) employerMap.set(doc.id, doc.data());
+    });
+    offerDocs.forEach(doc => {
+      if (doc.exists) offerMap.set(doc.id, { id: doc.id, ...doc.data() });
+    });
+
+    // Enrich requests with related data
+    const requests = requestsRaw.map(request => {
+      const enriched = { ...request };
+
+      if (request.fromType === 'worker') {
+        enriched.worker = workerMap.get(request.fromUid) || null;
       } else {
-        const employerDoc = await db.collection('employers').doc(data.fromUid).get();
-        if (employerDoc.exists) {
-          enrichedRequest.employer = employerDoc.data();
-        }
+        enriched.employer = employerMap.get(request.fromUid) || null;
       }
 
-      // Enrich with job offer info
-      const jobDoc = await db.collection('jobOffers').doc(data.offerId).get();
-      if (jobDoc.exists) {
-        enrichedRequest.jobOffer = {
-          id: jobDoc.id,
-          ...jobDoc.data()
-        };
-      }
+      enriched.jobOffer = offerMap.get(request.offerId) || null;
 
-      requests.push(enrichedRequest);
-    }
+      return enriched;
+    });
 
     // Sort by createdAt desc
     requests.sort((a, b) => {
@@ -448,40 +476,68 @@ router.get('/sent', authMiddleware, async (req, res, next) => {
       .where('fromUid', '==', uid)
       .get();
 
-    const requests = [];
-    for (const doc of requestsSnapshot.docs) {
+    if (requestsSnapshot.empty) {
+      return res.json([]);
+    }
+
+    // Collect all IDs we need to fetch
+    const workerIds = new Set();
+    const employerIds = new Set();
+    const offerIds = new Set();
+
+    const requestsRaw = requestsSnapshot.docs.map(doc => {
       const data = doc.data();
-      let enrichedRequest = {
+      if (data.toType === 'worker') {
+        workerIds.add(data.toUid);
+      } else {
+        employerIds.add(data.toUid);
+      }
+      offerIds.add(data.offerId);
+
+      return {
         id: doc.id,
         ...data,
         createdAt: data.createdAt?.toDate?.() || data.createdAt,
         expiresAt: data.expiresAt?.toDate?.() || data.expiresAt
       };
+    });
 
-      // Enrich with recipient info
-      if (data.toType === 'worker') {
-        const workerDoc = await db.collection('workers').doc(data.toUid).get();
-        if (workerDoc.exists) {
-          enrichedRequest.worker = workerDoc.data();
-        }
+    // Batch fetch all related documents in parallel
+    const [workerDocs, employerDocs, offerDocs] = await Promise.all([
+      Promise.all(Array.from(workerIds).map(id => db.collection('workers').doc(id).get())),
+      Promise.all(Array.from(employerIds).map(id => db.collection('employers').doc(id).get())),
+      Promise.all(Array.from(offerIds).map(id => db.collection('jobOffers').doc(id).get()))
+    ]);
+
+    // Build lookup maps
+    const workerMap = new Map();
+    const employerMap = new Map();
+    const offerMap = new Map();
+
+    workerDocs.forEach(doc => {
+      if (doc.exists) workerMap.set(doc.id, doc.data());
+    });
+    employerDocs.forEach(doc => {
+      if (doc.exists) employerMap.set(doc.id, doc.data());
+    });
+    offerDocs.forEach(doc => {
+      if (doc.exists) offerMap.set(doc.id, { id: doc.id, ...doc.data() });
+    });
+
+    // Enrich requests with related data
+    const requests = requestsRaw.map(request => {
+      const enriched = { ...request };
+
+      if (request.toType === 'worker') {
+        enriched.worker = workerMap.get(request.toUid) || null;
       } else {
-        const employerDoc = await db.collection('employers').doc(data.toUid).get();
-        if (employerDoc.exists) {
-          enrichedRequest.employer = employerDoc.data();
-        }
+        enriched.employer = employerMap.get(request.toUid) || null;
       }
 
-      // Enrich with job offer info
-      const jobDoc = await db.collection('jobOffers').doc(data.offerId).get();
-      if (jobDoc.exists) {
-        enrichedRequest.jobOffer = {
-          id: jobDoc.id,
-          ...jobDoc.data()
-        };
-      }
+      enriched.jobOffer = offerMap.get(request.offerId) || null;
 
-      requests.push(enrichedRequest);
-    }
+      return enriched;
+    });
 
     // Sort by createdAt desc
     requests.sort((a, b) => {
@@ -597,19 +653,19 @@ router.get('/status/:offerId', authMiddleware, async (req, res, next) => {
     const { offerId } = req.params;
     const db = getDb();
 
-    // Check if user sent a request for this offer
-    const sentSnapshot = await db.collection('contactRequests')
-      .where('fromUid', '==', uid)
-      .where('offerId', '==', offerId)
-      .limit(1)
-      .get();
-
-    // Check if user received a request for this offer
-    const receivedSnapshot = await db.collection('contactRequests')
-      .where('toUid', '==', uid)
-      .where('offerId', '==', offerId)
-      .limit(1)
-      .get();
+    // Run both queries in parallel
+    const [sentSnapshot, receivedSnapshot] = await Promise.all([
+      db.collection('contactRequests')
+        .where('fromUid', '==', uid)
+        .where('offerId', '==', offerId)
+        .limit(1)
+        .get(),
+      db.collection('contactRequests')
+        .where('toUid', '==', uid)
+        .where('offerId', '==', offerId)
+        .limit(1)
+        .get()
+    ]);
 
     res.json({
       hasSentRequest: !sentSnapshot.empty,

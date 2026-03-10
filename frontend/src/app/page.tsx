@@ -1,11 +1,11 @@
-/* eslint-disable @next/next/no-img-element */
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { JOB_CATEGORIES } from "@/config/constants";
+import { WaitlistModal } from "@/components/WaitlistModal";
 import {
-  Smartphone,
   MessageCircle,
   Users,
   Briefcase,
@@ -21,6 +21,21 @@ import {
 
 export default function LandingPage() {
   const { user, loading } = useAuth();
+  const [showWaitlistModal, setShowWaitlistModal] = useState(false);
+
+  // Show modal on first visit (only for non-authenticated users)
+  useEffect(() => {
+    if (!loading && !user) {
+      const hasSeenModal = localStorage.getItem('waitlistModalShown');
+      if (!hasSeenModal) {
+        // Small delay to let the page load first
+        const timer = setTimeout(() => {
+          setShowWaitlistModal(true);
+        }, 2000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [loading, user]);
 
   const rubrosEmojis: Record<string, string> = {
     gastronomia: "🍳",
@@ -33,6 +48,11 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-white">
+      {/* Waitlist Modal */}
+      <WaitlistModal
+        isOpen={showWaitlistModal}
+        onClose={() => setShowWaitlistModal(false)}
+      />
       {/* Navbar */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
@@ -53,18 +73,13 @@ export default function LandingPage() {
                   </button>
                 </Link>
               ) : (
-                <>
-                  <Link href="/login">
-                    <button className="px-4 py-2 text-gray-600 hover:text-gray-900 font-medium transition-colors">
-                      Iniciar sesión
-                    </button>
-                  </Link>
-                  <Link href="/register">
-                    <button className="px-4 py-2 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-lg font-medium hover:opacity-90 transition-opacity">
-                      Registrarse
-                    </button>
-                  </Link>
-                </>
+                <button
+                  onClick={() => setShowWaitlistModal(true)}
+                  className="px-4 py-2 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
+                >
+                  <Bell className="h-4 w-4" />
+                  Avisame
+                </button>
               )}
             </div>
           </div>
@@ -95,18 +110,21 @@ export default function LandingPage() {
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                <Link href="/register">
-                  <button className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold text-lg hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2">
-                    Empezar ahora
-                    <ArrowRight className="h-5 w-5" />
-                  </button>
-                </Link>
-                <a href="#descargar">
-                  <button className="w-full sm:w-auto px-8 py-4 bg-gray-100 text-gray-700 rounded-xl font-semibold text-lg hover:bg-gray-200 transition-all flex items-center justify-center gap-2">
-                    <Smartphone className="h-5 w-5" />
-                    Descargar App
-                  </button>
-                </a>
+                <button
+                  onClick={() => setShowWaitlistModal(true)}
+                  className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold text-lg hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+                >
+                  <Bell className="h-5 w-5" />
+                  Avisame cuando esté listo
+                </button>
+                {user && (
+                  <Link href="/home">
+                    <button className="w-full sm:w-auto px-8 py-4 bg-gray-100 text-gray-700 rounded-xl font-semibold text-lg hover:bg-gray-200 transition-all flex items-center justify-center gap-2">
+                      Ir a la app
+                      <ArrowRight className="h-5 w-5" />
+                    </button>
+                  </Link>
+                )}
               </div>
 
               <div className="flex items-center justify-center lg:justify-start gap-6 mt-8 text-sm text-gray-500">
@@ -340,12 +358,13 @@ export default function LandingPage() {
                 </li>
               </ul>
 
-              <Link href="/register">
-                <button className="w-full py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
-                  Buscar trabajo
-                  <ArrowRight className="h-5 w-5" />
+              <button
+                  onClick={() => setShowWaitlistModal(true)}
+                  className="w-full py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                >
+                  <Bell className="h-5 w-5" />
+                  Avisame cuando esté listo
                 </button>
-              </Link>
             </div>
 
             {/* Employers */}
@@ -386,12 +405,13 @@ export default function LandingPage() {
                 </li>
               </ul>
 
-              <Link href="/register">
-                <button className="w-full py-4 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-800 transition-colors flex items-center justify-center gap-2">
-                  Publicar oferta
-                  <ArrowRight className="h-5 w-5" />
-                </button>
-              </Link>
+              <button
+                onClick={() => setShowWaitlistModal(true)}
+                className="w-full py-4 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+              >
+                <Bell className="h-5 w-5" />
+                Próximamente
+              </button>
             </div>
           </div>
         </div>
@@ -643,16 +663,18 @@ export default function LandingPage() {
       <section className="py-16 sm:py-24 px-4 sm:px-6">
         <div className="max-w-3xl mx-auto text-center">
           <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
-            ¿Listo para empezar?
+            ¿Buscás trabajo?
           </h2>
           <p className="text-lg text-gray-600 mb-8">
-            Únite a la comunidad de trabajadores y empleadores de Mar del Plata
+            Dejanos tus datos y te avisamos cuando tengamos ofertas para vos
           </p>
-          <Link href="/register">
-            <button className="px-12 py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold text-lg hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98]">
-              Crear cuenta gratis
-            </button>
-          </Link>
+          <button
+            onClick={() => setShowWaitlistModal(true)}
+            className="px-12 py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold text-lg hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98] inline-flex items-center gap-2"
+          >
+            <Bell className="h-5 w-5" />
+            Avisame
+          </button>
         </div>
       </section>
 
@@ -676,20 +698,12 @@ export default function LandingPage() {
               <h4 className="font-semibold mb-4">Plataforma</h4>
               <ul className="space-y-2 text-gray-400 text-sm">
                 <li>
-                  <Link
-                    href="/register"
+                  <button
+                    onClick={() => setShowWaitlistModal(true)}
                     className="hover:text-white transition-colors"
                   >
-                    Registrarse
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    href="/login"
-                    className="hover:text-white transition-colors"
-                  >
-                    Iniciar sesión
-                  </Link>
+                    Avisame cuando esté listo
+                  </button>
                 </li>
                 <li>
                   <a href="#" className="hover:text-white transition-colors">

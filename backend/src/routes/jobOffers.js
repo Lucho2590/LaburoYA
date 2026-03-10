@@ -9,7 +9,7 @@ const router = express.Router();
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { rubro, puesto, description, requirements, salary, schedule } = req.body;
+    const { rubro, puesto, description, requirements, salary, schedule, requiredSkills, zona } = req.body;
 
     if (!rubro || !puesto) {
       return res.status(400).json({ error: 'rubro and puesto are required' });
@@ -37,6 +37,8 @@ router.post('/', authMiddleware, async (req, res, next) => {
       requirements: requirements || null,
       salary: salary || null,
       schedule: schedule || null,
+      requiredSkills: Array.isArray(requiredSkills) ? requiredSkills : [],
+      zona: zona || null,
       active: true,
       createdAt: new Date(),
       updatedAt: new Date()
@@ -110,7 +112,7 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
     }
 
     // Filter allowed updates
-    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'active'];
+    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona', 'active'];
     const filteredUpdates = {};
 
     for (const field of allowedFields) {

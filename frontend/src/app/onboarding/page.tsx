@@ -101,6 +101,13 @@ export default function OnboardingPage() {
             </div>
           </div>
         </button>
+
+        {/* User email */}
+        {user?.email && (
+          <p className="text-center text-sm theme-text-muted mt-4">
+            Ingresando como <span className="font-medium theme-text-secondary">{user.email}</span>
+          </p>
+        )}
       </div>
 
         {/* Footer */}

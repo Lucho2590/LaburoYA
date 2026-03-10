@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMatches } from '@/hooks/useMatches';
+import { usePageTitle } from '@/contexts/PageTitleContext';
 import { IMatch } from '@/types';
 import { JOB_CATEGORIES, TRubro } from '@/config/constants';
-import { AppLayout } from '@/components/AppLayout';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 
@@ -15,11 +15,17 @@ export default function MatchesPage() {
   const router = useRouter();
   const { user, userData, loading } = useAuth();
   const { matches, loading: matchesLoading, updateMatchStatus } = useMatches();
+  const { setPageConfig } = usePageTitle();
   const [activeTab, setActiveTab] = useState<'pending' | 'accepted'>('pending');
 
   // Calculate these before any conditional returns so we can use them in hooks
   const pendingMatches = matches.filter(m => m.status === 'pending');
   const acceptedMatches = matches.filter(m => m.status === 'accepted');
+
+  // Set page config
+  useEffect(() => {
+    setPageConfig({ title: 'Matches' });
+  }, [setPageConfig]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -173,67 +179,65 @@ export default function MatchesPage() {
   };
 
   return (
-    <AppLayout title="Matches">
-      <div className="px-4 py-4">
-        {/* Tabs */}
-        <div className="flex theme-bg-secondary rounded-xl p-1 mb-4">
-          <button
-            onClick={() => setActiveTab('pending')}
-            className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors ${
-              activeTab === 'pending'
-                ? 'theme-bg-card theme-text-primary'
-                : 'theme-text-muted'
-            }`}
-          >
-            Pendientes ({pendingMatches.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('accepted')}
-            className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors ${
-              activeTab === 'accepted'
-                ? 'theme-bg-card theme-text-primary'
-                : 'theme-text-muted'
-            }`}
-          >
-            Aceptados ({acceptedMatches.length})
-          </button>
-        </div>
+    <div className="px-4 py-4">
+      {/* Tabs */}
+      <div className="flex theme-bg-secondary rounded-xl p-1 mb-4">
+        <button
+          onClick={() => setActiveTab('pending')}
+          className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors ${
+            activeTab === 'pending'
+              ? 'theme-bg-card theme-text-primary'
+              : 'theme-text-muted'
+          }`}
+        >
+          Pendientes ({pendingMatches.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('accepted')}
+          className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-colors ${
+            activeTab === 'accepted'
+              ? 'theme-bg-card theme-text-primary'
+              : 'theme-text-muted'
+          }`}
+        >
+          Aceptados ({acceptedMatches.length})
+        </button>
+      </div>
 
-        {/* List */}
-        {activeTab === 'pending' ? (
-          pendingMatches.length === 0 ? (
-            <div className="text-center py-12">
-              <span className="text-5xl">📋</span>
-              <p className="theme-text-secondary mt-4">No hay matches pendientes</p>
-              <p className="theme-text-muted text-sm mt-1">
-                {isWorker
-                  ? 'Completá tu perfil para recibir ofertas'
-                  : 'Publicá ofertas para encontrar candidatos'}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {pendingMatches.map((match) => (
-                <MatchCard key={match.id} match={match} />
-              ))}
-            </div>
-          )
-        ) : acceptedMatches.length === 0 ? (
+      {/* List */}
+      {activeTab === 'pending' ? (
+        pendingMatches.length === 0 ? (
           <div className="text-center py-12">
-            <span className="text-5xl">✅</span>
-            <p className="theme-text-secondary mt-4">No hay matches aceptados</p>
+            <span className="text-5xl">📋</span>
+            <p className="theme-text-secondary mt-4">No hay matches pendientes</p>
             <p className="theme-text-muted text-sm mt-1">
-              Aceptá matches para poder chatear
+              {isWorker
+                ? 'Completá tu perfil para recibir ofertas'
+                : 'Publicá ofertas para encontrar candidatos'}
             </p>
           </div>
         ) : (
           <div className="space-y-4">
-            {acceptedMatches.map((match) => (
+            {pendingMatches.map((match) => (
               <MatchCard key={match.id} match={match} />
             ))}
           </div>
-        )}
-      </div>
-    </AppLayout>
+        )
+      ) : acceptedMatches.length === 0 ? (
+        <div className="text-center py-12">
+          <span className="text-5xl">✅</span>
+          <p className="theme-text-secondary mt-4">No hay matches aceptados</p>
+          <p className="theme-text-muted text-sm mt-1">
+            Aceptá matches para poder chatear
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {acceptedMatches.map((match) => (
+            <MatchCard key={match.id} match={match} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

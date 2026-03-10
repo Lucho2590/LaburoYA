@@ -116,26 +116,41 @@ class MatchingService {
       .where('active', '==', true)
       .get();
 
-    const relevantOffers = [];
+    // First pass: calculate relevance and collect employer IDs
+    const relevantOffersTemp = [];
+    const employerIds = new Set();
 
     for (const doc of offersSnapshot.docs) {
       const offer = { id: doc.id, ...doc.data() };
       const relevance = this.calculateRelevanceScore(worker, offer);
 
-      // Only include offers with some relevance
       if (relevance.score > 0) {
-        // Get employer info
-        const employerDoc = await db.collection('employers').doc(offer.employerId).get();
-        const employer = employerDoc.exists ? employerDoc.data() : null;
-
-        relevantOffers.push({
-          ...offer,
-          employer,
-          relevance,
-          createdAt: offer.createdAt?.toDate?.() || offer.createdAt
-        });
+        relevantOffersTemp.push({ offer, relevance });
+        employerIds.add(offer.employerId);
       }
     }
+
+    // Batch fetch all employers at once
+    const employerMap = new Map();
+    if (employerIds.size > 0) {
+      const employerPromises = Array.from(employerIds).map(id =>
+        db.collection('employers').doc(id).get()
+      );
+      const employerDocs = await Promise.all(employerPromises);
+      employerDocs.forEach(doc => {
+        if (doc.exists) {
+          employerMap.set(doc.id, doc.data());
+        }
+      });
+    }
+
+    // Build final result with employer data
+    const relevantOffers = relevantOffersTemp.map(({ offer, relevance }) => ({
+      ...offer,
+      employer: employerMap.get(offer.employerId) || null,
+      relevance,
+      createdAt: offer.createdAt?.toDate?.() || offer.createdAt
+    }));
 
     // Sort by score descending, then by createdAt descending
     relevantOffers.sort((a, b) => {
@@ -251,20 +266,25 @@ class MatchingService {
       }
     }
 
-    // Fetch user info (name, email) for each worker
+    // Batch fetch user info (name, email) for all workers at once
     const workerUids = Array.from(workerScores.keys());
     const userInfoMap = new Map();
 
-    for (const uid of workerUids) {
-      const userDoc = await db.collection('users').doc(uid).get();
-      if (userDoc.exists) {
-        const userData = userDoc.data();
-        userInfoMap.set(uid, {
-          firstName: userData.firstName,
-          lastName: userData.lastName,
-          email: userData.email
-        });
-      }
+    if (workerUids.length > 0) {
+      const userPromises = workerUids.map(uid =>
+        db.collection('users').doc(uid).get()
+      );
+      const userDocs = await Promise.all(userPromises);
+      userDocs.forEach(doc => {
+        if (doc.exists) {
+          const userData = doc.data();
+          userInfoMap.set(doc.id, {
+            firstName: userData.firstName,
+            lastName: userData.lastName,
+            email: userData.email
+          });
+        }
+      });
     }
 
     // Group by match type
@@ -409,36 +429,87 @@ class MatchingService {
 
     console.log('[MatchingService] Found matches:', matchesSnapshot.size);
 
-    const matches = [];
-    for (const doc of matchesSnapshot.docs) {
-      const matchData = doc.data();
+    if (matchesSnapshot.empty) {
+      return [];
+    }
 
-      // Enrich with related data
-      let enrichedMatch = {
+    // Collect all IDs we need to fetch
+    const employerIds = new Set();
+    const workerIds = new Set();
+    const offerIds = new Set();
+
+    const matchesRaw = matchesSnapshot.docs.map(doc => {
+      const matchData = doc.data();
+      if (role === 'worker') {
+        employerIds.add(matchData.employerId);
+        offerIds.add(matchData.offerId);
+      } else {
+        workerIds.add(matchData.workerId);
+      }
+      return {
         id: doc.id,
         ...matchData,
         createdAt: matchData.createdAt?.toDate?.() || matchData.createdAt
       };
+    });
 
-      // Get related worker or employer info
-      if (role === 'worker') {
-        const employerDoc = await db.collection('employers').doc(matchData.employerId).get();
-        if (employerDoc.exists) {
-          enrichedMatch.employer = employerDoc.data();
-        }
-        const jobDoc = await db.collection('jobOffers').doc(matchData.offerId).get();
-        if (jobDoc.exists) {
-          enrichedMatch.jobOffer = jobDoc.data();
-        }
-      } else {
-        const workerDoc = await db.collection('workers').doc(matchData.workerId).get();
-        if (workerDoc.exists) {
-          enrichedMatch.worker = workerDoc.data();
-        }
-      }
+    // Batch fetch all related documents in parallel
+    const fetchPromises = [];
 
-      matches.push(enrichedMatch);
+    if (role === 'worker') {
+      // Fetch employers and job offers in parallel
+      fetchPromises.push(
+        Promise.all(Array.from(employerIds).map(id =>
+          db.collection('employers').doc(id).get()
+        )),
+        Promise.all(Array.from(offerIds).map(id =>
+          db.collection('jobOffers').doc(id).get()
+        ))
+      );
+    } else {
+      // Fetch workers
+      fetchPromises.push(
+        Promise.all(Array.from(workerIds).map(id =>
+          db.collection('workers').doc(id).get()
+        ))
+      );
     }
+
+    const results = await Promise.all(fetchPromises);
+
+    // Build lookup maps
+    const employerMap = new Map();
+    const workerMap = new Map();
+    const offerMap = new Map();
+
+    if (role === 'worker') {
+      results[0].forEach(doc => {
+        if (doc.exists) employerMap.set(doc.id, doc.data());
+      });
+      results[1].forEach(doc => {
+        if (doc.exists) offerMap.set(doc.id, doc.data());
+      });
+    } else {
+      results[0].forEach(doc => {
+        if (doc.exists) workerMap.set(doc.id, doc.data());
+      });
+    }
+
+    // Enrich matches with related data
+    const matches = matchesRaw.map(match => {
+      if (role === 'worker') {
+        return {
+          ...match,
+          employer: employerMap.get(match.employerId) || null,
+          jobOffer: offerMap.get(match.offerId) || null
+        };
+      } else {
+        return {
+          ...match,
+          worker: workerMap.get(match.workerId) || null
+        };
+      }
+    });
 
     // Sort by createdAt descending (newest first)
     matches.sort((a, b) => {

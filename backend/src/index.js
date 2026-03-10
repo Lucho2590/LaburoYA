@@ -13,6 +13,9 @@ const adminRoutes = require('./routes/admin');
 const contactRequestRoutes = require('./routes/contactRequests');
 const discoveryRoutes = require('./routes/discovery');
 const notificationRoutes = require('./routes/notifications');
+const leadsRoutes = require('./routes/leads');
+const rubrosRoutes = require('./routes/rubros');
+const settingsRoutes = require('./routes/settings');
 
 // Initialize Firebase Admin
 initializeFirebase();
@@ -39,6 +42,9 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/contact-requests', contactRequestRoutes);
 app.use('/api/discovery', discoveryRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/leads', leadsRoutes);
+app.use('/api/rubros', rubrosRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

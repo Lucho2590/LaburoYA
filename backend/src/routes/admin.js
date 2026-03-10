@@ -456,4 +456,658 @@ router.get('/matches', async (req, res, next) => {
   }
 });
 
+// ============================================
+// PLANS CRUD (Monetización)
+// ============================================
+
+// GET /api/admin/plans - List all plans
+router.get('/plans', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const { active } = req.query;
+
+    let query = db.collection('plans');
+
+    if (active !== undefined) {
+      query = query.where('active', '==', active === 'true');
+    }
+
+    const snapshot = await query.orderBy('order', 'asc').get();
+
+    const plans = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt,
+      updatedAt: doc.data().updatedAt?.toDate?.() || doc.data().updatedAt
+    }));
+
+    res.json({ plans });
+  } catch (error) {
+    // If orderBy fails due to missing index, try without it
+    if (error.code === 9) {
+      try {
+        const db = getDb();
+        const snapshot = await db.collection('plans').get();
+        const plans = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt,
+          updatedAt: doc.data().updatedAt?.toDate?.() || doc.data().updatedAt
+        }));
+        // Sort in memory
+        plans.sort((a, b) => (a.order || 0) - (b.order || 0));
+        return res.json({ plans });
+      } catch (err) {
+        return next(err);
+      }
+    }
+    next(error);
+  }
+});
+
+// GET /api/admin/plans/:planId - Get plan by ID
+router.get('/plans/:planId', async (req, res, next) => {
+  try {
+    const { planId } = req.params;
+    const db = getDb();
+
+    const planDoc = await db.collection('plans').doc(planId).get();
+
+    if (!planDoc.exists) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+
+    const planData = planDoc.data();
+
+    res.json({
+      id: planDoc.id,
+      ...planData,
+      createdAt: planData.createdAt?.toDate?.() || planData.createdAt,
+      updatedAt: planData.updatedAt?.toDate?.() || planData.updatedAt
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/admin/plans - Create plan
+router.post('/plans', async (req, res, next) => {
+  try {
+    const {
+      name,
+      description,
+      price,
+      maxOffers,
+      visibleCandidatesPerOffer,
+      offerDurationDays,
+      isDefault,
+      active = true,
+      order = 0
+    } = req.body;
+
+    // Validations
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ error: 'El nombre es requerido' });
+    }
+    if (price === undefined || price < 0) {
+      return res.status(400).json({ error: 'El precio debe ser mayor o igual a 0' });
+    }
+    if (!maxOffers || maxOffers < -1 || maxOffers === 0) {
+      return res.status(400).json({ error: 'La cantidad de ofertas debe ser mayor a 0 o -1 para ilimitado' });
+    }
+    if (!visibleCandidatesPerOffer || visibleCandidatesPerOffer < -1 || visibleCandidatesPerOffer === 0) {
+      return res.status(400).json({ error: 'La cantidad de candidatos debe ser mayor a 0 o -1 para ilimitado' });
+    }
+    if (!offerDurationDays || offerDurationDays < 1) {
+      return res.status(400).json({ error: 'La duración debe ser al menos 1 día' });
+    }
+
+    const db = getDb();
+
+    // If this plan is default, unset other defaults
+    if (isDefault) {
+      const existingDefaults = await db.collection('plans')
+        .where('isDefault', '==', true)
+        .get();
+
+      const batch = db.batch();
+      existingDefaults.docs.forEach(doc => {
+        batch.update(doc.ref, { isDefault: false, updatedAt: new Date() });
+      });
+      await batch.commit();
+    }
+
+    const planData = {
+      name: name.trim(),
+      description: description?.trim() || '',
+      price: Number(price),
+      maxOffers: Number(maxOffers),
+      visibleCandidatesPerOffer: Number(visibleCandidatesPerOffer),
+      offerDurationDays: Number(offerDurationDays),
+      isDefault: Boolean(isDefault),
+      active: Boolean(active),
+      order: Number(order),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const planRef = await db.collection('plans').add(planData);
+
+    res.status(201).json({
+      id: planRef.id,
+      ...planData
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/admin/plans/:planId - Update plan
+router.patch('/plans/:planId', async (req, res, next) => {
+  try {
+    const { planId } = req.params;
+    const db = getDb();
+
+    const planRef = db.collection('plans').doc(planId);
+    const planDoc = await planRef.get();
+
+    if (!planDoc.exists) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+
+    const updates = { updatedAt: new Date() };
+    const allowedFields = [
+      'name', 'description', 'price', 'maxOffers',
+      'visibleCandidatesPerOffer', 'offerDurationDays',
+      'isDefault', 'active', 'order'
+    ];
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        if (field === 'name' && req.body[field].trim() === '') {
+          return res.status(400).json({ error: 'El nombre no puede estar vacío' });
+        }
+        if (field === 'price' && req.body[field] < 0) {
+          return res.status(400).json({ error: 'El precio debe ser mayor o igual a 0' });
+        }
+        if (field === 'isDefault' || field === 'active') {
+          updates[field] = Boolean(req.body[field]);
+        } else if (['price', 'maxOffers', 'visibleCandidatesPerOffer', 'offerDurationDays', 'order'].includes(field)) {
+          updates[field] = Number(req.body[field]);
+        } else {
+          updates[field] = typeof req.body[field] === 'string' ? req.body[field].trim() : req.body[field];
+        }
+      }
+    }
+
+    // If setting as default, unset other defaults
+    if (updates.isDefault === true) {
+      const existingDefaults = await db.collection('plans')
+        .where('isDefault', '==', true)
+        .get();
+
+      const batch = db.batch();
+      existingDefaults.docs.forEach(doc => {
+        if (doc.id !== planId) {
+          batch.update(doc.ref, { isDefault: false, updatedAt: new Date() });
+        }
+      });
+      await batch.commit();
+    }
+
+    await planRef.update(updates);
+
+    const updatedDoc = await planRef.get();
+    const updatedData = updatedDoc.data();
+
+    res.json({
+      id: updatedDoc.id,
+      ...updatedData,
+      createdAt: updatedData.createdAt?.toDate?.() || updatedData.createdAt,
+      updatedAt: updatedData.updatedAt?.toDate?.() || updatedData.updatedAt
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/admin/plans/:planId - Delete plan
+router.delete('/plans/:planId', async (req, res, next) => {
+  try {
+    const { planId } = req.params;
+    const db = getDb();
+
+    const planRef = db.collection('plans').doc(planId);
+    const planDoc = await planRef.get();
+
+    if (!planDoc.exists) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+
+    const planData = planDoc.data();
+
+    // Don't allow deleting the default plan
+    if (planData.isDefault) {
+      return res.status(400).json({ error: 'No se puede eliminar el plan por defecto. Asigná otro plan como default primero.' });
+    }
+
+    // TODO: Check if any employers are using this plan before deleting
+
+    await planRef.delete();
+
+    res.json({ message: 'Plan eliminado correctamente' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// RUBROS CRUD (Categorías de trabajo)
+// ============================================
+
+// GET /api/admin/rubros - List all rubros (including inactive)
+router.get('/rubros', async (req, res, next) => {
+  try {
+    const db = getDb();
+
+    const snapshot = await db.collection('rubros').orderBy('orden', 'asc').get();
+
+    const rubros = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt,
+      updatedAt: doc.data().updatedAt?.toDate?.() || doc.data().updatedAt
+    }));
+
+    res.json({ rubros });
+  } catch (error) {
+    // If orderBy fails, sort in memory
+    if (error.code === 9) {
+      try {
+        const db = getDb();
+        const snapshot = await db.collection('rubros').get();
+        const rubros = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt,
+          updatedAt: doc.data().updatedAt?.toDate?.() || doc.data().updatedAt
+        }));
+        rubros.sort((a, b) => (a.orden || 0) - (b.orden || 0));
+        return res.json({ rubros });
+      } catch (err) {
+        return next(err);
+      }
+    }
+    next(error);
+  }
+});
+
+// POST /api/admin/rubros - Create rubro
+router.post('/rubros', async (req, res, next) => {
+  try {
+    const { nombre, icono, activo = true, orden = 0 } = req.body;
+
+    if (!nombre || nombre.trim() === '') {
+      return res.status(400).json({ error: 'El nombre es requerido' });
+    }
+
+    const db = getDb();
+
+    // Check if rubro with same name exists
+    const existing = await db.collection('rubros')
+      .where('nombre', '==', nombre.trim())
+      .limit(1)
+      .get();
+
+    if (!existing.empty) {
+      return res.status(400).json({ error: 'Ya existe un rubro con ese nombre' });
+    }
+
+    const rubroData = {
+      nombre: nombre.trim(),
+      icono: icono?.trim() || '💼',
+      activo: Boolean(activo),
+      orden: Number(orden),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const rubroRef = await db.collection('rubros').add(rubroData);
+
+    res.status(201).json({
+      id: rubroRef.id,
+      ...rubroData
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/admin/rubros/:rubroId - Update rubro
+router.patch('/rubros/:rubroId', async (req, res, next) => {
+  try {
+    const { rubroId } = req.params;
+    const db = getDb();
+
+    const rubroRef = db.collection('rubros').doc(rubroId);
+    const rubroDoc = await rubroRef.get();
+
+    if (!rubroDoc.exists) {
+      return res.status(404).json({ error: 'Rubro no encontrado' });
+    }
+
+    const updates = { updatedAt: new Date() };
+    const allowedFields = ['nombre', 'icono', 'activo', 'orden'];
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        if (field === 'nombre') {
+          if (req.body[field].trim() === '') {
+            return res.status(400).json({ error: 'El nombre no puede estar vacío' });
+          }
+          updates[field] = req.body[field].trim();
+        } else if (field === 'activo') {
+          updates[field] = Boolean(req.body[field]);
+        } else if (field === 'orden') {
+          updates[field] = Number(req.body[field]);
+        } else {
+          updates[field] = req.body[field]?.trim() || '';
+        }
+      }
+    }
+
+    await rubroRef.update(updates);
+
+    const updatedDoc = await rubroRef.get();
+
+    res.json({
+      id: updatedDoc.id,
+      ...updatedDoc.data(),
+      createdAt: updatedDoc.data().createdAt?.toDate?.() || updatedDoc.data().createdAt,
+      updatedAt: updatedDoc.data().updatedAt?.toDate?.() || updatedDoc.data().updatedAt
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/admin/rubros/:rubroId - Delete rubro
+router.delete('/rubros/:rubroId', async (req, res, next) => {
+  try {
+    const { rubroId } = req.params;
+    const db = getDb();
+
+    const rubroRef = db.collection('rubros').doc(rubroId);
+    const rubroDoc = await rubroRef.get();
+
+    if (!rubroDoc.exists) {
+      return res.status(404).json({ error: 'Rubro no encontrado' });
+    }
+
+    // Check if there are leads using this rubro
+    const leadsWithRubro = await db.collection('leads')
+      .where('rubroId', '==', rubroId)
+      .limit(1)
+      .get();
+
+    if (!leadsWithRubro.empty) {
+      return res.status(400).json({
+        error: 'No se puede eliminar. Hay leads usando este rubro. Desactivalo en su lugar.'
+      });
+    }
+
+    await rubroRef.delete();
+
+    res.json({ message: 'Rubro eliminado correctamente' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// LEADS CRUD (Waitlist)
+// ============================================
+
+// GET /api/admin/leads - List all leads
+router.get('/leads', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const { contacted, rubroId, limit = 50, offset = 0 } = req.query;
+
+    let query = db.collection('leads');
+
+    if (contacted !== undefined) {
+      query = query.where('contacted', '==', contacted === 'true');
+    }
+
+    if (rubroId) {
+      query = query.where('rubroId', '==', rubroId);
+    }
+
+    const snapshot = await query.orderBy('createdAt', 'desc').get();
+
+    const leads = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt,
+      updatedAt: doc.data().updatedAt?.toDate?.() || doc.data().updatedAt
+    }));
+
+    // Simple pagination
+    const paginated = leads.slice(Number(offset), Number(offset) + Number(limit));
+
+    res.json({
+      leads: paginated,
+      total: leads.length,
+      limit: Number(limit),
+      offset: Number(offset)
+    });
+  } catch (error) {
+    // If orderBy fails due to missing index, sort in memory
+    if (error.code === 9) {
+      try {
+        const db = getDb();
+        const snapshot = await db.collection('leads').get();
+        let leads = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt,
+          updatedAt: doc.data().updatedAt?.toDate?.() || doc.data().updatedAt
+        }));
+
+        // Apply filters in memory
+        if (req.query.contacted !== undefined) {
+          const contactedFilter = req.query.contacted === 'true';
+          leads = leads.filter(l => l.contacted === contactedFilter);
+        }
+        if (req.query.rubroId) {
+          leads = leads.filter(l => l.rubroId === req.query.rubroId);
+        }
+
+        // Sort by createdAt desc
+        leads.sort((a, b) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateB - dateA;
+        });
+
+        const limit = Number(req.query.limit) || 50;
+        const offset = Number(req.query.offset) || 0;
+        const paginated = leads.slice(offset, offset + limit);
+
+        return res.json({
+          leads: paginated,
+          total: leads.length,
+          limit,
+          offset
+        });
+      } catch (err) {
+        return next(err);
+      }
+    }
+    next(error);
+  }
+});
+
+// GET /api/admin/leads/stats - Get leads statistics
+router.get('/leads/stats', async (req, res, next) => {
+  try {
+    const db = getDb();
+
+    const leadsSnapshot = await db.collection('leads').get();
+    const leads = leadsSnapshot.docs.map(doc => doc.data());
+
+    const total = leads.length;
+    const contacted = leads.filter(l => l.contacted).length;
+    const pending = leads.filter(l => !l.contacted).length;
+
+    // Count by rubro
+    const byRubro = {};
+    leads.forEach(lead => {
+      const rubro = lead.rubroNombre || lead.rubroId || 'Sin rubro';
+      byRubro[rubro] = (byRubro[rubro] || 0) + 1;
+    });
+
+    res.json({
+      total,
+      contacted,
+      pending,
+      byRubro
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/admin/leads/:leadId - Update lead (mark as contacted, etc)
+router.patch('/leads/:leadId', async (req, res, next) => {
+  try {
+    const { leadId } = req.params;
+    const db = getDb();
+
+    const leadRef = db.collection('leads').doc(leadId);
+    const leadDoc = await leadRef.get();
+
+    if (!leadDoc.exists) {
+      return res.status(404).json({ error: 'Lead no encontrado' });
+    }
+
+    const updates = { updatedAt: new Date() };
+    const allowedFields = ['contacted', 'notes'];
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        if (field === 'contacted') {
+          updates[field] = Boolean(req.body[field]);
+        } else {
+          updates[field] = req.body[field];
+        }
+      }
+    }
+
+    await leadRef.update(updates);
+
+    const updatedDoc = await leadRef.get();
+
+    res.json({
+      id: updatedDoc.id,
+      ...updatedDoc.data(),
+      createdAt: updatedDoc.data().createdAt?.toDate?.() || updatedDoc.data().createdAt,
+      updatedAt: updatedDoc.data().updatedAt?.toDate?.() || updatedDoc.data().updatedAt
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/admin/leads/:leadId - Delete lead
+router.delete('/leads/:leadId', async (req, res, next) => {
+  try {
+    const { leadId } = req.params;
+    const db = getDb();
+
+    const leadRef = db.collection('leads').doc(leadId);
+    const leadDoc = await leadRef.get();
+
+    if (!leadDoc.exists) {
+      return res.status(404).json({ error: 'Lead no encontrado' });
+    }
+
+    await leadRef.delete();
+
+    res.json({ message: 'Lead eliminado correctamente' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// SETTINGS (Configuración general)
+// ============================================
+
+// GET /api/admin/settings/terms - Get terms and conditions
+router.get('/settings/terms', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const termsDoc = await db.collection('settings').doc('terms').get();
+
+    if (!termsDoc.exists) {
+      return res.json({
+        content: '',
+        updatedAt: null,
+        updatedBy: null
+      });
+    }
+
+    const data = termsDoc.data();
+    res.json({
+      content: data.content || '',
+      updatedAt: data.updatedAt?.toDate?.() || data.updatedAt,
+      updatedBy: data.updatedBy || null
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /api/admin/settings/terms - Update terms and conditions
+router.put('/settings/terms', async (req, res, next) => {
+  try {
+    const { content, confirmUpdate } = req.body;
+
+    // Require double confirmation
+    if (!confirmUpdate) {
+      return res.status(400).json({
+        error: 'Se requiere confirmación para actualizar los términos',
+        requireConfirmation: true
+      });
+    }
+
+    if (content === undefined) {
+      return res.status(400).json({ error: 'El contenido es requerido' });
+    }
+
+    const db = getDb();
+    const termsRef = db.collection('settings').doc('terms');
+
+    await termsRef.set({
+      content: content,
+      updatedAt: new Date(),
+      updatedBy: req.user.uid
+    }, { merge: true });
+
+    const updatedDoc = await termsRef.get();
+    const data = updatedDoc.data();
+
+    res.json({
+      message: 'Términos actualizados correctamente',
+      content: data.content,
+      updatedAt: data.updatedAt?.toDate?.() || data.updatedAt,
+      updatedBy: data.updatedBy
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

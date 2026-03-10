@@ -14,7 +14,17 @@ import {
   IDiscoveryOffersResponse,
   IDiscoveryWorkersResponse,
   IAppNotification,
-  IMatch
+  IMatch,
+  IPlan,
+  ICreatePlanData,
+  IUpdatePlanData,
+  IRubro,
+  ICreateRubroData,
+  IUpdateRubroData,
+  ILead,
+  ICreateLeadData,
+  ILeadStats,
+  ITermsAndConditions
 } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -250,6 +260,38 @@ class ApiService {
     );
   }
 
+  // Admin - Plans
+  async getAdminPlans(params?: { active?: boolean }) {
+    const searchParams = new URLSearchParams();
+    if (params?.active !== undefined) searchParams.set('active', params.active.toString());
+    const query = searchParams.toString();
+    return this.request<{ plans: IPlan[] }>(`/admin/plans${query ? `?${query}` : ''}`);
+  }
+
+  async getAdminPlan(planId: string) {
+    return this.request<IPlan>(`/admin/plans/${planId}`);
+  }
+
+  async createAdminPlan(data: ICreatePlanData) {
+    return this.request<IPlan>('/admin/plans', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async updateAdminPlan(planId: string, data: IUpdatePlanData) {
+    return this.request<IPlan>(`/admin/plans/${planId}`, {
+      method: 'PATCH',
+      body: data,
+    });
+  }
+
+  async deleteAdminPlan(planId: string) {
+    return this.request<{ message: string }>(`/admin/plans/${planId}`, {
+      method: 'DELETE',
+    });
+  }
+
   // ============================================
   // Workers - Skills
   // ============================================
@@ -383,6 +425,117 @@ class ApiService {
       {
         method: 'DELETE',
         body: { token },
+      }
+    );
+  }
+
+  // ============================================
+  // Rubros (Public)
+  // ============================================
+
+  async getRubros() {
+    return this.request<{ rubros: IRubro[] }>('/rubros', { requireAuth: false });
+  }
+
+  async getRubro(id: string) {
+    return this.request<IRubro>(`/rubros/${id}`, { requireAuth: false });
+  }
+
+  // ============================================
+  // Leads (Public - for waitlist)
+  // ============================================
+
+  async createLead(data: ICreateLeadData) {
+    return this.request<{ success: boolean; message: string; id: string }>('/leads', {
+      method: 'POST',
+      body: data,
+      requireAuth: false,
+    });
+  }
+
+  // ============================================
+  // Admin - Rubros
+  // ============================================
+
+  async getAdminRubros() {
+    return this.request<{ rubros: IRubro[] }>('/admin/rubros');
+  }
+
+  async createAdminRubro(data: ICreateRubroData) {
+    return this.request<IRubro>('/admin/rubros', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async updateAdminRubro(rubroId: string, data: IUpdateRubroData) {
+    return this.request<IRubro>(`/admin/rubros/${rubroId}`, {
+      method: 'PATCH',
+      body: data,
+    });
+  }
+
+  async deleteAdminRubro(rubroId: string) {
+    return this.request<{ message: string }>(`/admin/rubros/${rubroId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ============================================
+  // Admin - Leads
+  // ============================================
+
+  async getAdminLeads(params?: { contacted?: boolean; rubroId?: string; limit?: number; offset?: number }) {
+    const searchParams = new URLSearchParams();
+    if (params?.contacted !== undefined) searchParams.set('contacted', params.contacted.toString());
+    if (params?.rubroId) searchParams.set('rubroId', params.rubroId);
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    if (params?.offset) searchParams.set('offset', params.offset.toString());
+    const query = searchParams.toString();
+    return this.request<{ leads: ILead[]; total: number; limit: number; offset: number }>(
+      `/admin/leads${query ? `?${query}` : ''}`
+    );
+  }
+
+  async getAdminLeadsStats() {
+    return this.request<ILeadStats>('/admin/leads/stats');
+  }
+
+  async updateAdminLead(leadId: string, data: { contacted?: boolean; notes?: string }) {
+    return this.request<ILead>(`/admin/leads/${leadId}`, {
+      method: 'PATCH',
+      body: data,
+    });
+  }
+
+  async deleteAdminLead(leadId: string) {
+    return this.request<{ message: string }>(`/admin/leads/${leadId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ============================================
+  // Settings (Public)
+  // ============================================
+
+  async getTerms() {
+    return this.request<ITermsAndConditions>('/settings/terms', { requireAuth: false });
+  }
+
+  // ============================================
+  // Admin - Settings
+  // ============================================
+
+  async getAdminTerms() {
+    return this.request<ITermsAndConditions>('/admin/settings/terms');
+  }
+
+  async updateAdminTerms(content: string, confirmUpdate: boolean) {
+    return this.request<ITermsAndConditions & { message: string; requireConfirmation?: boolean }>(
+      '/admin/settings/terms',
+      {
+        method: 'PUT',
+        body: { content, confirmUpdate },
       }
     );
   }

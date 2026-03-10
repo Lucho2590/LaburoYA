@@ -39,3 +39,8 @@ coverage/
 # Misc
 *.log
 *.tmp
+
+# Internal documentation
+README-MATCHING-SYSTEM.md
+LaburoYA-Guia-Matching.html
+LaburoYA-Guia-Matching.pdf

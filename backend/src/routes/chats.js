@@ -17,7 +17,7 @@ function isUserWorker(userData) {
 }
 
 // Get or create chat for a match
-// RULE: Only employers can initiate chats, and only if there's a match
+// Both employer and worker can initiate chats if there's a match
 router.post('/:matchId', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
@@ -88,14 +88,7 @@ router.post('/:matchId', authMiddleware, async (req, res, next) => {
       });
     }
 
-    // Only employers can CREATE new chats
-    if (!isEmployer) {
-      console.log('[Chats] Non-employer trying to create chat:', { uid, role: userData.role, secondaryRole: userData.secondaryRole });
-      return res.status(403).json({
-        error: 'Solo el empleador puede iniciar el chat. Esperá a que te contacten.'
-      });
-    }
-
+    // Both employer and worker can create chats (if there's a match)
     // Create new chat
     const chatData = {
       matchId,
@@ -240,20 +233,52 @@ router.get('/', authMiddleware, async (req, res, next) => {
 
     console.log('[Chats] GET / - Found chats:', chatsSnapshot.size);
 
-    const chats = [];
-    for (const doc of chatsSnapshot.docs) {
+    if (chatsSnapshot.empty) {
+      return res.json([]);
+    }
+
+    // Collect all participant IDs we need to fetch
+    const participantIds = new Set();
+    const chatsRaw = chatsSnapshot.docs.map(doc => {
       const chatData = doc.data();
-
-      // Get other participant info
       const otherUid = isWorker ? chatData.employerId : chatData.workerId;
-      const otherCollection = isWorker ? 'employers' : 'workers';
+      participantIds.add(otherUid);
+      return {
+        id: doc.id,
+        ...chatData,
+        otherUid,
+        lastMessageAt: chatData.lastMessageAt?.toDate?.() || chatData.lastMessageAt
+      };
+    });
 
-      const otherDoc = await db.collection(otherCollection).doc(otherUid).get();
-      const participant = otherDoc.exists ? otherDoc.data() : null;
+    // Batch fetch all participants and their user info in parallel
+    const otherCollection = isWorker ? 'employers' : 'workers';
+    const participantIdsArray = Array.from(participantIds);
 
-      // Get participant user info (name)
-      const otherUserDoc = await db.collection('users').doc(otherUid).get();
-      const otherUserData = otherUserDoc.exists ? otherUserDoc.data() : {};
+    const [profileDocs, userDocs] = await Promise.all([
+      Promise.all(participantIdsArray.map(id =>
+        db.collection(otherCollection).doc(id).get()
+      )),
+      Promise.all(participantIdsArray.map(id =>
+        db.collection('users').doc(id).get()
+      ))
+    ]);
+
+    // Build lookup maps
+    const profileMap = new Map();
+    const userMap = new Map();
+
+    profileDocs.forEach(doc => {
+      if (doc.exists) profileMap.set(doc.id, doc.data());
+    });
+    userDocs.forEach(doc => {
+      if (doc.exists) userMap.set(doc.id, doc.data());
+    });
+
+    // Enrich chats with participant data
+    const chats = chatsRaw.map(chat => {
+      const participant = profileMap.get(chat.otherUid);
+      const otherUserData = userMap.get(chat.otherUid) || {};
 
       const enrichedParticipant = participant ? {
         ...participant,
@@ -261,13 +286,13 @@ router.get('/', authMiddleware, async (req, res, next) => {
         lastName: otherUserData.lastName
       } : null;
 
-      chats.push({
-        id: doc.id,
-        ...chatData,
-        participant: enrichedParticipant,
-        lastMessageAt: chatData.lastMessageAt?.toDate?.() || chatData.lastMessageAt
-      });
-    }
+      // Remove temporary field
+      const { otherUid, ...chatWithoutOtherUid } = chat;
+      return {
+        ...chatWithoutOtherUid,
+        participant: enrichedParticipant
+      };
+    });
 
     // Sort by lastMessageAt descending (newest first)
     chats.sort((a, b) => {
@@ -276,8 +301,18 @@ router.get('/', authMiddleware, async (req, res, next) => {
       return dateB - dateA;
     });
 
-    console.log('[Chats] GET / - Returning chats:', chats.length);
-    res.json(chats);
+    // Deduplicate by matchId (keep the most recent one - already sorted)
+    const seenMatchIds = new Set();
+    const uniqueChats = chats.filter(chat => {
+      if (seenMatchIds.has(chat.matchId)) {
+        return false;
+      }
+      seenMatchIds.add(chat.matchId);
+      return true;
+    });
+
+    console.log('[Chats] GET / - Returning chats:', uniqueChats.length, '(deduped from', chats.length, ')');
+    res.json(uniqueChats);
   } catch (error) {
     console.error('[Chats] GET / - Error:', error.message, error.stack);
     next(error);

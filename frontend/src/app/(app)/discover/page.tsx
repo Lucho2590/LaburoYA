@@ -1,72 +1,81 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
-import { useDiscoveryOffers, useDiscoveryWorkers } from '@/hooks/useDiscovery';
-import { IRelevantOffer, IRelevantWorker } from '@/types';
-import { JOB_CATEGORIES, TRubro } from '@/config/constants';
-import { AppLayout } from '@/components/AppLayout';
-import { OfferDetailModal } from '@/components/OfferDetailModal';
-import { WorkerProfileModal } from '@/components/WorkerProfileModal';
-import { toast } from 'sonner';
-import { MapPin, Video } from 'lucide-react';
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
+import { usePageTitle } from "@/contexts/PageTitleContext";
+import { useDiscoveryOffers, useDiscoveryWorkers } from "@/hooks/useDiscovery";
+import { IRelevantOffer, IRelevantWorker } from "@/types";
+import { JOB_CATEGORIES, TRubro } from "@/config/constants";
+import { OfferDetailModal } from "@/components/OfferDetailModal";
+import { WorkerProfileModal } from "@/components/WorkerProfileModal";
+import { toast } from "sonner";
+import { MapPin, Video } from "lucide-react";
 
-type MatchSection = 'full' | 'partial' | 'skills';
+type MatchSection = "full" | "partial" | "skills";
 
 // Configuración de secciones - nombres cortos para mobile
 const SECTION_CONFIG = {
   full: {
-    label: 'Perfectas',
-    emoji: '🎯',
-    color: 'bg-green-500',
-    emptyTitle: 'No hay ofertas perfectas aún',
-    emptySubtitle: 'Completá tu perfil para mejorar tus coincidencias'
+    label: "Perfectas",
+    emoji: "🎯",
+    color: "bg-green-500",
+    emptyTitle: "No hay ofertas perfectas aún",
+    emptySubtitle: "Completá tu perfil para mejorar tus coincidencias",
   },
   partial: {
-    label: 'Buenas',
-    emoji: '👍',
-    color: 'bg-yellow-500',
-    emptyTitle: 'No hay buenas opciones aún',
-    emptySubtitle: 'Agregá más skills a tu perfil'
+    label: "Buenas",
+    emoji: "👍",
+    color: "bg-yellow-500",
+    emptyTitle: "No hay buenas opciones aún",
+    emptySubtitle: "Agregá más skills a tu perfil",
   },
   skills: {
-    label: 'Otras',
-    emoji: '💡',
-    color: 'bg-blue-500',
-    emptyTitle: 'No hay sugerencias',
-    emptySubtitle: 'Explorá otros rubros o puestos'
-  }
+    label: "Otras",
+    emoji: "💡",
+    color: "bg-blue-500",
+    emptyTitle: "No hay sugerencias",
+    emptySubtitle: "Explorá otros rubros o puestos",
+  },
 };
 
 export default function DiscoverPage() {
   const router = useRouter();
   const { user, userData, loading } = useAuth();
-  const [activeSection, setActiveSection] = useState<MatchSection>('full');
-  const [selectedOffer, setSelectedOffer] = useState<IRelevantOffer | null>(null);
-  const [selectedWorker, setSelectedWorker] = useState<IRelevantWorker | null>(null);
+  const { setPageConfig } = usePageTitle();
+  const [activeSection, setActiveSection] = useState<MatchSection>("full");
+  const [selectedOffer, setSelectedOffer] = useState<IRelevantOffer | null>(
+    null,
+  );
+  const [selectedWorker, setSelectedWorker] = useState<IRelevantWorker | null>(
+    null,
+  );
   const [isRequesting, setIsRequesting] = useState(false);
 
-  const isWorker = userData?.role === 'worker' ||
-    (userData?.role === 'superuser' && userData?.secondaryRole === 'worker');
-  const isEmployer = userData?.role === 'employer' ||
-    (userData?.role === 'superuser' && userData?.secondaryRole === 'employer');
+  const isWorker =
+    userData?.role === "worker" ||
+    (userData?.role === "superuser" && userData?.secondaryRole === "worker");
+  const isEmployer =
+    userData?.role === "employer" ||
+    (userData?.role === "superuser" && userData?.secondaryRole === "employer");
 
-  const {
-    offers,
-    loading: offersLoading,
-    requestOffer
-  } = useDiscoveryOffers();
+  const { offers, loading: offersLoading, requestOffer } = useDiscoveryOffers();
 
   const {
     workers,
     loading: workersLoading,
-    requestWorker
+    requestWorker,
   } = useDiscoveryWorkers();
+
+  // Set page config based on role
+  useEffect(() => {
+    const title = isWorker ? "Oportunidades" : "Candidatos disponibles";
+    setPageConfig({ title });
+  }, [setPageConfig, isWorker]);
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
+      router.push("/login");
     }
   }, [loading, user, router]);
 
@@ -77,14 +86,16 @@ export default function DiscoverPage() {
 
       if (result.matchCreated) {
         // Worker: ir a matches, el employer iniciará el chat
-        toast.success('¡Match! El empleador te va a contactar pronto');
-        router.push('/matches');
+        toast.success("¡Match! El empleador te va a contactar pronto");
+        router.push("/matches");
       } else {
-        toast.success('Solicitud enviada');
+        toast.success("Solicitud enviada");
       }
       setSelectedOffer(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Error al enviar solicitud');
+      toast.error(
+        err instanceof Error ? err.message : "Error al enviar solicitud",
+      );
     } finally {
       setIsRequesting(false);
     }
@@ -92,39 +103,51 @@ export default function DiscoverPage() {
 
   const handleContactWorker = async (worker: IRelevantWorker) => {
     if (!worker.bestOffer?.id) {
-      toast.error('No hay oferta asociada');
+      toast.error("No hay oferta asociada");
       return;
     }
 
     try {
       setIsRequesting(true);
-      console.log('[Discovery] Sending employer request:', { workerId: worker.uid, offerId: worker.bestOffer.id });
+      console.log("[Discovery] Sending employer request:", {
+        workerId: worker.uid,
+        offerId: worker.bestOffer.id,
+      });
       const result = await requestWorker(worker.uid!, worker.bestOffer.id);
-      console.log('[Discovery] Request result:', result);
+      console.log("[Discovery] Request result:", result);
 
       if (result.matchCreated && result.match?.id) {
         // Employer: match creado, ir a matches para que pueda iniciar chat cuando quiera
-        console.log('[Discovery] Match created, redirecting to matches:', result.match.id);
-        toast.success('¡Match! Podés iniciar el chat desde Matches');
-        router.push('/matches');
+        console.log(
+          "[Discovery] Match created, redirecting to matches:",
+          result.match.id,
+        );
+        toast.success("¡Match! Podés iniciar el chat desde Matches");
+        router.push("/matches");
       } else if (result.matchCreated) {
         // Match created but no ID (shouldn't happen)
-        console.error('[Discovery] Match created but no ID:', result);
-        toast.success('¡Match creado! Revisá tus matches');
-        router.push('/matches');
+        console.error("[Discovery] Match created but no ID:", result);
+        toast.success("¡Match creado! Revisá tus matches");
+        router.push("/matches");
       } else {
-        toast.success('Solicitud enviada. Te avisaremos cuando responda.');
+        toast.success("Solicitud enviada. Te avisaremos cuando responda.");
       }
       setSelectedWorker(null);
     } catch (err) {
-      console.error('[Discovery] Error:', err);
-      toast.error(err instanceof Error ? err.message : 'Error al enviar solicitud');
+      console.error("[Discovery] Error:", err);
+      toast.error(
+        err instanceof Error ? err.message : "Error al enviar solicitud",
+      );
     } finally {
       setIsRequesting(false);
     }
   };
 
-  if (loading || (isWorker && offersLoading) || (isEmployer && workersLoading)) {
+  if (
+    loading ||
+    (isWorker && offersLoading) ||
+    (isEmployer && workersLoading)
+  ) {
     return (
       <div className="min-h-screen flex items-center justify-center theme-bg-primary">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#E10600]"></div>
@@ -137,14 +160,14 @@ export default function DiscoverPage() {
     const sections = {
       full: offers?.fullMatch || [],
       partial: offers?.partialMatch || [],
-      skills: offers?.skillsMatch || []
+      skills: offers?.skillsMatch || [],
     };
 
     const currentOffers = sections[activeSection];
     const config = SECTION_CONFIG[activeSection];
 
     return (
-      <AppLayout title="Oportunidades">
+      <>
         <div className="px-4 py-4">
           {/* Section Tabs - Compactos para mobile */}
           <div className="flex gap-2 mb-4">
@@ -158,7 +181,7 @@ export default function DiscoverPage() {
                   className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
                     activeSection === key
                       ? `${cfg.color} text-white`
-                      : 'theme-bg-card theme-text-secondary border theme-border'
+                      : "theme-bg-card theme-text-secondary border theme-border"
                   }`}
                 >
                   <span>{cfg.emoji}</span>
@@ -199,52 +222,60 @@ export default function DiscoverPage() {
           onContact={handleContactOffer}
           isRequesting={isRequesting}
         />
-      </AppLayout>
+      </>
     );
   }
 
-  // Employer view - show workers
+  // Employer view - show workers (todos en una lista con estrellas)
   if (isEmployer) {
-    const sections = {
-      full: workers?.fullMatch || [],
-      partial: workers?.partialMatch || [],
-      skills: workers?.skillsMatch || []
-    };
+    // Combinar todos los workers con su nivel de match
+    const allWorkers = [
+      ...(workers?.fullMatch || []).map((w) => ({
+        ...w,
+        matchLevel: 3 as const,
+      })),
+      ...(workers?.partialMatch || []).map((w) => ({
+        ...w,
+        matchLevel: 2 as const,
+      })),
+      ...(workers?.skillsMatch || []).map((w) => ({
+        ...w,
+        matchLevel: 1 as const,
+      })),
+    ];
 
-    const currentWorkers = sections[activeSection];
-    const config = SECTION_CONFIG[activeSection];
+    const totalCount = allWorkers.length;
 
     return (
-      <AppLayout title="Candidatos disponibles">
+      <>
         <div className="px-4 py-4">
-          {/* Section Tabs - Compactos para mobile */}
-          <div className="flex gap-2 mb-4">
-            {(Object.keys(SECTION_CONFIG) as MatchSection[]).map((key) => {
-              const cfg = SECTION_CONFIG[key];
-              const count = sections[key].length;
-              return (
-                <button
-                  key={key}
-                  onClick={() => setActiveSection(key)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
-                    activeSection === key
-                      ? `${cfg.color} text-white`
-                      : 'theme-bg-card theme-text-secondary border theme-border'
-                  }`}
-                >
-                  <span>{cfg.emoji}</span>
-                  <span>{count}</span>
-                </button>
-              );
-            })}
+          {/* Header con leyenda de estrellas */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3 text-xs theme-text-muted">
+              <span className="flex items-center gap-1">
+                <span className="text-yellow-500">★★★</span>
+                <span>Perfecto</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="text-yellow-500">★★</span>
+                <span>Bueno</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="text-yellow-500">★</span>
+                <span>Recomendados</span>
+              </span>
+            </div>
+            <span className="text-xs theme-text-muted">
+              {totalCount} candidatos
+            </span>
           </div>
 
           {/* Workers List */}
-          {currentWorkers.length === 0 ? (
+          {allWorkers.length === 0 ? (
             <div className="text-center py-16">
-              <span className="text-5xl">{config.emoji}</span>
+              <span className="text-5xl">👥</span>
               <p className="theme-text-primary font-medium mt-4">
-                {config.emptyTitle.replace('ofertas', 'candidatos')}
+                No hay candidatos aún
               </p>
               <p className="theme-text-muted text-sm mt-1">
                 Publicá ofertas con skills para encontrar candidatos
@@ -252,10 +283,11 @@ export default function DiscoverPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {currentWorkers.map((worker) => (
+              {allWorkers.map((worker) => (
                 <WorkerCard
-                  key={worker.uid}
+                  key={`${worker.uid}-${worker.matchLevel}`}
                   worker={worker}
+                  matchLevel={worker.matchLevel}
                   onClick={() => setSelectedWorker(worker)}
                 />
               ))}
@@ -270,18 +302,16 @@ export default function DiscoverPage() {
           onContact={handleContactWorker}
           isRequesting={isRequesting}
         />
-      </AppLayout>
+      </>
     );
   }
 
   return (
-    <AppLayout title="Descubrir">
-      <div className="text-center py-12">
-        <p className="theme-text-secondary">
-          Completá tu perfil para empezar a descubrir
-        </p>
-      </div>
-    </AppLayout>
+    <div className="text-center py-12">
+      <p className="theme-text-secondary">
+        Completá tu perfil para empezar a descubrir
+      </p>
+    </div>
   );
 }
 
@@ -307,7 +337,7 @@ function OfferCard({
             {offer.puesto}
           </h3>
           <p className="theme-text-secondary text-sm truncate">
-            {offer.employer?.businessName || 'Empresa'}
+            {offer.employer?.businessName || "Empresa"}
           </p>
           <div className="flex items-center gap-2 mt-1 text-xs theme-text-muted">
             {offer.zona && (
@@ -317,9 +347,7 @@ function OfferCard({
               </span>
             )}
             {offer.salary && (
-              <span className="text-green-600 font-medium">
-                {offer.salary}
-              </span>
+              <span className="text-green-600 font-medium">{offer.salary}</span>
             )}
           </div>
         </div>
@@ -338,18 +366,33 @@ function OfferCard({
 }
 
 // ============================================
-// Worker Card - Para Employers
+// Worker Card - Para Employers (con estrellas de match)
 // ============================================
 function WorkerCard({
   worker,
+  matchLevel,
   onClick,
 }: {
   worker: IRelevantWorker;
+  matchLevel?: 1 | 2 | 3;
   onClick: () => void;
 }) {
-  const displayName = worker.firstName && worker.lastName
-    ? `${worker.firstName} ${worker.lastName}`
-    : worker.puesto;
+  const displayName =
+    worker.firstName && worker.lastName
+      ? `${worker.firstName} ${worker.lastName}`
+      : worker.puesto;
+
+  // Renderizar estrellas según nivel de match
+  const renderStars = (level: number) => {
+    const stars = "★".repeat(level);
+    const emptyStars = "☆".repeat(3 - level);
+    return (
+      <span className="text-sm">
+        <span className="text-yellow-500">{stars}</span>
+        <span className="text-gray-300">{emptyStars}</span>
+      </span>
+    );
+  };
 
   return (
     <div
@@ -363,6 +406,7 @@ function WorkerCard({
             <h3 className="font-semibold theme-text-primary truncate">
               {displayName}
             </h3>
+            {matchLevel && renderStars(matchLevel)}
             {worker.videoUrl && (
               <Video className="h-4 w-4 text-orange-500 flex-shrink-0" />
             )}
@@ -370,7 +414,8 @@ function WorkerCard({
 
           {/* Puesto del worker */}
           <p className="theme-text-secondary text-sm truncate">
-            {worker.puesto} • {JOB_CATEGORIES[worker.rubro as TRubro]?.label || worker.rubro}
+            {worker.puesto} •{" "}
+            {JOB_CATEGORIES[worker.rubro as TRubro]?.label || worker.rubro}
           </p>
 
           {/* Para qué oferta matchea */}
@@ -389,9 +434,7 @@ function WorkerCard({
             )}
             {/* TODO: Temporal - mostrar email para testing */}
             {worker.email && (
-              <span className="truncate">
-                📧 {worker.email}
-              </span>
+              <span className="truncate">📧 {worker.email}</span>
             )}
           </div>
         </div>

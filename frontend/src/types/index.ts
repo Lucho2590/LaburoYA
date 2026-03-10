@@ -343,3 +343,98 @@ export interface IPaginatedResponse<T> {
   offset: number;
   [key: string]: T[] | number;
 }
+
+// ============================================
+// Plan Types (Monetización)
+// ============================================
+
+export interface IPlan {
+  id: string;
+  name: string;
+  description?: string;
+  price: number; // en pesos, 0 = gratis
+  maxOffers: number; // -1 = ilimitado
+  visibleCandidatesPerOffer: number; // -1 = ilimitado
+  offerDurationDays: number;
+  isDefault?: boolean; // Plan para primera oferta gratis
+  active: boolean;
+  order?: number; // Para ordenar en la UI
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ICreatePlanData {
+  name: string;
+  description?: string;
+  price: number;
+  maxOffers: number;
+  visibleCandidatesPerOffer: number;
+  offerDurationDays: number;
+  isDefault?: boolean;
+  active?: boolean;
+  order?: number;
+}
+
+export interface IUpdatePlanData extends Partial<ICreatePlanData> {}
+
+// ============================================
+// Rubro Types (Dynamic job categories)
+// ============================================
+
+export interface IRubro {
+  id: string;
+  nombre: string;
+  icono: string;
+  activo: boolean;
+  orden: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ICreateRubroData {
+  nombre: string;
+  icono?: string;
+  activo?: boolean;
+  orden?: number;
+}
+
+export interface IUpdateRubroData extends Partial<ICreateRubroData> {}
+
+// ============================================
+// Lead Types (Waitlist)
+// ============================================
+
+export interface ILead {
+  id: string;
+  nombre: string;
+  telefono: string;
+  rubroId: string;
+  rubroNombre?: string;
+  contacted: boolean;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ICreateLeadData {
+  nombre: string;
+  telefono: string;
+  rubroId: string;
+}
+
+export interface ILeadStats {
+  total: number;
+  contacted: number;
+  pending: number;
+  byRubro: Record<string, number>;
+}
+
+// ============================================
+// Settings Types
+// ============================================
+
+export interface ITermsAndConditions {
+  content: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}

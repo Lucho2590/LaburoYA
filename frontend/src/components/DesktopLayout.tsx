@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { NotificationBell } from '@/components/NotificationBell';
+import { usePageTitle } from '@/contexts/PageTitleContext';
 
 interface DesktopLayoutProps {
   children: ReactNode;
@@ -13,15 +14,24 @@ interface DesktopLayoutProps {
   showBack?: boolean;
   backHref?: string;
   onBack?: () => void;
+  useContext?: boolean;
 }
 
 export function DesktopLayout({
   children,
-  title,
-  showBack = false,
-  backHref = '/home',
-  onBack,
+  title: propTitle,
+  showBack: propShowBack = false,
+  backHref: propBackHref = '/home',
+  onBack: propOnBack,
+  useContext = false
 }: DesktopLayoutProps) {
+  const pageContext = usePageTitle();
+
+  // Use context values if useContext is true, otherwise use props
+  const title = useContext ? pageContext.title : propTitle;
+  const showBack = useContext ? pageContext.showBack : propShowBack;
+  const backHref = useContext ? pageContext.backHref : propBackHref;
+  const onBack = useContext ? pageContext.onBack : propOnBack;
   const pathname = usePathname();
   const { userData, getEffectiveAppRole, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
