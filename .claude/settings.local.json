@@ -10,7 +10,11 @@
       "Bash(npx tsc:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(node --check:*)"
+      "Bash(node --check:*)",
+      "Bash(git config:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)"
     ]
   }
 }
