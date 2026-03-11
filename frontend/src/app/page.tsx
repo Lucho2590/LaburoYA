@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useAuth } from "@/contexts/AuthContext";
 import { JOB_CATEGORIES } from "@/config/constants";
 import { WaitlistModal } from "@/components/WaitlistModal";
+import { api } from "@/services/api";
 import {
   MessageCircle,
   Users,
@@ -17,11 +19,31 @@ import {
   Video,
   Bell,
   Download,
+  X,
+  FileText,
+  Loader2,
 } from "lucide-react";
 
 export default function LandingPage() {
   const [showWaitlistModal, setShowWaitlistModal] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [termsContent, setTermsContent] = useState("");
+  const [loadingTerms, setLoadingTerms] = useState(false);
   const { user, loading } = useAuth();
+
+  const handleShowTerms = async () => {
+    setShowTermsModal(true);
+    setLoadingTerms(true);
+    try {
+      const data = await api.getTerms();
+      setTermsContent(data.content || "No hay términos y condiciones disponibles.");
+    } catch (err) {
+      console.error("Error fetching terms:", err);
+      setTermsContent("Error al cargar los términos y condiciones.");
+    } finally {
+      setLoadingTerms(false);
+    }
+  };
 
   // Show modal on first visit
   useEffect(() => {
@@ -51,14 +73,64 @@ export default function LandingPage() {
         isOpen={showWaitlistModal}
         onClose={() => setShowWaitlistModal(false)}
       />
+
+      {/* Terms Modal */}
+      {showTermsModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg relative overflow-hidden shadow-2xl h-[70vh] flex flex-col">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-[#E10600] to-[#FF6A00] p-6 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <FileText className="w-6 h-6" />
+                <h2 className="text-xl font-bold">Términos y Condiciones</h2>
+              </div>
+              <button
+                onClick={() => setShowTermsModal(false)}
+                className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto flex-1">
+              {loadingTerms ? (
+                <div className="flex items-center justify-center h-full">
+                  <Loader2 className="w-10 h-10 animate-spin text-[#E10600]" />
+                </div>
+              ) : (
+                <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap">
+                  {termsContent}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-gray-200 shrink-0">
+              <button
+                onClick={() => setShowTermsModal(false)}
+                className="w-full py-3 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold hover:opacity-90 transition-opacity"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Navbar */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
             <Link href="/" className="flex items-center">
-              <span className="text-xl font-bold bg-gradient-to-r from-[#E10600] to-[#FF6A00] bg-clip-text text-transparent">
-                LaburoYA
-              </span>
+              <Image
+                src="/logo.png"
+                alt="LaburoYA"
+                width={180}
+                height={50}
+                className="h-20 w-auto"
+                priority
+              />
             </Link>
             <div className="flex items-center gap-3">
               {loading ? (
@@ -718,14 +790,20 @@ export default function LandingPage() {
               <h4 className="font-semibold mb-4">Legal</h4>
               <ul className="space-y-2 text-gray-400 text-sm">
                 <li>
-                  <a href="#" className="hover:text-white transition-colors">
+                  <button
+                    onClick={handleShowTerms}
+                    className="hover:text-white transition-colors"
+                  >
                     Términos y condiciones
-                  </a>
+                  </button>
                 </li>
                 <li>
-                  <a href="#" className="hover:text-white transition-colors">
+                  <button
+                    onClick={handleShowTerms}
+                    className="hover:text-white transition-colors"
+                  >
                     Política de privacidad
-                  </a>
+                  </button>
                 </li>
               </ul>
             </div>
