@@ -30,7 +30,7 @@ export default function LandingPage() {
       // Small delay to let the page load first
       const timer = setTimeout(() => {
         setShowWaitlistModal(true);
-      }, 2000);
+      }, 1000);
       return () => clearTimeout(timer);
     }
   }, []);
