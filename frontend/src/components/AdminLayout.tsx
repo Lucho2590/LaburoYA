@@ -1,11 +1,11 @@
-'use client';
+"use client";
 
-import { ReactNode, useEffect, useState } from 'react';
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
-import { useTheme } from '@/contexts/ThemeContext';
-import { EAppRole } from '@/types';
+import { ReactNode, useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
+import { EAppRole } from "@/types";
 
 interface AdminLayoutProps {
   children: ReactNode;
@@ -19,13 +19,13 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
   const { theme, toggleTheme } = useTheme();
   const [changingRole, setChangingRole] = useState(false);
 
-  const isSuperuser = userData?.role === 'superuser';
+  const isSuperuser = userData?.role === "superuser";
 
   useEffect(() => {
     if (!loading && !user) {
-      router.push('/login');
-    } else if (!loading && user && userData?.role !== 'superuser') {
-      router.push('/home');
+      router.push("/login");
+    } else if (!loading && user && userData?.role !== "superuser") {
+      router.push("/home");
     }
   }, [loading, user, userData, router]);
 
@@ -39,75 +39,160 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
 
   const navItems = [
     {
-      href: '/sudo',
-      label: 'Dashboard',
+      href: "/sudo",
+      label: "Dashboard",
       icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
+          />
         </svg>
       ),
     },
     {
-      href: '/sudo/users',
-      label: 'Usuarios',
+      href: "/sudo/users",
+      label: "Usuarios",
       icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+          />
         </svg>
       ),
     },
     {
-      href: '/sudo/jobs',
-      label: 'Ofertas',
+      href: "/sudo/jobs",
+      label: "Ofertas",
       icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+          />
         </svg>
       ),
     },
     {
-      href: '/sudo/matches',
-      label: 'Matches',
+      href: "/sudo/matches",
+      label: "Matches",
       icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
         </svg>
       ),
     },
     {
-      href: '/sudo/plans',
-      label: 'Planes',
+      href: "/sudo/plans",
+      label: "Planes",
       icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
         </svg>
       ),
     },
     {
-      href: '/sudo/rubros',
-      label: 'Rubros',
+      href: "/sudo/rubros",
+      label: "Rubros",
       icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
+          />
         </svg>
       ),
     },
     {
-      href: '/sudo/leads',
-      label: 'Leads',
+      href: "/sudo/leads",
+      label: "Leads",
       icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+          />
         </svg>
       ),
     },
     {
-      href: '/sudo/settings',
-      label: 'Configuración',
+      href: "/sudo/tyc",
+      label: "TyC",
       icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+          />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+          />
         </svg>
       ),
     },
@@ -115,7 +200,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
 
   const handleSignOut = async () => {
     await signOut();
-    router.push('/');
+    router.push("/");
   };
 
   const handleSecondaryRoleChange = async (role: EAppRole) => {
@@ -123,18 +208,18 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
     try {
       await setSecondaryRole(role);
     } catch (error) {
-      console.error('Error changing secondary role:', error);
+      console.error("Error changing secondary role:", error);
     } finally {
       setChangingRole(false);
     }
   };
 
   return (
-    <div className="min-h-screen theme-bg-primary flex">
+    <div className="h-screen theme-bg-primary flex overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 theme-bg-secondary border-r theme-border flex flex-col">
+      <aside className="w-64 theme-bg-secondary border-r theme-border flex flex-col h-screen flex-shrink-0">
         {/* Logo */}
-        <div className="p-6 border-b theme-border">
+        <div className="p-4 border-b theme-border flex-shrink-0">
           <Link href="/sudo" className="flex items-center gap-2">
             <span className="text-xl font-bold text-[#E10600]">LaburoYA</span>
             <span className="text-xs px-2 py-1 bg-[#E10600] text-white rounded-full font-medium">
@@ -143,24 +228,25 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
           </Link>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 p-4">
-          <ul className="space-y-2">
+        {/* Navigation - Scrollable */}
+        <nav className="flex-1 p-3 overflow-y-auto">
+          <ul className="space-y-1">
             {navItems.map((item) => {
-              const isActive = pathname === item.href ||
-                (item.href !== '/sudo' && pathname.startsWith(item.href));
+              const isActive =
+                pathname === item.href ||
+                (item.href !== "/sudo" && pathname.startsWith(item.href));
               return (
                 <li key={item.href}>
                   <Link
                     href={item.href}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
                       isActive
-                        ? 'bg-[#E10600] text-white'
-                        : 'theme-text-secondary hover:theme-bg-card'
+                        ? "bg-[#E10600] text-white"
+                        : "theme-text-secondary hover:theme-bg-card"
                     }`}
                   >
                     {item.icon}
-                    <span className="font-medium">{item.label}</span>
+                    <span className="font-medium text-sm">{item.label}</span>
                   </Link>
                 </li>
               );
@@ -169,18 +255,20 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
         </nav>
 
         {/* Footer */}
-        <div className="p-4 border-t theme-border">
+        <div className="p-3 border-t theme-border flex-shrink-0">
           {/* Secondary Role Selector */}
-          <div className="px-4 py-3 mb-3 theme-bg-card rounded-lg">
-            <label className="block text-xs theme-text-muted mb-2">Mi rol en la app</label>
+          <div className="px-3 py-2 mb-2 theme-bg-card rounded-lg">
+            <label className="block text-xs theme-text-muted mb-1.5">
+              Mi rol en la app
+            </label>
             <div className="flex gap-2">
               <button
                 onClick={() => handleSecondaryRoleChange(EAppRole.WORKER)}
                 disabled={changingRole}
-                className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-                  userData?.secondaryRole === 'worker'
-                    ? 'bg-blue-500 text-white'
-                    : 'theme-bg-secondary theme-text-secondary hover:theme-text-primary'
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                  userData?.secondaryRole === "worker"
+                    ? "bg-blue-500 text-white"
+                    : "theme-bg-secondary theme-text-secondary hover:theme-text-primary"
                 }`}
               >
                 Trabajador
@@ -188,10 +276,10 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
               <button
                 onClick={() => handleSecondaryRoleChange(EAppRole.EMPLOYER)}
                 disabled={changingRole}
-                className={`flex-1 py-2 px-3 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-                  userData?.secondaryRole === 'employer'
-                    ? 'bg-green-500 text-white'
-                    : 'theme-bg-secondary theme-text-secondary hover:theme-text-primary'
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                  userData?.secondaryRole === "employer"
+                    ? "bg-green-500 text-white"
+                    : "theme-bg-secondary theme-text-secondary hover:theme-text-primary"
                 }`}
               >
                 Empleador
@@ -200,30 +288,43 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             {userData?.secondaryRole && (
               <Link
                 href="/home"
-                className="block mt-2 text-center text-xs text-[#E10600] hover:underline"
+                className="block mt-1.5 text-center text-xs text-[#E10600] hover:underline"
               >
-                Ir a la app como {userData.secondaryRole === 'worker' ? 'trabajador' : 'empleador'}
+                Ir a la app como{" "}
+                {userData.secondaryRole === "worker"
+                  ? "trabajador"
+                  : "empleador"}
               </Link>
             )}
           </div>
 
-          <div className="flex items-center gap-3 px-4 py-2 mb-2">
-            <div className="w-8 h-8 bg-[#E10600] rounded-full flex items-center justify-center text-white font-medium">
-              {userData?.email?.[0]?.toUpperCase() || 'S'}
+          <div className="flex items-center gap-2 px-3 py-1.5 mb-1">
+            <div className="w-7 h-7 bg-[#E10600] rounded-full flex items-center justify-center text-white font-medium text-sm flex-shrink-0">
+              {userData?.email?.[0]?.toUpperCase() || "S"}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium theme-text-primary truncate">
-                {userData?.email || 'Superuser'}
+                {userData?.email || "Superuser"}
               </p>
               <p className="text-xs theme-text-muted">Superuser</p>
             </div>
           </div>
           <button
             onClick={handleSignOut}
-            className="w-full flex items-center gap-3 px-4 py-2 text-[#667085] hover:text-[#E10600] transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-[#667085] hover:text-[#E10600] transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
             </svg>
             <span className="text-sm">Cerrar sesion</span>
           </button>
@@ -231,11 +332,11 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Header */}
-        <header className="h-16 theme-bg-secondary border-b theme-border flex items-center justify-between px-6">
+        <header className="h-14 theme-bg-secondary border-b theme-border flex items-center justify-between px-6 flex-shrink-0">
           <h1 className="text-xl font-semibold theme-text-primary">
-            {title || 'Panel de Administracion'}
+            {title || "Panel de Administracion"}
           </h1>
 
           <div className="flex items-center gap-4">
@@ -243,14 +344,26 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             <button
               onClick={toggleTheme}
               className="p-2 rounded-lg theme-bg-card hover:opacity-80 transition-opacity"
-              aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+              aria-label={
+                theme === "dark"
+                  ? "Cambiar a modo claro"
+                  : "Cambiar a modo oscuro"
+              }
             >
-              {theme === 'dark' ? (
-                <svg className="w-5 h-5 text-[#FFB703]" fill="currentColor" viewBox="0 0 24 24">
+              {theme === "dark" ? (
+                <svg
+                  className="w-5 h-5 text-[#FFB703]"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
                 </svg>
               ) : (
-                <svg className="w-5 h-5 text-[#667085]" fill="currentColor" viewBox="0 0 24 24">
+                <svg
+                  className="w-5 h-5 text-[#667085]"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                >
                   <path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
                 </svg>
               )}
@@ -267,9 +380,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
         </header>
 
         {/* Content */}
-        <main className="flex-1 overflow-y-auto p-6">
-          {children}
-        </main>
+        <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
     </div>
   );

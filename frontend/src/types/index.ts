@@ -438,3 +438,9 @@ export interface ITermsAndConditions {
   updatedAt?: string;
   updatedBy?: string;
 }
+
+export interface IWhatsAppTemplate {
+  template: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}

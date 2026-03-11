@@ -5,7 +5,7 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
 import { ILead, ILeadStats, IRubro } from '@/types';
 import { toast } from 'sonner';
-import { Phone, MessageCircle, Check, Clock, Trash2, Users, Filter } from 'lucide-react';
+import { Phone, MessageCircle, Check, Clock, Trash2, Users, Filter, Edit3, Save, X, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function AdminLeadsPage() {
   const [leads, setLeads] = useState<ILead[]>([]);
@@ -22,6 +22,13 @@ export default function AdminLeadsPage() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
+  // WhatsApp Template
+  const [whatsappTemplate, setWhatsappTemplate] = useState<string>('');
+  const [editingTemplate, setEditingTemplate] = useState(false);
+  const [tempTemplate, setTempTemplate] = useState<string>('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [showTemplateSection, setShowTemplateSection] = useState(false);
+
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -32,15 +39,17 @@ export default function AdminLeadsPage() {
       if (filterContacted === 'no') params.contacted = false;
       if (filterRubro) params.rubroId = filterRubro;
 
-      const [leadsData, statsData, rubrosData] = await Promise.all([
+      const [leadsData, statsData, rubrosData, templateData] = await Promise.all([
         api.getAdminLeads(params),
         api.getAdminLeadsStats(),
         api.getAdminRubros(),
+        api.getAdminWhatsAppTemplate(),
       ]);
 
       setLeads(leadsData.leads);
       setStats(statsData);
       setRubros(rubrosData.rubros);
+      setWhatsappTemplate(templateData.template);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar datos');
     } finally {
@@ -82,10 +91,34 @@ export default function AdminLeadsPage() {
   };
 
   const openWhatsApp = (phone: string, nombre: string) => {
-    const message = encodeURIComponent(
-      `Hola ${nombre}! Te contactamos de LaburoYA. Tenemos ofertas de trabajo que podrían interesarte.`
-    );
+    // Replace {{nombre}} placeholder with actual name
+    const personalizedMessage = whatsappTemplate.replace(/\{\{nombre\}\}/gi, nombre);
+    const message = encodeURIComponent(personalizedMessage);
     window.open(`https://wa.me/54${phone}?text=${message}`, '_blank');
+  };
+
+  const handleEditTemplate = () => {
+    setTempTemplate(whatsappTemplate);
+    setEditingTemplate(true);
+  };
+
+  const handleCancelEdit = () => {
+    setTempTemplate('');
+    setEditingTemplate(false);
+  };
+
+  const handleSaveTemplate = async () => {
+    setSavingTemplate(true);
+    try {
+      await api.updateAdminWhatsAppTemplate(tempTemplate);
+      setWhatsappTemplate(tempTemplate);
+      setEditingTemplate(false);
+      toast.success('Mensaje de WhatsApp actualizado');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al guardar');
+    } finally {
+      setSavingTemplate(false);
+    }
   };
 
   const formatDate = (dateStr?: string) => {
@@ -163,6 +196,83 @@ export default function AdminLeadsPage() {
         </div>
       )}
 
+      {/* WhatsApp Template Section */}
+      <div className="theme-bg-card rounded-xl border theme-border mb-6 overflow-hidden">
+        <button
+          onClick={() => setShowTemplateSection(!showTemplateSection)}
+          className="w-full px-4 py-3 flex items-center justify-between hover:theme-bg-secondary transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+              <MessageCircle className="w-4 h-4 text-green-600" />
+            </div>
+            <div className="text-left">
+              <p className="font-medium theme-text-primary text-sm">Mensaje de WhatsApp</p>
+              <p className="text-xs theme-text-muted">Configura el mensaje que se envia al contactar leads</p>
+            </div>
+          </div>
+          {showTemplateSection ? (
+            <ChevronUp className="w-5 h-5 theme-text-muted" />
+          ) : (
+            <ChevronDown className="w-5 h-5 theme-text-muted" />
+          )}
+        </button>
+
+        {showTemplateSection && (
+          <div className="px-4 pb-4 border-t theme-border pt-4">
+            {editingTemplate ? (
+              <div className="space-y-3">
+                <textarea
+                  value={tempTemplate}
+                  onChange={(e) => setTempTemplate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm resize-none"
+                  rows={4}
+                  placeholder="Escribe tu mensaje..."
+                />
+                <p className="text-xs theme-text-muted">
+                  Usa <code className="px-1 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">{'{{nombre}}'}</code> para insertar el nombre del lead automaticamente.
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSaveTemplate}
+                    disabled={savingTemplate}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#E10600] text-white rounded-lg hover:bg-[#c10500] transition-colors text-sm font-medium disabled:opacity-50"
+                  >
+                    {savingTemplate ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    Guardar
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    disabled={savingTemplate}
+                    className="flex items-center gap-2 px-4 py-2 theme-bg-secondary theme-text-secondary rounded-lg hover:theme-bg-card transition-colors text-sm font-medium"
+                  >
+                    <X className="w-4 h-4" />
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="p-3 theme-bg-secondary rounded-lg">
+                  <p className="text-sm theme-text-primary whitespace-pre-wrap">{whatsappTemplate}</p>
+                </div>
+                <button
+                  onClick={handleEditTemplate}
+                  className="flex items-center gap-2 px-4 py-2 theme-bg-secondary theme-text-primary rounded-lg hover:theme-bg-card transition-colors text-sm font-medium"
+                >
+                  <Edit3 className="w-4 h-4" />
+                  Editar mensaje
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-4 mb-6">
         <div className="flex items-center gap-2">
@@ -207,9 +317,9 @@ export default function AdminLeadsPage() {
         </div>
       ) : (
         <div className="theme-bg-card rounded-xl border theme-border overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[calc(100vh-420px)]">
             <table className="w-full">
-              <thead className="theme-bg-secondary">
+              <thead className="theme-bg-secondary sticky top-0 z-10">
                 <tr>
                   <th className="text-left px-6 py-3 text-xs font-medium theme-text-secondary uppercase tracking-wider">
                     Contacto

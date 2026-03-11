@@ -1110,4 +1110,62 @@ router.put('/settings/terms', async (req, res, next) => {
   }
 });
 
+// GET /api/admin/settings/whatsapp-template - Get WhatsApp message template
+router.get('/settings/whatsapp-template', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const templateDoc = await db.collection('settings').doc('whatsapp-template').get();
+
+    if (!templateDoc.exists) {
+      // Return default template
+      return res.json({
+        template: 'Hola {{nombre}}! Te contactamos de LaburoYA. Tenemos ofertas de trabajo que podrían interesarte.',
+        updatedAt: null,
+        updatedBy: null
+      });
+    }
+
+    const data = templateDoc.data();
+    res.json({
+      template: data.template || '',
+      updatedAt: data.updatedAt?.toDate?.() || data.updatedAt,
+      updatedBy: data.updatedBy || null
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /api/admin/settings/whatsapp-template - Update WhatsApp message template
+router.put('/settings/whatsapp-template', async (req, res, next) => {
+  try {
+    const { template } = req.body;
+
+    if (template === undefined) {
+      return res.status(400).json({ error: 'El template es requerido' });
+    }
+
+    const db = getDb();
+    const templateRef = db.collection('settings').doc('whatsapp-template');
+
+    await templateRef.set({
+      template: template,
+      updatedAt: new Date(),
+      updatedBy: req.user.uid
+    }, { merge: true });
+
+    const updatedDoc = await templateRef.get();
+    const data = updatedDoc.data();
+
+    res.json({
+      message: 'Template actualizado correctamente',
+      template: data.template,
+      updatedAt: data.updatedAt?.toDate?.() || data.updatedAt,
+      updatedBy: data.updatedBy
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

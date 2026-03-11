@@ -539,6 +539,23 @@ class ApiService {
       }
     );
   }
+
+  // WhatsApp Template
+  async getAdminWhatsAppTemplate() {
+    return this.request<{ template: string; updatedAt?: string; updatedBy?: string }>(
+      '/admin/settings/whatsapp-template'
+    );
+  }
+
+  async updateAdminWhatsAppTemplate(template: string) {
+    return this.request<{ template: string; updatedAt?: string; updatedBy?: string; message: string }>(
+      '/admin/settings/whatsapp-template',
+      {
+        method: 'PUT',
+        body: { template },
+      }
+    );
+  }
 }
 
 export const api = new ApiService();

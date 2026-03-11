@@ -163,25 +163,25 @@ export function DesktopLayout({
   }
 
   return (
-    <div className="min-h-screen theme-bg-primary flex">
+    <div className="h-screen theme-bg-primary flex overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 theme-bg-secondary border-r theme-border flex flex-col fixed h-full">
+      <aside className="w-64 theme-bg-secondary border-r theme-border flex flex-col h-screen flex-shrink-0">
         {/* Logo */}
-        <div className="p-6 border-b theme-border">
+        <div className="p-4 border-b theme-border flex-shrink-0">
           <Link href="/home" className="flex items-center">
             <Image
               src="/logo.png"
               alt="LaburoYA"
               width={320}
               height={80}
-              className="h-20 w-auto"
+              className="h-16 w-auto"
               priority
             />
           </Link>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const isActive =
               pathname === item.href || pathname.startsWith(item.href + "/");
@@ -189,7 +189,7 @@ export function DesktopLayout({
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                   isActive
                     ? "bg-[#E10600]/10 text-[#E10600]"
                     : "theme-text-secondary hover:theme-bg-card"
@@ -197,7 +197,7 @@ export function DesktopLayout({
               >
                 {item.icon}
                 <span
-                  className={`font-medium ${isActive ? "text-[#E10600]" : ""}`}
+                  className={`font-medium text-sm ${isActive ? "text-[#E10600]" : ""}`}
                 >
                   {item.label}
                 </span>
@@ -209,7 +209,7 @@ export function DesktopLayout({
           {isSuperuser && (
             <Link
               href="/sudo"
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
                 pathname.startsWith("/sudo")
                   ? "bg-[#E10600]/10 text-[#E10600]"
                   : "theme-text-secondary hover:theme-bg-card"
@@ -234,17 +234,17 @@ export function DesktopLayout({
                   d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
                 />
               </svg>
-              <span className="font-medium">Admin</span>
+              <span className="font-medium text-sm">Admin</span>
             </Link>
           )}
         </nav>
 
         {/* Bottom section */}
-        <div className="p-4 border-t theme-border space-y-2">
+        <div className="p-3 border-t theme-border space-y-1 flex-shrink-0">
           {/* Theme Toggle */}
           <button
             onClick={toggleTheme}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl theme-text-secondary hover:theme-bg-card transition-all"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl theme-text-secondary hover:theme-bg-card transition-all"
           >
             {theme === "dark" ? (
               <svg
@@ -259,7 +259,7 @@ export function DesktopLayout({
                 <path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
               </svg>
             )}
-            <span className="font-medium">
+            <span className="font-medium text-sm">
               {theme === "dark" ? "Modo claro" : "Modo oscuro"}
             </span>
           </button>
@@ -267,7 +267,7 @@ export function DesktopLayout({
           {/* Sign Out */}
           <button
             onClick={() => signOut()}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-500 hover:bg-red-500/10 transition-all"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-red-500 hover:bg-red-500/10 transition-all"
           >
             <svg
               className="w-5 h-5"
@@ -282,16 +282,16 @@ export function DesktopLayout({
                 d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
               />
             </svg>
-            <span className="font-medium">Cerrar sesión</span>
+            <span className="font-medium text-sm">Cerrar sesion</span>
           </button>
         </div>
       </aside>
 
       {/* Main content */}
-      <div className="flex-1 ml-64">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Header */}
-        <header className="theme-bg-secondary border-b theme-border sticky top-0 z-40">
-          <div className="flex items-center justify-between px-8 h-16">
+        <header className="theme-bg-secondary border-b theme-border flex-shrink-0">
+          <div className="flex items-center justify-between px-8 h-14">
             <div className="flex items-center gap-4">
               {showBack &&
                 (onBack ? (
@@ -360,7 +360,7 @@ export function DesktopLayout({
         </header>
 
         {/* Content */}
-        <main className="p-8">
+        <main className="flex-1 overflow-y-auto p-8">
           <div className="max-w-4xl mx-auto">{children}</div>
         </main>
       </div>
