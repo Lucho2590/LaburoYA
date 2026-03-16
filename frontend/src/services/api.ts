@@ -81,8 +81,16 @@ class ApiService {
     });
   }
 
-  async updateBasicInfo(data: { firstName: string; lastName: string; age?: number; nickname?: string }) {
-    return this.request<{ message: string; firstName: string; lastName: string; age?: number; nickname?: string }>(
+  async checkEmailExists(email: string) {
+    return this.request<{ exists: boolean }>('/auth/check-email', {
+      method: 'POST',
+      body: { email },
+      requireAuth: false,
+    });
+  }
+
+  async updateBasicInfo(data: { firstName: string; lastName: string; phone?: string; age?: number; nickname?: string }) {
+    return this.request<{ message: string; firstName: string; lastName: string; phone?: string; age?: number; nickname?: string }>(
       '/auth/basic-info',
       {
         method: 'PATCH',

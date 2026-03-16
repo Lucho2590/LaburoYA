@@ -11,6 +11,7 @@ import {
   FacebookAuthProvider,
   signInWithPopup,
   sendEmailVerification,
+  sendPasswordResetEmail as firebaseSendPasswordResetEmail,
   Auth,
 } from 'firebase/auth';
 import { auth } from '@/config/firebase';
@@ -32,6 +33,7 @@ interface AuthContextType {
   refreshUserData: () => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
   reloadUser: () => Promise<boolean>; // Returns emailVerified status
+  sendPasswordResetEmail: (email: string) => Promise<void>;
   // Helper to get the effective app role (for superusers returns secondaryRole)
   getEffectiveAppRole: () => EAppRole | undefined;
 }
@@ -178,6 +180,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return user.emailVerified;
   };
 
+  const sendPasswordResetEmail = async (email: string) => {
+    if (!auth) throw new Error('Firebase not configured');
+    await firebaseSendPasswordResetEmail(auth as Auth, email);
+  };
+
   const getEffectiveAppRole = (): EAppRole | undefined => {
     if (!userData) return undefined;
     if (userData.role === 'superuser') {
@@ -203,6 +210,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshUserData,
         resendVerificationEmail,
         reloadUser,
+        sendPasswordResetEmail,
         getEffectiveAppRole,
       }}
     >

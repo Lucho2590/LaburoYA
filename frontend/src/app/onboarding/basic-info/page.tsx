@@ -15,6 +15,7 @@ export default function BasicInfoPage() {
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
+    phone: '',
     age: '',
     nickname: '',
   });
@@ -46,6 +47,7 @@ export default function BasicInfoPage() {
       await api.updateBasicInfo({
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
+        phone: formData.phone.trim() || undefined,
         age: formData.age ? parseInt(formData.age) : undefined,
         nickname: formData.nickname.trim() || undefined,
       });
@@ -111,6 +113,24 @@ export default function BasicInfoPage() {
             className="w-full px-4 py-3 rounded-xl border-2 theme-border theme-bg-card theme-text-primary focus:border-[#E10600] focus:outline-none transition-colors"
             required
           />
+        </div>
+
+        {/* Teléfono */}
+        <div>
+          <label className="block text-sm font-medium theme-text-secondary mb-2">
+            Teléfono
+          </label>
+          <input
+            type="tel"
+            name="phone"
+            value={formData.phone}
+            onChange={handleChange}
+            placeholder="Ej: 2234567890"
+            className="w-full px-4 py-3 rounded-xl border-2 theme-border theme-bg-card theme-text-primary focus:border-[#E10600] focus:outline-none transition-colors"
+          />
+          <p className="text-xs theme-text-muted mt-1">
+            Opcional - Para que puedan contactarte
+          </p>
         </div>
 
         {/* Edad */}

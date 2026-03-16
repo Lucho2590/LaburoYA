@@ -1,5 +1,5 @@
 const express = require('express');
-const { getDb } = require('../config/firebase');
+const { getDb, getAuth } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
@@ -73,11 +73,11 @@ router.get('/me', authMiddleware, async (req, res, next) => {
   }
 });
 
-// Update basic info (name, lastName, age, nickname)
+// Update basic info (name, lastName, phone, age, nickname)
 router.patch('/basic-info', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { firstName, lastName, age, nickname } = req.body;
+    const { firstName, lastName, phone, age, nickname } = req.body;
 
     if (!firstName || !lastName) {
       return res.status(400).json({ error: 'firstName and lastName are required' });
@@ -89,6 +89,7 @@ router.patch('/basic-info', authMiddleware, async (req, res, next) => {
     await db.collection('users').doc(uid).update({
       firstName,
       lastName,
+      phone: phone || null,
       age: age || null,
       nickname: nickname || null,
       onboardingCompleted: true,
@@ -99,6 +100,7 @@ router.patch('/basic-info', authMiddleware, async (req, res, next) => {
       message: 'Basic info updated successfully',
       firstName,
       lastName,
+      phone,
       age,
       nickname
     });
@@ -163,6 +165,31 @@ router.patch('/location', authMiddleware, async (req, res, next) => {
     res.json({
       message: 'Location updated successfully'
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Check if email exists (for password reset)
+router.post('/check-email', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const auth = getAuth();
+
+    try {
+      await auth.getUserByEmail(email);
+      res.json({ exists: true });
+    } catch (error) {
+      if (error.code === 'auth/user-not-found') {
+        return res.status(404).json({ error: 'No existe una cuenta con ese email', exists: false });
+      }
+      throw error;
+    }
   } catch (error) {
     next(error);
   }
