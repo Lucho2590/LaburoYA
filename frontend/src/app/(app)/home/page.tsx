@@ -1,25 +1,30 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMatches } from "@/hooks/useMatches";
 import { usePageTitle } from "@/contexts/PageTitleContext";
+import { useDiscoveryOffers } from "@/hooks/useDiscovery";
+import { useReceivedContactRequests } from "@/hooks/useContactRequests";
 import { Badge } from "@/components/ui/badge";
+import { IWorkerProfile } from "@/types";
 
 export default function DashboardPage() {
   const router = useRouter();
   const { user, userData, loading, signOut, getEffectiveAppRole } = useAuth();
-  const { matches } = useMatches();
+  const { matches, loading: matchesLoading } = useMatches();
   const { setPageConfig } = usePageTitle();
+  const { offers, loading: offersLoading } = useDiscoveryOffers();
+  const { requests: receivedRequests, loading: requestsLoading } = useReceivedContactRequests();
 
   const effectiveRole = getEffectiveAppRole();
   const isSuperuser = userData?.role === "superuser";
 
   // Set page config
   useEffect(() => {
-    setPageConfig({ title: '' });
+    setPageConfig({ title: "" });
   }, [setPageConfig]);
 
   useEffect(() => {
@@ -38,6 +43,29 @@ export default function DashboardPage() {
       router.push("/sudo");
     }
   }, [loading, user, userData, router, isSuperuser]);
+
+  // Calculate worker profile completion (must be before early returns)
+  const workerProfileCompletion = useMemo(() => {
+    const isWorkerRole = effectiveRole === "worker";
+    if (!isWorkerRole || !userData?.profile) return null;
+
+    const profile = userData.profile as IWorkerProfile;
+    const fields = [
+      { filled: !!profile.rubro },
+      { filled: !!profile.puesto },
+      { filled: !!profile.zona },
+      { filled: !!profile.localidad },
+      { filled: !!profile.experience },
+      { filled: !!profile.description },
+      { filled: profile.skills && profile.skills.length > 0 },
+      { filled: !!profile.videoUrl },
+    ];
+
+    const filledCount = fields.filter((f) => f.filled).length;
+    const percentage = Math.round((filledCount / fields.length) * 100);
+
+    return percentage;
+  }, [effectiveRole, userData?.profile]);
 
   if (loading || !userData?.role) {
     return (
@@ -60,6 +88,12 @@ export default function DashboardPage() {
   const pendingMatches = matches.filter((m) => m.status === "pending").length;
   const acceptedMatches = matches.filter((m) => m.status === "accepted").length;
 
+  // Worker specific: count offers and pending requests
+  const totalOffers = offers?.total || 0;
+  const pendingReceivedRequests = receivedRequests.filter(
+    (r) => r.status === "pending",
+  ).length;
+
   return (
     <div className="px-4 py-6">
       {/* Welcome */}
@@ -74,7 +108,7 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {/* Profile Alert */}
+      {/* Profile Alert - No profile */}
       {!userData.profile && (
         <Link href={isWorker ? "/worker/profile" : "/employer/profile"}>
           <div className="bg-gradient-to-r from-[#E10600] to-[#FF6A00] rounded-2xl p-4 mb-6 text-white active:scale-[0.98] transition-transform">
@@ -101,34 +135,156 @@ export default function DashboardPage() {
         </Link>
       )}
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 gap-3 mb-6">
-        <Link href="/matches">
-          <div className="theme-bg-card rounded-2xl p-4 border theme-border active:scale-[0.98] transition-transform">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-3xl">🤝</span>
-              {pendingMatches > 0 && (
-                <Badge variant="destructive" className="text-xs bg-[#E10600]">
-                  {pendingMatches}
-                </Badge>
-              )}
+      {/* Profile Completion Alert - Worker with incomplete profile */}
+      {isWorker &&
+        workerProfileCompletion !== null &&
+        workerProfileCompletion < 100 && (
+          <Link href="/worker/profile">
+            <div className="theme-bg-card border theme-border rounded-2xl p-4 mb-6 active:scale-[0.98] transition-transform">
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-semibold theme-text-primary text-sm">
+                      Perfil {workerProfileCompletion}% completo
+                    </p>
+                    <span
+                      className={`text-xs font-medium ${
+                        workerProfileCompletion >= 75
+                          ? "text-[#F79009]"
+                          : "text-[#F04438]"
+                      }`}
+                    >
+                      {workerProfileCompletion >= 75
+                        ? "¡Casi listo!"
+                        : "Completar"}
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full transition-all duration-500 ${
+                        workerProfileCompletion >= 75
+                          ? "bg-[#F79009]"
+                          : "bg-[#F04438]"
+                      }`}
+                      style={{ width: `${workerProfileCompletion}%` }}
+                    />
+                  </div>
+                  <p className="theme-text-muted text-xs mt-2">
+                    Un perfil completo tiene más visibilidad
+                  </p>
+                </div>
+                <svg
+                  className="w-5 h-5 theme-text-muted flex-shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5l7 7-7 7"
+                  />
+                </svg>
+              </div>
             </div>
-            <p className="text-2xl font-bold theme-text-primary">
-              {pendingMatches}
-            </p>
-            <p className="theme-text-secondary text-sm">Nuevos matches</p>
-          </div>
-        </Link>
+          </Link>
+        )}
 
-        <Link href="/chats">
-          <div className="theme-bg-card rounded-2xl p-4 border theme-border active:scale-[0.98] transition-transform">
-            <span className="text-3xl">💬</span>
-            <p className="text-2xl font-bold theme-text-primary mt-2">
-              {acceptedMatches}
-            </p>
-            <p className="theme-text-secondary text-sm">Conversaciones</p>
-          </div>
-        </Link>
+      {/* Stats Cards - Different for Worker vs Employer */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        {isWorker ? (
+          <>
+            {/* Worker: Oportunidades */}
+            <Link href="/discover">
+              <div className="theme-bg-card rounded-2xl p-4 border theme-border active:scale-[0.98] transition-transform">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-3xl">💼</span>
+                  {!offersLoading && totalOffers > 0 && (
+                    <Badge className="text-xs bg-[#12B76A]">
+                      {totalOffers}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-2xl font-bold theme-text-primary">
+                  {offersLoading ? (
+                    <span className="inline-block w-5 h-5 border-2 border-[#E10600]/30 border-t-[#E10600] rounded-full animate-spin" />
+                  ) : (
+                    totalOffers
+                  )}
+                </p>
+                <p className="theme-text-secondary text-sm">Oportunidades</p>
+              </div>
+            </Link>
+
+            {/* Worker: Solicitudes recibidas */}
+            <Link href="/matches">
+              <div className="theme-bg-card rounded-2xl p-4 border theme-border active:scale-[0.98] transition-transform">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-3xl">📩</span>
+                  {!requestsLoading && pendingReceivedRequests > 0 && (
+                    <Badge
+                      variant="destructive"
+                      className="text-xs bg-[#E10600]"
+                    >
+                      {pendingReceivedRequests}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-2xl font-bold theme-text-primary">
+                  {requestsLoading ? (
+                    <span className="inline-block w-5 h-5 border-2 border-[#E10600]/30 border-t-[#E10600] rounded-full animate-spin" />
+                  ) : (
+                    pendingReceivedRequests
+                  )}
+                </p>
+                <p className="theme-text-secondary text-sm">Solicitudes</p>
+              </div>
+            </Link>
+          </>
+        ) : (
+          <>
+            {/* Employer: Matches */}
+            <Link href="/matches">
+              <div className="theme-bg-card rounded-2xl p-4 border theme-border active:scale-[0.98] transition-transform">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-3xl">🤝</span>
+                  {!matchesLoading && pendingMatches > 0 && (
+                    <Badge
+                      variant="destructive"
+                      className="text-xs bg-[#E10600]"
+                    >
+                      {pendingMatches}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-2xl font-bold theme-text-primary">
+                  {matchesLoading ? (
+                    <span className="inline-block w-5 h-5 border-2 border-[#E10600]/30 border-t-[#E10600] rounded-full animate-spin" />
+                  ) : (
+                    pendingMatches
+                  )}
+                </p>
+                <p className="theme-text-secondary text-sm">Nuevos matches</p>
+              </div>
+            </Link>
+
+            {/* Employer: Conversaciones */}
+            <Link href="/chats">
+              <div className="theme-bg-card rounded-2xl p-4 border theme-border active:scale-[0.98] transition-transform">
+                <span className="text-3xl">💬</span>
+                <p className="text-2xl font-bold theme-text-primary mt-2">
+                  {matchesLoading ? (
+                    <span className="inline-block w-5 h-5 border-2 border-[#E10600]/30 border-t-[#E10600] rounded-full animate-spin" />
+                  ) : (
+                    acceptedMatches
+                  )}
+                </p>
+                <p className="theme-text-secondary text-sm">Conversaciones</p>
+              </div>
+            </Link>
+          </>
+        )}
       </div>
 
       {/* Quick Actions */}
@@ -138,7 +294,7 @@ export default function DashboardPage() {
 
       <div className="space-y-3">
         <Link href={isWorker ? "/worker/profile" : "/employer/profile"}>
-          <div className="theme-bg-card rounded-2xl p-4 border theme-border flex items-center active:scale-[0.98] transition-transform">
+          <div className="m-2 theme-bg-card rounded-2xl p-4 border theme-border flex items-center active:scale-[0.98] transition-transform">
             <div className="w-12 h-12 bg-[#E10600]/20 rounded-xl flex items-center justify-center mr-4">
               <svg
                 className="w-6 h-6 text-[#E10600]"
@@ -178,7 +334,7 @@ export default function DashboardPage() {
 
         {!isWorker && (
           <Link href="/employer/jobs">
-            <div className="theme-bg-card rounded-2xl p-4 border theme-border flex items-center active:scale-[0.98] transition-transform">
+            <div className="m-2 theme-bg-card rounded-2xl p-4 border theme-border flex items-center active:scale-[0.98] transition-transform">
               <div className="w-12 h-12 bg-[#12B76A]/20 rounded-xl flex items-center justify-center mr-4">
                 <svg
                   className="w-6 h-6 text-[#12B76A]"
@@ -218,7 +374,7 @@ export default function DashboardPage() {
         )}
 
         <Link href="/matches">
-          <div className="theme-bg-card rounded-2xl p-4 border theme-border flex items-center active:scale-[0.98] transition-transform">
+          <div className="m-2 theme-bg-card rounded-2xl p-4 border theme-border flex items-center active:scale-[0.98] transition-transform">
             <div className="w-12 h-12 bg-[#FF6A00]/20 rounded-xl flex items-center justify-center mr-4">
               <svg
                 className="w-6 h-6 text-[#FF6A00]"
@@ -259,7 +415,7 @@ export default function DashboardPage() {
         </Link>
 
         <Link href="/settings">
-          <div className="theme-bg-card rounded-2xl p-4 border theme-border flex items-center active:scale-[0.98] transition-transform">
+          <div className="theme-bg-card rounded-2xl p-4 border theme-border flex items-center active:scale-[0.98] transition-transform m-2">
             <div className="w-12 h-12 bg-[#667085]/20 rounded-xl flex items-center justify-center mr-4">
               <svg
                 className="w-6 h-6 text-[#667085]"

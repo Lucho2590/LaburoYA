@@ -10,6 +10,7 @@ import {
   GoogleAuthProvider,
   FacebookAuthProvider,
   signInWithPopup,
+  sendEmailVerification,
   Auth,
 } from 'firebase/auth';
 import { auth } from '@/config/firebase';
@@ -21,7 +22,7 @@ interface AuthContextType {
   userData: IUserData | null;
   loading: boolean;
   authReady: boolean; // Token listo para hacer llamadas API
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ emailVerified: boolean }>;
   signUp: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signInWithFacebook: () => Promise<void>;
@@ -29,6 +30,8 @@ interface AuthContextType {
   setRole: (role: EUserRole) => Promise<void>;
   setSecondaryRole: (role: EAppRole) => Promise<void>;
   refreshUserData: () => Promise<void>;
+  resendVerificationEmail: () => Promise<void>;
+  reloadUser: () => Promise<boolean>; // Returns emailVerified status
   // Helper to get the effective app role (for superusers returns secondaryRole)
   getEffectiveAppRole: () => EAppRole | undefined;
 }
@@ -98,6 +101,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             nickname: data.user?.nickname,
             onboardingCompleted: data.user?.onboardingCompleted,
           });
+
+          // Track login location (IP-based, silent)
+          api.trackLogin().catch(() => {
+            // Silently ignore - location tracking is not critical
+          });
         } catch {
           setUserData({
             uid: firebaseUser.uid,
@@ -116,14 +124,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string): Promise<{ emailVerified: boolean }> => {
     if (!auth) throw new Error('Firebase not configured');
-    await signInWithEmailAndPassword(auth as Auth, email, password);
+    const result = await signInWithEmailAndPassword(auth as Auth, email, password);
+    return { emailVerified: result.user.emailVerified };
   };
 
   const signUp = async (email: string, password: string) => {
     if (!auth) throw new Error('Firebase not configured');
-    await createUserWithEmailAndPassword(auth as Auth, email, password);
+    const result = await createUserWithEmailAndPassword(auth as Auth, email, password);
+    // Send verification email
+    await sendEmailVerification(result.user);
   };
 
   const signInWithGoogle = async () => {
@@ -154,6 +165,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await refreshUserData();
   };
 
+  const resendVerificationEmail = async () => {
+    if (!user) throw new Error('No user logged in');
+    await sendEmailVerification(user);
+  };
+
+  const reloadUser = async (): Promise<boolean> => {
+    if (!user) return false;
+    await user.reload();
+    // Update the user state with refreshed data
+    setUser({ ...user });
+    return user.emailVerified;
+  };
+
   const getEffectiveAppRole = (): EAppRole | undefined => {
     if (!userData) return undefined;
     if (userData.role === 'superuser') {
@@ -177,6 +201,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRole,
         setSecondaryRole,
         refreshUserData,
+        resendVerificationEmail,
+        reloadUser,
         getEffectiveAppRole,
       }}
     >

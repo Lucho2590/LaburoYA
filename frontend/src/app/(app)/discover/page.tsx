@@ -12,38 +12,11 @@ import { WorkerProfileModal } from "@/components/WorkerProfileModal";
 import { toast } from "sonner";
 import { MapPin, Video } from "lucide-react";
 
-type MatchSection = "full" | "partial" | "skills";
-
-// Configuración de secciones - nombres cortos para mobile
-const SECTION_CONFIG = {
-  full: {
-    label: "Perfectas",
-    emoji: "🎯",
-    color: "bg-green-500",
-    emptyTitle: "No hay ofertas perfectas aún",
-    emptySubtitle: "Completá tu perfil para mejorar tus coincidencias",
-  },
-  partial: {
-    label: "Buenas",
-    emoji: "👍",
-    color: "bg-yellow-500",
-    emptyTitle: "No hay buenas opciones aún",
-    emptySubtitle: "Agregá más skills a tu perfil",
-  },
-  skills: {
-    label: "Otras",
-    emoji: "💡",
-    color: "bg-blue-500",
-    emptyTitle: "No hay sugerencias",
-    emptySubtitle: "Explorá otros rubros o puestos",
-  },
-};
 
 export default function DiscoverPage() {
   const router = useRouter();
   const { user, userData, loading } = useAuth();
   const { setPageConfig } = usePageTitle();
-  const [activeSection, setActiveSection] = useState<MatchSection>("full");
   const [selectedOffer, setSelectedOffer] = useState<IRelevantOffer | null>(
     null,
   );
@@ -59,7 +32,7 @@ export default function DiscoverPage() {
     userData?.role === "employer" ||
     (userData?.role === "superuser" && userData?.secondaryRole === "employer");
 
-  const { offers, loading: offersLoading, requestOffer } = useDiscoveryOffers();
+  const { offers, loading: offersLoading, requestOffer, markNotInterested } = useDiscoveryOffers();
 
   const {
     workers,
@@ -98,6 +71,18 @@ export default function DiscoverPage() {
       );
     } finally {
       setIsRequesting(false);
+    }
+  };
+
+  const handleNotInterested = async (offer: IRelevantOffer) => {
+    try {
+      await markNotInterested(offer.id);
+      toast.success("Oferta descartada");
+      setSelectedOffer(null);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Error al descartar",
+      );
     }
   };
 
@@ -155,59 +140,68 @@ export default function DiscoverPage() {
     );
   }
 
-  // Worker view - show offers
+  // Worker view - show offers (con estrellas como el employer)
   if (isWorker) {
-    const sections = {
-      full: offers?.fullMatch || [],
-      partial: offers?.partialMatch || [],
-      skills: offers?.skillsMatch || [],
-    };
+    // Combinar todas las ofertas con su nivel de match
+    const allOffers = [
+      ...(offers?.fullMatch || []).map((o) => ({
+        ...o,
+        matchLevel: 3 as const,
+      })),
+      ...(offers?.partialMatch || []).map((o) => ({
+        ...o,
+        matchLevel: 2 as const,
+      })),
+      ...(offers?.skillsMatch || []).map((o) => ({
+        ...o,
+        matchLevel: 1 as const,
+      })),
+    ];
 
-    const currentOffers = sections[activeSection];
-    const config = SECTION_CONFIG[activeSection];
+    const totalCount = allOffers.length;
 
     return (
       <>
         <div className="px-4 py-4">
-          {/* Section Tabs - Compactos para mobile */}
-          <div className="flex gap-2 mb-4">
-            {(Object.keys(SECTION_CONFIG) as MatchSection[]).map((key) => {
-              const cfg = SECTION_CONFIG[key];
-              const count = sections[key].length;
-              return (
-                <button
-                  key={key}
-                  onClick={() => setActiveSection(key)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
-                    activeSection === key
-                      ? `${cfg.color} text-white`
-                      : "theme-bg-card theme-text-secondary border theme-border"
-                  }`}
-                >
-                  <span>{cfg.emoji}</span>
-                  <span>{count}</span>
-                </button>
-              );
-            })}
+          {/* Header con leyenda de estrellas */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3 text-xs theme-text-muted">
+              <span className="flex items-center gap-1">
+                <span className="text-yellow-500">★★★</span>
+                <span>Perfecto</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="text-yellow-500">★★</span>
+                <span>Bueno</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="text-yellow-500">★</span>
+                <span>Sugerido</span>
+              </span>
+            </div>
+            <span className="text-xs theme-text-muted">
+              {totalCount} ofertas
+            </span>
           </div>
 
           {/* Offers List */}
-          {currentOffers.length === 0 ? (
+          {allOffers.length === 0 ? (
             <div className="text-center py-16">
-              <span className="text-5xl">{config.emoji}</span>
+              <span className="text-5xl">💼</span>
               <p className="theme-text-primary font-medium mt-4">
-                {config.emptyTitle}
+                No hay ofertas disponibles
               </p>
               <p className="theme-text-muted text-sm mt-1">
-                {config.emptySubtitle}
+                Completá tu perfil para encontrar oportunidades
               </p>
             </div>
           ) : (
             <div className="space-y-3">
-              {currentOffers.map((offer) => (
+              {allOffers.map((offer) => (
                 <OfferCard
                   key={offer.id}
                   offer={offer}
+                  matchLevel={offer.matchLevel}
                   onClick={() => setSelectedOffer(offer)}
                 />
               ))}
@@ -220,6 +214,7 @@ export default function DiscoverPage() {
           open={!!selectedOffer}
           onClose={() => setSelectedOffer(null)}
           onContact={handleContactOffer}
+          onNotInterested={handleNotInterested}
           isRequesting={isRequesting}
         />
       </>
@@ -316,15 +311,29 @@ export default function DiscoverPage() {
 }
 
 // ============================================
-// Offer Card - Minimalista para Workers
+// Offer Card - Para Workers (con estrellas de match)
 // ============================================
 function OfferCard({
   offer,
+  matchLevel,
   onClick,
 }: {
   offer: IRelevantOffer;
+  matchLevel?: 1 | 2 | 3;
   onClick: () => void;
 }) {
+  // Renderizar estrellas según nivel de match
+  const renderStars = (level: number) => {
+    const stars = "★".repeat(level);
+    const emptyStars = "☆".repeat(3 - level);
+    return (
+      <span className="text-sm">
+        <span className="text-yellow-500">{stars}</span>
+        <span className="text-gray-300">{emptyStars}</span>
+      </span>
+    );
+  };
+
   return (
     <div
       className="theme-bg-card rounded-xl border theme-border p-4 active:scale-[0.98] transition-transform cursor-pointer"
@@ -333,9 +342,12 @@ function OfferCard({
       <div className="flex items-center gap-3">
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold theme-text-primary truncate">
-            {offer.puesto}
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold theme-text-primary truncate">
+              {offer.puesto}
+            </h3>
+            {matchLevel && renderStars(matchLevel)}
+          </div>
           <p className="theme-text-secondary text-sm truncate">
             {offer.employer?.businessName || "Empresa"}
           </p>

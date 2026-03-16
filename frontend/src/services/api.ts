@@ -169,6 +169,13 @@ class ApiService {
     });
   }
 
+  async markOfferNotInterested(offerId: string) {
+    return this.request<{ message: string; offerId: string; alreadyMarked?: boolean }>(
+      `/job-offers/${offerId}/not-interested`,
+      { method: 'POST' }
+    );
+  }
+
   // Matches
   async getMatches() {
     return this.request('/matches');
@@ -555,6 +562,52 @@ class ApiService {
         body: { template },
       }
     );
+  }
+
+  // ============================================
+  // Geolocation (IP-based, no permission needed)
+  // ============================================
+
+  async getIpLocation(): Promise<{ city: string; region: string; country: string; ip: string } | null> {
+    try {
+      // Using ip-api.com (free, no API key required)
+      const response = await fetch('http://ip-api.com/json/?fields=city,regionName,country,query');
+      if (!response.ok) return null;
+
+      const data = await response.json();
+      return {
+        city: data.city || '',
+        region: data.regionName || '',
+        country: data.country || '',
+        ip: data.query || '',
+      };
+    } catch {
+      // Silently fail - location is not critical
+      return null;
+    }
+  }
+
+  async updateUserLocation(location: { city: string; region: string; country: string }) {
+    return this.request<{ message: string }>('/auth/location', {
+      method: 'PATCH',
+      body: location,
+    });
+  }
+
+  async trackLogin() {
+    // Get IP location and send to backend
+    const location = await this.getIpLocation();
+    if (location) {
+      try {
+        await this.updateUserLocation({
+          city: location.city,
+          region: location.region,
+          country: location.country,
+        });
+      } catch {
+        // Silently fail - not critical
+      }
+    }
   }
 }
 

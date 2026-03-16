@@ -140,4 +140,32 @@ router.patch('/secondary-role', authMiddleware, async (req, res, next) => {
   }
 });
 
+// Update user location (IP-based geolocation)
+router.patch('/location', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const { city, region, country } = req.body;
+
+    const db = getDb();
+
+    // Update user document with location info
+    await db.collection('users').doc(uid).update({
+      lastLocation: {
+        city: city || null,
+        region: region || null,
+        country: country || null,
+        updatedAt: new Date()
+      },
+      lastLoginAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    res.json({
+      message: 'Location updated successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

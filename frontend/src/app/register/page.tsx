@@ -25,7 +25,8 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await signUp(email, password);
-      router.push('/onboarding');
+      toast.success('Te enviamos un email de verificación');
+      router.push('/verify-email');
     } catch (error) {
       toast.error('Error al crear la cuenta');
     } finally {

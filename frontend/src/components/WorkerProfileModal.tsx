@@ -46,18 +46,15 @@ export function WorkerProfileModal({
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <div className="flex items-center gap-2 mb-2">
-            {worker.relevance.matchType && (
+          {worker.relevance.matchType && (
+            <div className="mb-2">
               <Badge
                 className={`${matchTypeColor[worker.relevance.matchType]} text-white`}
               >
                 {matchTypeLabel[worker.relevance.matchType]}
               </Badge>
-            )}
-            <Badge variant="outline">
-              {worker.relevance.score} pts
-            </Badge>
-          </div>
+            </div>
+          )}
           <DialogTitle className="text-xl">
             Perfil del Trabajador
           </DialogTitle>

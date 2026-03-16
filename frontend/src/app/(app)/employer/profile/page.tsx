@@ -17,6 +17,7 @@ export default function EmployerProfilePage() {
   const [formData, setFormData] = useState({
     businessName: '',
     rubro: '',
+    localidad: '',
     description: '',
     address: '',
     phone: '',
@@ -46,6 +47,7 @@ export default function EmployerProfilePage() {
       setFormData({
         businessName: profile.businessName || '',
         rubro: profile.rubro || '',
+        localidad: profile.localidad || '',
         description: profile.description || '',
         address: profile.address || '',
         phone: profile.phone || '',
@@ -125,6 +127,20 @@ export default function EmployerProfilePage() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Localidad */}
+      <div>
+        <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+          Localidad
+        </label>
+        <input
+          type="text"
+          value={formData.localidad}
+          onChange={(e) => setFormData({ ...formData, localidad: e.target.value })}
+          placeholder="Ej: Mar del Plata, Batán, etc."
+          className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none"
+        />
       </div>
 
       {/* Phone */}

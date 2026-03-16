@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { IRelevantOffer } from '@/types';
+import { IRelevantOffer } from "@/types";
 import {
   Dialog,
   DialogContent,
@@ -8,16 +8,24 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { MapPin, DollarSign, Clock, Star, Check, Building2 } from 'lucide-react';
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  MapPin,
+  DollarSign,
+  Clock,
+  Star,
+  Check,
+  Building2,
+} from "lucide-react";
 
 interface OfferDetailModalProps {
   offer: IRelevantOffer | null;
   open: boolean;
   onClose: () => void;
   onContact?: (offer: IRelevantOffer) => void;
+  onNotInterested?: (offer: IRelevantOffer) => void;
   isRequesting?: boolean;
 }
 
@@ -26,44 +34,38 @@ export function OfferDetailModal({
   open,
   onClose,
   onContact,
+  onNotInterested,
   isRequesting = false,
 }: OfferDetailModalProps) {
   if (!offer) return null;
 
   const matchTypeLabel = {
-    full_match: 'Match Completo',
-    partial_match: 'Match Parcial',
-    skills_match: 'Match por Skills',
+    full_match: "Match Completo",
+    partial_match: "Match Parcial",
+    skills_match: "Match por Skills",
   };
 
   const matchTypeColor = {
-    full_match: 'bg-green-500',
-    partial_match: 'bg-yellow-500',
-    skills_match: 'bg-blue-500',
+    full_match: "bg-green-500",
+    partial_match: "bg-yellow-500",
+    skills_match: "bg-blue-500",
   };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent className="my-2 max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <div className="flex items-center gap-2 mb-2">
-            {offer.relevance.matchType && (
+          {offer.relevance.matchType && (
+            <div className="mb-2">
               <Badge
                 className={`${matchTypeColor[offer.relevance.matchType]} text-white`}
               >
                 {matchTypeLabel[offer.relevance.matchType]}
               </Badge>
-            )}
-            <Badge variant="outline">
-              {offer.relevance.score} pts
-            </Badge>
-          </div>
-          <DialogTitle className="text-xl">
-            {offer.puesto}
-          </DialogTitle>
-          <DialogDescription>
-            {offer.rubro}
-          </DialogDescription>
+            </div>
+          )}
+          <DialogTitle className="text-xl">{offer.puesto}</DialogTitle>
+          <DialogDescription>{offer.rubro}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -138,8 +140,8 @@ export function OfferDetailModal({
                     key={skill}
                     variant={
                       offer.relevance.details.matchingSkills.includes(skill)
-                        ? 'default'
-                        : 'outline'
+                        ? "default"
+                        : "outline"
                     }
                   >
                     {offer.relevance.details.matchingSkills.includes(skill) && (
@@ -151,14 +153,15 @@ export function OfferDetailModal({
               </div>
               {offer.relevance.details.matchingSkills.length > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Tienes {offer.relevance.details.matchingSkills.length} de {offer.requiredSkills.length} skills requeridos
+                  Tienes {offer.relevance.details.matchingSkills.length} de{" "}
+                  {offer.requiredSkills.length} skills requeridos
                 </p>
               )}
             </div>
           )}
 
           {/* Match Details */}
-          <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+          <div className=" my-2 bg-muted/50 rounded-lg p-3 space-y-1">
             <h4 className="text-sm font-medium">Por que es un buen match</h4>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="flex items-center gap-1">
@@ -194,24 +197,45 @@ export function OfferDetailModal({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cerrar
-          </Button>
-          {onContact && !offer.hasRequested && (
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          {onNotInterested && !offer.hasRequested && (
             <Button
-              onClick={() => onContact(offer)}
+              variant="ghost"
+              onClick={() => onNotInterested(offer)}
               disabled={isRequesting}
+              className="text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
             >
-              {isRequesting ? 'Enviando...' : 'Me interesa'}
+              No me interesa
             </Button>
           )}
-          {offer.hasRequested && (
-            <Button disabled variant="secondary">
-              <Check className="h-4 w-4 mr-2" />
-              Solicitud enviada
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Button
+              variant="outline"
+              onClick={onClose}
+              className="flex-1 sm:flex-none"
+            >
+              Cerrar
             </Button>
-          )}
+            {onContact && !offer.hasRequested && (
+              <Button
+                onClick={() => onContact(offer)}
+                disabled={isRequesting}
+                className="flex-1 sm:flex-none"
+              >
+                {isRequesting ? "Enviando..." : "Me interesa"}
+              </Button>
+            )}
+            {offer.hasRequested && (
+              <Button
+                disabled
+                variant="secondary"
+                className="flex-1 sm:flex-none"
+              >
+                <Check className="h-4 w-4 mr-2" />
+                Solicitud enviada
+              </Button>
+            )}
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

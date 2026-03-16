@@ -8,7 +8,7 @@ const router = express.Router();
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { businessName, rubro, description, address, phone } = req.body;
+    const { businessName, rubro, localidad, description, address, phone } = req.body;
 
     if (!businessName || !rubro) {
       return res.status(400).json({ error: 'businessName and rubro are required' });
@@ -32,6 +32,7 @@ router.post('/', authMiddleware, async (req, res, next) => {
       uid,
       businessName,
       rubro,
+      localidad: localidad || null,
       description: description || null,
       address: address || null,
       phone: phone || null,

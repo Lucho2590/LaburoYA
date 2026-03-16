@@ -29,11 +29,28 @@ router.get('/offers', authMiddleware, async (req, res, next) => {
 
     const relevantOffers = await matchingService.getRelevantOffersForWorker(uid);
 
+    // Get offers marked as "not interested" by this worker
+    const notInterestedSnapshot = await db.collection('offerInteractions')
+      .where('userId', '==', uid)
+      .where('type', '==', 'not_interested')
+      .get();
+
+    const notInterestedOfferIds = new Set();
+    notInterestedSnapshot.docs.forEach(doc => {
+      notInterestedOfferIds.add(doc.data().offerId);
+    });
+
+    // Filter out not interested offers AND offers without a valid matchType
+    // (offers can have score > 0 from bonuses but no actual match)
+    const filteredOffers = relevantOffers.filter(o =>
+      !notInterestedOfferIds.has(o.id) && o.relevance.matchType !== null
+    );
+
     // Group by match type
     const grouped = {
-      fullMatch: relevantOffers.filter(o => o.relevance.matchType === MATCH_TYPES.FULL_MATCH),
-      partialMatch: relevantOffers.filter(o => o.relevance.matchType === MATCH_TYPES.PARTIAL_MATCH),
-      skillsMatch: relevantOffers.filter(o => o.relevance.matchType === MATCH_TYPES.SKILLS_MATCH)
+      fullMatch: filteredOffers.filter(o => o.relevance.matchType === MATCH_TYPES.FULL_MATCH),
+      partialMatch: filteredOffers.filter(o => o.relevance.matchType === MATCH_TYPES.PARTIAL_MATCH),
+      skillsMatch: filteredOffers.filter(o => o.relevance.matchType === MATCH_TYPES.SKILLS_MATCH)
     };
 
     // Check which offers the worker has already requested
@@ -56,7 +73,7 @@ router.get('/offers', authMiddleware, async (req, res, next) => {
       fullMatch: markRequested(grouped.fullMatch),
       partialMatch: markRequested(grouped.partialMatch),
       skillsMatch: markRequested(grouped.skillsMatch),
-      total: relevantOffers.length
+      total: filteredOffers.length
     });
   } catch (error) {
     if (error.message === 'Worker not found') {

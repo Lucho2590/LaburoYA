@@ -135,6 +135,67 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
   }
 });
 
+// Mark offer as "not interested" (for workers)
+router.post('/:id/not-interested', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const { id } = req.params;
+
+    const db = getDb();
+
+    // Verify user is a worker
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (!userDoc.exists) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+    const userData = userDoc.data();
+    const isWorker = userData.role === 'worker' ||
+      (userData.role === 'superuser' && userData.secondaryRole === 'worker');
+    if (!isWorker) {
+      return res.status(403).json({ error: 'Only workers can mark offers as not interested' });
+    }
+
+    // Verify offer exists
+    const offerDoc = await db.collection('jobOffers').doc(id).get();
+    if (!offerDoc.exists) {
+      return res.status(404).json({ error: 'Job offer not found' });
+    }
+
+    // Check if already marked
+    const existingSnapshot = await db.collection('offerInteractions')
+      .where('offerId', '==', id)
+      .where('userId', '==', uid)
+      .where('type', '==', 'not_interested')
+      .limit(1)
+      .get();
+
+    if (!existingSnapshot.empty) {
+      return res.json({ message: 'Already marked as not interested', alreadyMarked: true });
+    }
+
+    // Create interaction record
+    await db.collection('offerInteractions').add({
+      offerId: id,
+      userId: uid,
+      type: 'not_interested',
+      createdAt: new Date()
+    });
+
+    // Update offer stats
+    const currentStats = offerDoc.data().stats || { interestedCount: 0, notInterestedCount: 0 };
+    await db.collection('jobOffers').doc(id).update({
+      stats: {
+        ...currentStats,
+        notInterestedCount: (currentStats.notInterestedCount || 0) + 1
+      }
+    });
+
+    res.json({ message: 'Marked as not interested', offerId: id });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Delete job offer
 router.delete('/:id', authMiddleware, async (req, res, next) => {
   try {

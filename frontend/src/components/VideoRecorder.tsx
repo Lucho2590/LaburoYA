@@ -210,96 +210,112 @@ export function VideoRecorder({
     );
   }
 
-  // Preview / Recording state
-  if (mode === 'preview' || mode === 'recording') {
+  // Preview / Recording / Recorded state - Show as fullscreen modal
+  if (mode === 'preview' || mode === 'recording' || (mode === 'recorded' && recordedUrl)) {
     return (
-      <div className="space-y-3">
-        <div className="relative rounded-xl overflow-hidden bg-black">
-          <video
-            ref={videoRef}
-            className="w-full aspect-[9/16] max-h-[400px] object-cover -scale-x-100"
-            autoPlay
-            playsInline
-            muted
-          />
+      <>
+        {/* Placeholder in form to maintain layout */}
+        <div className="w-full p-6 rounded-xl border-2 border-dashed border-[#344054] bg-[#1F2937]/50 flex flex-col items-center">
+          <span className="text-4xl mb-2">🎥</span>
+          <span className="font-medium text-[#98A2B3]">Grabando video...</span>
+        </div>
 
-          {/* Recording indicator */}
-          {mode === 'recording' && (
-            <div className="absolute top-4 left-4 flex items-center bg-[#E10600] text-white px-3 py-1 rounded-full text-sm font-medium">
-              <span className="w-2 h-2 bg-white rounded-full animate-pulse mr-2" />
-              {timeLeft}s
+        {/* Fullscreen Modal Overlay */}
+        <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm">
+            {/* Header */}
+            <div className="text-center mb-4">
+              <h3 className="text-white text-lg font-semibold">
+                {mode === 'recorded' ? 'Vista previa' : 'Video de presentación'}
+              </h3>
+              <p className="text-[#98A2B3] text-sm mt-1">
+                {mode === 'preview' && 'Tocá el botón rojo para grabar'}
+                {mode === 'recording' && 'Grabando... Tocá para detener'}
+                {mode === 'recorded' && 'Revisá tu video antes de confirmar'}
+              </p>
             </div>
-          )}
 
-          {/* Controls overlay */}
-          <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
-            {mode === 'preview' ? (
-              <div className="flex justify-center gap-4">
-                <button
-                  onClick={cancelRecording}
-                  className="w-14 h-14 bg-white/20 rounded-full flex items-center justify-center text-white active:scale-95"
-                >
-                  ✕
-                </button>
-                <button
-                  onClick={startRecording}
-                  className="w-16 h-16 bg-[#E10600] rounded-full flex items-center justify-center text-white active:scale-95 border-4 border-white"
-                >
-                  <div className="w-6 h-6 bg-white rounded-full" />
-                </button>
-              </div>
-            ) : (
-              <div className="flex justify-center">
-                <button
-                  onClick={stopRecording}
-                  className="w-16 h-16 bg-[#E10600] rounded-full flex items-center justify-center text-white active:scale-95 border-4 border-white"
-                >
-                  <div className="w-6 h-6 bg-white rounded-sm" />
-                </button>
-              </div>
-            )}
+            {/* Video Container */}
+            <div className="relative rounded-2xl overflow-hidden bg-black shadow-2xl">
+              {mode === 'recorded' && recordedUrl ? (
+                <video
+                  src={recordedUrl}
+                  controls
+                  className="w-full aspect-[9/16] max-h-[60vh] object-cover"
+                  playsInline
+                />
+              ) : (
+                <video
+                  ref={videoRef}
+                  className="w-full aspect-[9/16] max-h-[60vh] object-cover -scale-x-100"
+                  autoPlay
+                  playsInline
+                  muted
+                />
+              )}
+
+              {/* Recording indicator */}
+              {mode === 'recording' && (
+                <div className="absolute top-4 left-4 flex items-center bg-[#E10600] text-white px-3 py-1.5 rounded-full text-sm font-medium shadow-lg">
+                  <span className="w-2 h-2 bg-white rounded-full animate-pulse mr-2" />
+                  {timeLeft}s
+                </div>
+              )}
+            </div>
+
+            {/* Controls */}
+            <div className="mt-6">
+              {mode === 'preview' && (
+                <div className="flex justify-center gap-6">
+                  <button
+                    onClick={cancelRecording}
+                    className="w-14 h-14 bg-white/10 rounded-full flex items-center justify-center text-white active:scale-95 border border-white/20"
+                  >
+                    <span className="text-xl">✕</span>
+                  </button>
+                  <button
+                    onClick={startRecording}
+                    className="w-20 h-20 bg-[#E10600] rounded-full flex items-center justify-center text-white active:scale-95 border-4 border-white shadow-lg"
+                  >
+                    <div className="w-7 h-7 bg-white rounded-full" />
+                  </button>
+                  <div className="w-14 h-14" /> {/* Spacer for symmetry */}
+                </div>
+              )}
+
+              {mode === 'recording' && (
+                <div className="flex justify-center">
+                  <button
+                    onClick={stopRecording}
+                    className="w-20 h-20 bg-[#E10600] rounded-full flex items-center justify-center text-white active:scale-95 border-4 border-white shadow-lg animate-pulse"
+                  >
+                    <div className="w-7 h-7 bg-white rounded-sm" />
+                  </button>
+                </div>
+              )}
+
+              {mode === 'recorded' && (
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={retryRecording}
+                    className="flex-1 py-4 rounded-xl border-2 border-[#344054] text-[#98A2B3] font-medium active:bg-[#1F2937]"
+                  >
+                    🔄 Grabar otro
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmVideo}
+                    className="flex-1 py-4 rounded-xl bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white font-medium active:scale-[0.98]"
+                  >
+                    ✓ Usar este
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-
-        <p className="text-center text-[#98A2B3] text-sm">
-          {mode === 'preview'
-            ? 'Tocá el botón rojo para grabar'
-            : 'Tocá para detener la grabación'}
-        </p>
-      </div>
-    );
-  }
-
-  // Recorded state - show preview and confirm/retry
-  if (mode === 'recorded' && recordedUrl) {
-    return (
-      <div className="space-y-3">
-        <div className="relative rounded-xl overflow-hidden bg-black">
-          <video
-            src={recordedUrl}
-            controls
-            className="w-full aspect-[9/16] max-h-[400px] object-cover"
-            playsInline
-          />
-        </div>
-
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={retryRecording}
-            className="flex-1 py-3 rounded-xl border-2 border-[#344054] text-[#98A2B3] font-medium active:bg-[#1F2937]"
-          >
-            🔄 Grabar otro
-          </button>
-          <button
-            type="button"
-            onClick={confirmVideo}
-            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white font-medium active:scale-[0.98]"
-          >
-            ✓ Usar este video
-          </button>
-        </div>
-      </div>
+      </>
     );
   }
 

@@ -22,6 +22,7 @@ export default function WorkerProfilePage() {
     rubro: '',
     puesto: '',
     zona: '',
+    localidad: '',
     description: '',
     experience: '',
   });
@@ -54,6 +55,7 @@ export default function WorkerProfilePage() {
         rubro: profile.rubro || '',
         puesto: profile.puesto || '',
         zona: profile.zona || '',
+        localidad: profile.localidad || '',
         description: profile.description || '',
         experience: profile.experience || '',
       });
@@ -65,6 +67,36 @@ export default function WorkerProfilePage() {
   const availablePuestos = formData.rubro
     ? JOB_CATEGORIES[formData.rubro as TRubro]?.puestos || []
     : [];
+
+  // Calculate profile completion percentage
+  const calculateProfileCompletion = (): { percentage: number; completed: string[]; missing: string[] } => {
+    const fields = [
+      { key: 'rubro', label: 'Rubro', value: formData.rubro, required: true },
+      { key: 'puesto', label: 'Puesto', value: formData.puesto, required: true },
+      { key: 'zona', label: 'Zona de trabajo', value: formData.zona, required: false },
+      { key: 'localidad', label: 'Localidad', value: formData.localidad, required: false },
+      { key: 'experience', label: 'Experiencia', value: formData.experience, required: false },
+      { key: 'description', label: 'Descripción', value: formData.description, required: false },
+      { key: 'skills', label: 'Habilidades', value: selectedSkills.length > 0, required: false },
+      { key: 'video', label: 'Video', value: videoUrl || videoBlob, required: false },
+    ];
+
+    const completed: string[] = [];
+    const missing: string[] = [];
+
+    fields.forEach(field => {
+      if (field.value) {
+        completed.push(field.label);
+      } else {
+        missing.push(field.label);
+      }
+    });
+
+    const percentage = Math.round((completed.length / fields.length) * 100);
+    return { percentage, completed, missing };
+  };
+
+  const profileCompletion = calculateProfileCompletion();
 
   const handleVideoRecorded = (blob: Blob) => {
     setVideoBlob(blob);
@@ -140,6 +172,47 @@ export default function WorkerProfilePage() {
 
   return (
     <div className="px-4 py-6 space-y-6">
+      {/* Profile Completion */}
+      <div className="theme-bg-card border theme-border rounded-xl p-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium theme-text-primary">
+            Perfil completado
+          </span>
+          <span className={`text-sm font-bold ${
+            profileCompletion.percentage === 100
+              ? 'text-[#12B76A]'
+              : profileCompletion.percentage >= 50
+                ? 'text-[#F79009]'
+                : 'text-[#F04438]'
+          }`}>
+            {profileCompletion.percentage}%
+          </span>
+        </div>
+        <div className="w-full bg-[#344054] rounded-full h-2.5">
+          <div
+            className={`h-2.5 rounded-full transition-all duration-500 ${
+              profileCompletion.percentage === 100
+                ? 'bg-[#12B76A]'
+                : profileCompletion.percentage >= 50
+                  ? 'bg-[#F79009]'
+                  : 'bg-[#F04438]'
+            }`}
+            style={{ width: `${profileCompletion.percentage}%` }}
+          />
+        </div>
+        {profileCompletion.missing.length > 0 && profileCompletion.percentage < 100 && (
+          <p className="text-xs theme-text-muted mt-2">
+            Te falta: {profileCompletion.missing.slice(0, 3).join(', ')}
+            {profileCompletion.missing.length > 3 && ` y ${profileCompletion.missing.length - 3} más`}
+          </p>
+        )}
+        {profileCompletion.percentage === 100 && (
+          <p className="text-xs text-[#12B76A] mt-2 flex items-center gap-1">
+            <Check className="w-3 h-3" /> Perfil completo - Más visibilidad para empleadores
+          </p>
+        )}
+      </div>
+
       {/* Rubro */}
       <div>
         <label className="block text-sm font-medium text-[#98A2B3] mb-2">
@@ -254,6 +327,20 @@ export default function WorkerProfilePage() {
             <option key={zona} value={zona}>{zona}</option>
           ))}
         </select>
+      </div>
+
+      {/* Localidad */}
+      <div>
+        <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+          ¿Dónde vivís?
+        </label>
+        <input
+          type="text"
+          value={formData.localidad}
+          onChange={(e) => setFormData({ ...formData, localidad: e.target.value })}
+          placeholder="Ej: Mar del Plata, Batán, etc."
+          className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
+        />
       </div>
 
       {/* Experience */}

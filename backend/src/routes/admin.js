@@ -376,9 +376,13 @@ router.get('/job-offers', async (req, res, next) => {
         }
       }
 
+      // Include stats (default to 0 if not present)
+      const stats = data.stats || { interestedCount: 0, notInterestedCount: 0 };
+
       return {
         id: doc.id,
         ...data,
+        stats,
         employer,
         createdAt: data.createdAt?.toDate?.() || data.createdAt
       };
@@ -392,6 +396,77 @@ router.get('/job-offers', async (req, res, next) => {
       total: jobOffers.length,
       limit: Number(limit),
       offset: Number(offset)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/admin/job-offers/:id/interactions - Get users who interacted with offer
+router.get('/job-offers/:id/interactions', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const { id } = req.params;
+    const { type } = req.query; // Optional: filter by 'interested' or 'not_interested'
+
+    // Get offer first
+    const offerDoc = await db.collection('jobOffers').doc(id).get();
+    if (!offerDoc.exists) {
+      return res.status(404).json({ error: 'Job offer not found' });
+    }
+
+    // Get interactions
+    let query = db.collection('offerInteractions').where('offerId', '==', id);
+    if (type && ['interested', 'not_interested'].includes(type)) {
+      query = query.where('type', '==', type);
+    }
+
+    const interactionsSnapshot = await query.get();
+
+    // Get user details for each interaction
+    const interactions = await Promise.all(interactionsSnapshot.docs.map(async doc => {
+      const data = doc.data();
+
+      // Get user info
+      let user = null;
+      const userDoc = await db.collection('users').doc(data.userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        user = {
+          uid: data.userId,
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          email: userData.email
+        };
+      }
+
+      // Get worker profile
+      let workerProfile = null;
+      const workerDoc = await db.collection('workers').doc(data.userId).get();
+      if (workerDoc.exists) {
+        workerProfile = workerDoc.data();
+      }
+
+      return {
+        id: doc.id,
+        ...data,
+        user,
+        workerProfile,
+        createdAt: data.createdAt?.toDate?.() || data.createdAt
+      };
+    }));
+
+    // Group by type
+    const grouped = {
+      interested: interactions.filter(i => i.type === 'interested'),
+      notInterested: interactions.filter(i => i.type === 'not_interested')
+    };
+
+    res.json({
+      offerId: id,
+      stats: offerDoc.data().stats || { interestedCount: 0, notInterestedCount: 0 },
+      interactions: grouped,
+      total: interactions.length
     });
   } catch (error) {
     next(error);

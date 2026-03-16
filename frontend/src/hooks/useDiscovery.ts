@@ -5,19 +5,35 @@ import { api } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { IDiscoveryOffersResponse, IDiscoveryWorkersResponse, IRelevantOffer, IRelevantWorker } from '@/types';
 
+// Simple hook-level cache to share data between components
+let offersCache: { data: IDiscoveryOffersResponse | null; timestamp: number } = {
+  data: null,
+  timestamp: 0,
+};
+const CACHE_TTL = 5000; // 5 seconds - short TTL to keep data fresh
+
 export function useDiscoveryOffers() {
   const { user, userData, authReady } = useAuth();
-  const [data, setData] = useState<IDiscoveryOffersResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<IDiscoveryOffersResponse | null>(offersCache.data);
+  const [loading, setLoading] = useState(!offersCache.data);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchOffers = useCallback(async () => {
+  const fetchOffers = useCallback(async (force = false) => {
     if (!user || !authReady) return;
+
+    // Use cache if fresh (unless forced)
+    const now = Date.now();
+    if (!force && offersCache.data && (now - offersCache.timestamp) < CACHE_TTL) {
+      setData(offersCache.data);
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
       setError(null);
       const response = await api.discoverOffers();
+      offersCache = { data: response, timestamp: Date.now() };
       setData(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch offers');
@@ -37,22 +53,54 @@ export function useDiscoveryOffers() {
     try {
       const result = await api.sendWorkerToOfferRequest(offerId);
 
-      // Update local state to mark offer as requested
+      // Update local state AND cache to mark offer as requested
       if (data) {
         const updateOffer = (offer: IRelevantOffer) =>
           offer.id === offerId ? { ...offer, hasRequested: true } : offer;
 
-        setData({
+        const newData = {
           ...data,
           fullMatch: data.fullMatch.map(updateOffer),
           partialMatch: data.partialMatch.map(updateOffer),
           skillsMatch: data.skillsMatch.map(updateOffer),
-        });
+        };
+
+        setData(newData);
+        // Update the shared cache
+        offersCache = { data: newData, timestamp: Date.now() };
       }
 
       return result;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send request');
+      throw err;
+    }
+  };
+
+  const markNotInterested = async (offerId: string) => {
+    try {
+      await api.markOfferNotInterested(offerId);
+
+      // Remove offer from local state AND cache
+      if (data) {
+        const filterOffer = (offer: IRelevantOffer) => offer.id !== offerId;
+
+        const newData = {
+          ...data,
+          fullMatch: data.fullMatch.filter(filterOffer),
+          partialMatch: data.partialMatch.filter(filterOffer),
+          skillsMatch: data.skillsMatch.filter(filterOffer),
+          total: data.total - 1,
+        };
+
+        setData(newData);
+        // Update the shared cache
+        offersCache = { data: newData, timestamp: Date.now() };
+      }
+
+      return { success: true };
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to mark as not interested');
       throw err;
     }
   };
@@ -63,6 +111,7 @@ export function useDiscoveryOffers() {
     error,
     refetch: fetchOffers,
     requestOffer,
+    markNotInterested,
   };
 }
 

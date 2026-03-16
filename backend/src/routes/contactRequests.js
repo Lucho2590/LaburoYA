@@ -116,6 +116,31 @@ router.post('/worker-to-offer', authMiddleware, async (req, res, next) => {
       // Mutual interest! Create match and update both requests
       const match = await createMutualMatch(db, uid, employerId, offerId, jobOfferData);
 
+      // Track "interested" interaction for stats (even on mutual interest)
+      const existingInteraction = await db.collection('offerInteractions')
+        .where('offerId', '==', offerId)
+        .where('userId', '==', uid)
+        .where('type', '==', 'interested')
+        .limit(1)
+        .get();
+
+      if (existingInteraction.empty) {
+        await db.collection('offerInteractions').add({
+          offerId,
+          userId: uid,
+          type: 'interested',
+          createdAt: new Date()
+        });
+
+        const currentStats = jobOfferData.stats || { interestedCount: 0, notInterestedCount: 0 };
+        await db.collection('jobOffers').doc(offerId).update({
+          stats: {
+            ...currentStats,
+            interestedCount: (currentStats.interestedCount || 0) + 1
+          }
+        });
+      }
+
       // Update the reverse request status
       await db.collection('contactRequests').doc(reverseRequest.id).update({
         status: 'matched',
@@ -184,6 +209,32 @@ router.post('/worker-to-offer', authMiddleware, async (req, res, next) => {
     };
 
     const requestRef = await db.collection('contactRequests').add(requestData);
+
+    // Track "interested" interaction for stats
+    const existingInteraction = await db.collection('offerInteractions')
+      .where('offerId', '==', offerId)
+      .where('userId', '==', uid)
+      .where('type', '==', 'interested')
+      .limit(1)
+      .get();
+
+    if (existingInteraction.empty) {
+      await db.collection('offerInteractions').add({
+        offerId,
+        userId: uid,
+        type: 'interested',
+        createdAt: new Date()
+      });
+
+      // Update offer stats
+      const currentStats = jobOfferData.stats || { interestedCount: 0, notInterestedCount: 0 };
+      await db.collection('jobOffers').doc(offerId).update({
+        stats: {
+          ...currentStats,
+          interestedCount: (currentStats.interestedCount || 0) + 1
+        }
+      });
+    }
 
     // Get worker info for notification
     const workerDoc = await db.collection('workers').doc(uid).get();

@@ -36,6 +36,7 @@ export interface IWorkerProfile {
   rubro: string;
   puesto: string;
   zona: string;
+  localidad?: string;
   videoUrl?: string;
   description?: string;
   experience?: string;
@@ -51,6 +52,7 @@ export interface IEmployerProfile {
   uid?: string;
   businessName: string;
   rubro: string;
+  localidad?: string;
   description?: string;
   address?: string;
   phone?: string;
@@ -250,6 +252,7 @@ export interface ICreateWorkerProfileData {
   rubro: string;
   puesto: string;
   zona?: string;
+  localidad?: string;
   description?: string;
   experience?: string;
   videoUrl?: string;
@@ -259,6 +262,7 @@ export interface ICreateWorkerProfileData {
 export interface ICreateEmployerProfileData {
   businessName: string;
   rubro: string;
+  localidad?: string;
   description?: string;
   address?: string;
   phone?: string;

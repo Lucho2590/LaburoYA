@@ -324,89 +324,20 @@ class MatchingService {
 
     return result;
   }
-  // Find matches when a worker creates/updates their profile
+  // DISABLED: Auto-matching removed - matches are now created only through mutual interest
+  // via contact requests (see contactRequests.js)
   async findMatchesForWorker(workerId, workerData) {
-    const db = getDb();
-    const matches = [];
-
-    // Find active job offers that match worker's rubro and puesto
-    const jobOffersSnapshot = await db.collection('jobOffers')
-      .where('rubro', '==', workerData.rubro)
-      .where('puesto', '==', workerData.puesto)
-      .where('active', '==', true)
-      .get();
-
-    for (const jobDoc of jobOffersSnapshot.docs) {
-      const jobOffer = jobDoc.data();
-
-      // Check if match already exists
-      const existingMatch = await db.collection('matches')
-        .where('workerId', '==', workerId)
-        .where('offerId', '==', jobDoc.id)
-        .get();
-
-      if (existingMatch.empty) {
-        // Create new match
-        const matchRef = await db.collection('matches').add({
-          workerId,
-          employerId: jobOffer.employerId,
-          offerId: jobDoc.id,
-          rubro: workerData.rubro,
-          puesto: workerData.puesto,
-          status: 'pending', // pending, accepted, rejected
-          createdAt: new Date()
-        });
-
-        matches.push({
-          id: matchRef.id,
-          offerId: jobDoc.id,
-          employerId: jobOffer.employerId
-        });
-      }
-    }
-
-    return matches;
+    // No longer auto-create matches when worker creates profile
+    // Matches are created when both parties express interest
+    return [];
   }
 
-  // Find matches when an employer creates a job offer
+  // DISABLED: Auto-matching removed - matches are now created only through mutual interest
+  // via contact requests (see contactRequests.js)
   async findMatchesForJobOffer(offerId, jobOfferData) {
-    const db = getDb();
-    const matches = [];
-
-    // Find active workers that match the job's rubro and puesto
-    const workersSnapshot = await db.collection('workers')
-      .where('rubro', '==', jobOfferData.rubro)
-      .where('puesto', '==', jobOfferData.puesto)
-      .where('active', '==', true)
-      .get();
-
-    for (const workerDoc of workersSnapshot.docs) {
-      // Check if match already exists
-      const existingMatch = await db.collection('matches')
-        .where('workerId', '==', workerDoc.id)
-        .where('offerId', '==', offerId)
-        .get();
-
-      if (existingMatch.empty) {
-        // Create new match
-        const matchRef = await db.collection('matches').add({
-          workerId: workerDoc.id,
-          employerId: jobOfferData.employerId,
-          offerId,
-          rubro: jobOfferData.rubro,
-          puesto: jobOfferData.puesto,
-          status: 'pending',
-          createdAt: new Date()
-        });
-
-        matches.push({
-          id: matchRef.id,
-          workerId: workerDoc.id
-        });
-      }
-    }
-
-    return matches;
+    // No longer auto-create matches when employer creates job offer
+    // Matches are created when both parties express interest
+    return [];
   }
 
   // Get all matches for a user (worker or employer)
