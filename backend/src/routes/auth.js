@@ -8,7 +8,7 @@ const router = express.Router();
 router.post('/register', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { role } = req.body;
+    const { role, referralSource } = req.body;
 
     if (!role || !['worker', 'employer', 'superuser'].includes(role)) {
       return res.status(400).json({ error: 'Invalid role. Must be "worker", "employer", or "superuser"' });
@@ -17,12 +17,19 @@ router.post('/register', authMiddleware, async (req, res, next) => {
     const db = getDb();
 
     // Create or update user document
-    await db.collection('users').doc(uid).set({
+    const userData = {
       uid,
       role,
       createdAt: new Date(),
       updatedAt: new Date()
-    }, { merge: true });
+    };
+
+    // Agregar referralSource si existe
+    if (referralSource) {
+      userData.referralSource = referralSource;
+    }
+
+    await db.collection('users').doc(uid).set(userData, { merge: true });
 
     res.json({
       message: 'User registered successfully',

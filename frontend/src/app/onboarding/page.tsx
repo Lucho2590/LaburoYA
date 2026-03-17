@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthLayout } from "@/components/AuthLayout";
@@ -11,35 +11,56 @@ export default function OnboardingPage() {
   const router = useRouter();
   const { user, userData, loading, setRole } = useAuth();
   const [selecting, setSelecting] = useState(false);
+  const [autoSelectDone, setAutoSelectDone] = useState(false);
+  const [checkingReferral, setCheckingReferral] = useState(true);
 
-  useEffect(() => {
-    if (!loading && !user) {
-      router.push("/login");
-    }
-
-    // Si tiene rol pero no completó onboarding, ir al form de datos básicos
-    if (!loading && userData?.role && !userData?.onboardingCompleted) {
-      router.push("/onboarding/basic-info");
-    }
-    // Si tiene rol y completó onboarding, ir a home
-    if (!loading && userData?.role && userData?.onboardingCompleted) {
-      router.push("/home");
-    }
-  }, [loading, user, userData, router]);
-
-  const handleSelectRole = async (role: EUserRole) => {
+  const handleSelectRole = useCallback(async (role: EUserRole) => {
     setSelecting(true);
     try {
       await setRole(role);
       router.push("/onboarding/basic-info");
     } catch (error) {
       toast.error("Error al guardar");
-    } finally {
       setSelecting(false);
     }
-  };
+  }, [setRole, router]);
 
-  if (loading) {
+  useEffect(() => {
+    if (loading) return;
+
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+
+    // Si tiene rol pero no completó onboarding, ir al form de datos básicos
+    if (userData?.role && !userData?.onboardingCompleted) {
+      router.push("/onboarding/basic-info");
+      return;
+    }
+
+    // Si tiene rol y completó onboarding, ir a home
+    if (userData?.role && userData?.onboardingCompleted) {
+      router.push("/home");
+      return;
+    }
+
+    // Auto-asignar rol si viene de un QR con rol específico
+    if (user && !userData?.role && !autoSelectDone) {
+      const referralRole = localStorage.getItem("referralRole");
+      if (referralRole === "worker" || referralRole === "employer") {
+        setAutoSelectDone(true);
+        localStorage.removeItem("referralRole");
+        handleSelectRole(referralRole as EUserRole);
+        return; // Don't set checkingReferral false, we're redirecting
+      }
+    }
+
+    // Done checking for referral, can show the page
+    setCheckingReferral(false);
+  }, [loading, user, userData, router, autoSelectDone, handleSelectRole]);
+
+  if (loading || selecting || checkingReferral) {
     return (
       <div className="min-h-screen flex items-center justify-center theme-bg-primary">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#E10600]"></div>

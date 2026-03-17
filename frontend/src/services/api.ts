@@ -75,10 +75,22 @@ class ApiService {
 
   // Auth
   async registerUser(role: EUserRole) {
-    return this.request('/auth/register', {
+    // Obtener referralSource de localStorage si existe
+    const referralSource = typeof window !== 'undefined'
+      ? localStorage.getItem('referralSource')
+      : null;
+
+    const result = await this.request('/auth/register', {
       method: 'POST',
-      body: { role },
+      body: { role, referralSource },
     });
+
+    // Limpiar referralSource después de usarlo
+    if (typeof window !== 'undefined' && referralSource) {
+      localStorage.removeItem('referralSource');
+    }
+
+    return result;
   }
 
   async checkEmailExists(email: string) {

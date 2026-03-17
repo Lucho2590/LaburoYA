@@ -1,20 +1,34 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthLayout } from "@/components/AuthLayout";
 import { toast } from "sonner";
 import { Eye, EyeOff } from "lucide-react";
 
-export default function RegisterPage() {
+function RegisterContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signUp, signInWithGoogle, signInWithFacebook } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // Capturar referral code y rol de la URL
+  useEffect(() => {
+    const ref = searchParams.get("ref");
+    const role = searchParams.get("role");
+
+    if (ref) {
+      localStorage.setItem("referralSource", ref);
+    }
+    if (role && (role === "worker" || role === "employer")) {
+      localStorage.setItem("referralRole", role);
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,5 +178,21 @@ export default function RegisterPage() {
         </div>
       </div>
     </AuthLayout>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense
+      fallback={
+        <AuthLayout>
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="w-10 h-10 border-4 border-[#E10600] border-t-transparent rounded-full animate-spin" />
+          </div>
+        </AuthLayout>
+      }
+    >
+      <RegisterContent />
+    </Suspense>
   );
 }

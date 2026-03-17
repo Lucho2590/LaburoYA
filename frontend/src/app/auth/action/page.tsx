@@ -72,6 +72,17 @@ function AuthActionContent() {
     handleAction();
   }, [mode, oobCode, router]);
 
+  // Auto-redirect after successful verification
+  useEffect(() => {
+    if (status === "success") {
+      // Small delay to show success message
+      const timeout = setTimeout(() => {
+        router.push("/onboarding");
+      }, 1500);
+      return () => clearTimeout(timeout);
+    }
+  }, [status, router]);
+
   return (
     <div className="w-full max-w-md">
       <div className="theme-bg-card rounded-2xl border theme-border p-8 text-center">
@@ -98,15 +109,8 @@ function AuthActionContent() {
               Email verificado
             </h1>
             <p className="theme-text-secondary mb-6">
-              Tu email fue verificado correctamente. Ya podés continuar con tu
-              cuenta.
+              Redirigiendo...
             </p>
-            <Link
-              href="/onboarding"
-              className="inline-flex items-center justify-center gap-2 w-full bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white py-4 rounded-xl font-semibold active:scale-[0.98] transition-transform"
-            >
-              Iniciar sesión
-            </Link>
           </>
         )}
 
