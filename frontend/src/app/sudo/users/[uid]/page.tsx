@@ -150,7 +150,14 @@ export default function AdminUserDetailPage() {
           <div className="flex-1">
             <div className="flex items-center gap-3 flex-wrap mb-2">
               <h1 className="text-2xl font-bold theme-text-primary">
-                {user.displayName || 'Sin nombre'}
+                {user.firstName && user.lastName
+                  ? `${user.firstName} ${user.lastName}`
+                  : user.displayName || 'Sin nombre'}
+                {user.nickname && (
+                  <span className="text-lg font-normal theme-text-secondary ml-2">
+                    ({user.nickname})
+                  </span>
+                )}
               </h1>
               <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                 user.role === 'worker' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
@@ -166,8 +173,11 @@ export default function AdminUserDetailPage() {
               )}
             </div>
             <p className="theme-text-secondary">{user.email || 'Sin email'}</p>
-            {user.phoneNumber && (
-              <p className="theme-text-muted text-sm">Tel: {user.phoneNumber}</p>
+            {(user.phone || user.phoneNumber) && (
+              <p className="theme-text-muted text-sm">Tel: {user.phone || user.phoneNumber}</p>
+            )}
+            {user.age && (
+              <p className="theme-text-muted text-sm">{user.age} años</p>
             )}
           </div>
 
@@ -208,20 +218,54 @@ export default function AdminUserDetailPage() {
               <label className="block text-xs theme-text-muted mb-1">Email</label>
               <p className="theme-text-primary">{user.email || '-'}</p>
             </div>
-            <div>
-              <label className="block text-xs theme-text-muted mb-1">Nombre</label>
-              <p className="theme-text-primary">{user.displayName || '-'}</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs theme-text-muted mb-1">Nombre</label>
+                <p className="theme-text-primary">{user.firstName || '-'}</p>
+              </div>
+              <div>
+                <label className="block text-xs theme-text-muted mb-1">Apellido</label>
+                <p className="theme-text-primary">{user.lastName || '-'}</p>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs theme-text-muted mb-1">Telefono</label>
-              <p className="theme-text-primary">{user.phoneNumber || '-'}</p>
+            {user.nickname && (
+              <div>
+                <label className="block text-xs theme-text-muted mb-1">Apodo</label>
+                <p className="theme-text-primary">{user.nickname}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs theme-text-muted mb-1">Teléfono</label>
+                <p className="theme-text-primary">{user.phone || user.phoneNumber || '-'}</p>
+              </div>
+              <div>
+                <label className="block text-xs theme-text-muted mb-1">Edad</label>
+                <p className="theme-text-primary">{user.age ? `${user.age} años` : '-'}</p>
+              </div>
             </div>
             <div>
               <label className="block text-xs theme-text-muted mb-1">Email verificado</label>
               <p className={user.emailVerified ? 'text-green-600' : 'text-yellow-600'}>
-                {user.emailVerified ? 'Si' : 'No'}
+                {user.emailVerified ? 'Sí' : 'No'}
               </p>
             </div>
+            <div>
+              <label className="block text-xs theme-text-muted mb-1">Onboarding completado</label>
+              <p className={user.onboardingCompleted ? 'text-green-600' : 'text-yellow-600'}>
+                {user.onboardingCompleted ? 'Sí' : 'No'}
+              </p>
+            </div>
+            {user.lastLocation && (
+              <div>
+                <label className="block text-xs theme-text-muted mb-1">Última ubicación</label>
+                <p className="theme-text-primary text-sm">
+                  {[user.lastLocation.city, user.lastLocation.region, user.lastLocation.country]
+                    .filter(Boolean)
+                    .join(', ') || '-'}
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs theme-text-muted mb-1">Creado</label>

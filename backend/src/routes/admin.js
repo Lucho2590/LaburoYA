@@ -2,6 +2,7 @@ const express = require('express');
 const { getDb, getAuth } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const { superuserMiddleware } = require('../middleware/superuser');
+const { sendInvitationEmail } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -54,6 +55,80 @@ router.get('/stats', async (req, res, next) => {
       inactiveJobOffers
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/admin/users - Create a new user (invitation)
+router.post('/users', async (req, res, next) => {
+  try {
+    const { email, firstName, lastName, role, plan } = req.body;
+    const db = getDb();
+    const auth = getAuth();
+
+    // Validaciones
+    if (!email) {
+      return res.status(400).json({ error: 'Email es requerido' });
+    }
+
+    if (!role || !['worker', 'employer'].includes(role)) {
+      return res.status(400).json({ error: 'Rol debe ser "worker" o "employer"' });
+    }
+
+    // Verificar si el email ya existe
+    try {
+      await auth.getUserByEmail(email);
+      return res.status(400).json({ error: 'Ya existe un usuario con ese email' });
+    } catch (e) {
+      // Si el error es user-not-found, continuamos (es lo que queremos)
+      if (e.code !== 'auth/user-not-found') {
+        throw e;
+      }
+    }
+
+    // 1. Crear usuario en Firebase Auth
+    const userRecord = await auth.createUser({
+      email,
+      emailVerified: true, // Lo marcamos como verificado porque es invitación de admin
+      displayName: firstName && lastName ? `${firstName} ${lastName}` : undefined
+    });
+
+    // 2. Crear documento en Firestore
+    await db.collection('users').doc(userRecord.uid).set({
+      uid: userRecord.uid,
+      role,
+      firstName: firstName || null,
+      lastName: lastName || null,
+      plan: plan || 'free',
+      invitedBy: req.user.uid,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    // 3. Generar link de reset password
+    const resetLink = await auth.generatePasswordResetLink(email);
+
+    // 4. Enviar email de invitación
+    await sendInvitationEmail({
+      to: email,
+      firstName,
+      resetLink
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Usuario creado y email de invitación enviado',
+      user: {
+        uid: userRecord.uid,
+        email,
+        firstName,
+        lastName,
+        role,
+        plan: plan || 'free'
+      }
+    });
+  } catch (error) {
+    console.error('Error creating user:', error);
     next(error);
   }
 });

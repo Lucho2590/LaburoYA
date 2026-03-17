@@ -1,18 +1,18 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { useAuth } from '@/contexts/AuthContext';
-import { AuthLayout } from '@/components/AuthLayout';
-import { toast } from 'sonner';
-import { Eye, EyeOff } from 'lucide-react';
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useAuth } from "@/contexts/AuthContext";
+import { AuthLayout } from "@/components/AuthLayout";
+import { toast } from "sonner";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function RegisterPage() {
   const router = useRouter();
   const { signUp, signInWithGoogle, signInWithFacebook } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -20,17 +20,17 @@ export default function RegisterPage() {
     e.preventDefault();
 
     if (password.length < 6) {
-      toast.error('La contraseña debe tener al menos 6 caracteres');
+      toast.error("La contraseña debe tener al menos 6 caracteres");
       return;
     }
 
     setLoading(true);
     try {
       await signUp(email, password);
-      toast.success('Te enviamos un email de verificación');
-      router.push('/verify-email');
+      toast.success("Te enviamos un email de verificación");
+      router.push("/verify-email");
     } catch (error) {
-      toast.error('Error al crear la cuenta');
+      toast.error("Error al crear la cuenta");
     } finally {
       setLoading(false);
     }
@@ -40,9 +40,9 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await signInWithGoogle();
-      router.push('/onboarding');
+      router.push("/onboarding");
     } catch (error) {
-      toast.error('Error al registrar con Google');
+      toast.error("Error al registrar con Google");
     } finally {
       setLoading(false);
     }
@@ -52,9 +52,9 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await signInWithFacebook();
-      router.push('/onboarding');
+      router.push("/onboarding");
     } catch (error) {
-      toast.error('Error al registrar con Facebook');
+      toast.error("Error al registrar con Facebook");
     } finally {
       setLoading(false);
     }
@@ -65,63 +65,67 @@ export default function RegisterPage() {
       <div className="min-h-screen md:min-h-0 flex flex-col">
         {/* Header */}
         <div className="px-4 pt-12 pb-8 text-center">
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-[#E10600] to-[#FF6A00] bg-clip-text text-transparent">LaburoYA</h1>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-[#E10600] to-[#FF6A00] bg-clip-text text-transparent">
+            LaburoYA
+          </h1>
           <p className="theme-text-secondary mt-2">Creá tu cuenta gratis</p>
         </div>
 
-      {/* Form */}
-      <div className="flex-1 px-6">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full p-4 rounded-xl border theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none text-base"
-            />
-          </div>
-          <div className="relative">
-            <input
-              type={showPassword ? "text" : "password"}
-              placeholder="Contraseña (mín 6 caracteres)"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full p-4 pr-12 rounded-xl border theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none text-base"
-            />
+        {/* Form */}
+        <div className="flex-1 px-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="w-full p-4 rounded-xl border theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none text-base"
+              />
+            </div>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                placeholder="Contraseña (mín 6 caracteres)"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="w-full p-4 pr-12 rounded-xl border theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none text-base"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 theme-text-muted hover:theme-text-primary transition-colors"
+              >
+                {showPassword ? (
+                  <EyeOff className="w-5 h-5" />
+                ) : (
+                  <Eye className="w-5 h-5" />
+                )}
+              </button>
+            </div>
             <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 theme-text-muted hover:theme-text-primary transition-colors"
+              type="submit"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white py-4 rounded-xl font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform text-base"
             >
-              {showPassword ? (
-                <EyeOff className="w-5 h-5" />
-              ) : (
-                <Eye className="w-5 h-5" />
-              )}
+              {loading ? "Creando cuenta..." : "Crear cuenta"}
             </button>
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white py-4 rounded-xl font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform text-base"
-          >
-            {loading ? 'Creando cuenta...' : 'Crear cuenta'}
-          </button>
-        </form>
+          </form>
 
-        <div className="relative my-8">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t theme-border" />
-          </div>
-          <div className="relative flex justify-center">
-            <span className="theme-bg-primary px-4 text-sm theme-text-muted">o</span>
-          </div>
-        </div>
+          {/* <div className="relative my-8">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t theme-border" />
+            </div>
+            <div className="relative flex justify-center">
+              <span className="theme-bg-primary px-4 text-sm theme-text-muted">
+                o
+              </span>
+            </div>
+          </div> */}
 
-        <div className="space-y-3">
+          {/* <div className="space-y-3">
           <button
             onClick={handleGoogleSignIn}
             disabled={loading}
@@ -146,13 +150,13 @@ export default function RegisterPage() {
             </svg>
             Continuar con Facebook
           </button>
+        </div> */}
         </div>
-      </div>
 
         {/* Footer */}
         <div className="px-6 py-8 text-center">
           <p className="theme-text-secondary">
-            ¿Ya tenés cuenta?{' '}
+            ¿Ya tenés cuenta?{" "}
             <Link href="/login" className="text-[#FF6A00] font-medium">
               Iniciá sesión
             </Link>

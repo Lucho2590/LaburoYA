@@ -224,6 +224,16 @@ class ApiService {
     return this.request<IAdminStats>('/admin/stats');
   }
 
+  async createAdminUser(data: { email: string; firstName?: string; lastName?: string; role: 'worker' | 'employer'; plan?: string }) {
+    return this.request<{ success: boolean; message: string; user: { uid: string; email: string; role: string } }>(
+      '/admin/users',
+      {
+        method: 'POST',
+        body: data,
+      }
+    );
+  }
+
   async getAdminUsers(params?: { role?: EUserRole; limit?: number; offset?: number }) {
     const searchParams = new URLSearchParams();
     if (params?.role) searchParams.set('role', params.role);

@@ -287,7 +287,7 @@ export interface IAdminUser {
   email?: string;
   displayName?: string;
   photoURL?: string;
-  phoneNumber?: string;
+  phoneNumber?: string; // From Firebase Auth
   emailVerified?: boolean;
   authDisabled?: boolean;
   role: EUserRole;
@@ -297,6 +297,20 @@ export interface IAdminUser {
   deletedAt?: string;
   profile?: IWorkerProfile | IEmployerProfile | null;
   jobOffers?: IJobOffer[];
+  // Campos de Firestore (users collection)
+  firstName?: string;
+  lastName?: string;
+  phone?: string; // From Firestore
+  age?: number;
+  nickname?: string;
+  onboardingCompleted?: boolean;
+  secondaryRole?: string;
+  lastLocation?: {
+    city?: string;
+    region?: string;
+    country?: string;
+    updatedAt?: string;
+  };
 }
 
 export interface IAdminUserDetail {

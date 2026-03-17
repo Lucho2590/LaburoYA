@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
 import { IAdminUser, EUserRole, IWorkerProfile, IEmployerProfile, IJobOffer } from '@/types';
-import { Users, Filter, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { Users, Filter, ChevronDown, ChevronUp, ExternalLink, UserPlus } from 'lucide-react';
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<IAdminUser[]>([]);
@@ -153,23 +153,33 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-4 mb-6">
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 theme-text-muted" />
-          <span className="text-sm theme-text-secondary">Filtros:</span>
+      {/* Filters & Actions */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 theme-text-muted" />
+            <span className="text-sm theme-text-secondary">Filtros:</span>
+          </div>
+
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value as EUserRole | '')}
+            className="px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm"
+          >
+            <option value="">Todos los roles</option>
+            <option value="worker">Trabajadores</option>
+            <option value="employer">Empleadores</option>
+            <option value="superuser">Superusers</option>
+          </select>
         </div>
 
-        <select
-          value={roleFilter}
-          onChange={(e) => setRoleFilter(e.target.value as EUserRole | '')}
-          className="px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm"
+        <Link
+          href="/sudo/users/new"
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-lg font-medium hover:opacity-90 transition-opacity"
         >
-          <option value="">Todos los roles</option>
-          <option value="worker">Trabajadores</option>
-          <option value="employer">Empleadores</option>
-          <option value="superuser">Superusers</option>
-        </select>
+          <UserPlus className="w-4 h-4" />
+          Crear usuario
+        </Link>
       </div>
 
       {/* Users Table */}
@@ -224,7 +234,14 @@ export default function AdminUsersPage() {
                           </div>
                           <div>
                             <p className="font-medium theme-text-primary">
-                              {user.displayName || 'Sin nombre'}
+                              {user.firstName && user.lastName
+                                ? `${user.firstName} ${user.lastName}`
+                                : user.displayName || 'Sin nombre'}
+                              {user.nickname && (
+                                <span className="text-sm font-normal theme-text-muted ml-1">
+                                  ({user.nickname})
+                                </span>
+                              )}
                             </p>
                             <p className="text-sm theme-text-muted truncate max-w-[200px]">
                               {user.email || 'Sin email'}
@@ -286,21 +303,21 @@ export default function AdminUsersPage() {
                               </h4>
                               <div className="space-y-2 text-sm">
                                 <div className="flex justify-between">
-                                  <span className="theme-text-muted">UID:</span>
-                                  <span className="theme-text-primary font-mono text-xs">{user.uid.slice(0, 12)}...</span>
+                                  <span className="theme-text-muted">Nombre:</span>
+                                  <span className="theme-text-primary">
+                                    {user.firstName && user.lastName
+                                      ? `${user.firstName} ${user.lastName}`
+                                      : user.displayName || '-'}
+                                  </span>
                                 </div>
                                 <div className="flex justify-between">
-                                  <span className="theme-text-muted">Email:</span>
-                                  <span className="theme-text-primary">{user.email || '-'}</span>
+                                  <span className="theme-text-muted">Teléfono:</span>
+                                  <span className="theme-text-primary">{user.phone || user.phoneNumber || '-'}</span>
                                 </div>
                                 <div className="flex justify-between">
-                                  <span className="theme-text-muted">Telefono:</span>
-                                  <span className="theme-text-primary">{user.phoneNumber || '-'}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="theme-text-muted">Email verificado:</span>
+                                  <span className="theme-text-muted">Verificado:</span>
                                   <span className={user.emailVerified ? 'text-green-600' : 'text-yellow-600'}>
-                                    {user.emailVerified ? 'Si' : 'No'}
+                                    {user.emailVerified ? 'Sí' : 'No'}
                                   </span>
                                 </div>
                               </div>
