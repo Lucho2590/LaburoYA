@@ -30,7 +30,7 @@ router.get('/skills/:rubro', (req, res) => {
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { rubro, puesto, zona, localidad, videoUrl, description, experience, skills } = req.body;
+    const { rubro, puesto, zona, localidad, photoUrl, videoUrl, description, experience, skills } = req.body;
 
     if (!rubro || !puesto) {
       return res.status(400).json({ error: 'rubro and puesto are required' });
@@ -56,6 +56,7 @@ router.post('/', authMiddleware, async (req, res, next) => {
       puesto,
       zona: zona || null,
       localidad: localidad || null,
+      photoUrl: photoUrl || null,
       videoUrl: videoUrl || null,
       description: description || null,
       experience: experience || null,

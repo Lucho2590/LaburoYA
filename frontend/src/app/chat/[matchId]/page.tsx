@@ -114,9 +114,17 @@ export default function ChatPage() {
           </Link>
 
           <div className="flex items-center flex-1 ml-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-[#E10600] to-[#FF6A00] rounded-full flex items-center justify-center text-white font-semibold mr-3">
-              {isWorker ? '🏢' : '👤'}
-            </div>
+            {chat?.participant?.photoUrl ? (
+              <img
+                src={chat.participant.photoUrl}
+                alt="Foto de perfil"
+                className="w-10 h-10 rounded-full object-cover mr-3 border-2 border-[#E10600]"
+              />
+            ) : (
+              <div className="w-10 h-10 bg-gradient-to-br from-[#E10600] to-[#FF6A00] rounded-full flex items-center justify-center text-white font-semibold mr-3">
+                {isWorker ? '🏢' : '👤'}
+              </div>
+            )}
             <div>
               <h1 className="font-semibold theme-text-primary">
                 {isWorker

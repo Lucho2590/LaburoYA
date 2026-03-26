@@ -5,33 +5,58 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePageTitle } from '@/contexts/PageTitleContext';
 import { api } from '@/services/api';
-import { JOB_CATEGORIES, TRubro } from '@/config/constants';
+import { JOB_CATEGORIES, TRubro, getSuggestedSkills } from '@/config/constants';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { IJobOffer } from '@/types';
+import { IJobOffer, IWorkerProfile } from '@/types';
+import { Check, Plus, X, Users, Eye, MessageCircle } from 'lucide-react';
+
+interface InterestedWorker extends IWorkerProfile {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  hasBeenContacted: boolean;
+}
+
+interface JobOfferWithStats extends IJobOffer {
+  stats?: {
+    interestedCount: number;
+    notInterestedCount: number;
+  };
+}
 
 export default function EmployerJobsPage() {
   const router = useRouter();
   const { user, loading, authReady, getEffectiveAppRole } = useAuth();
   const { setPageConfig } = usePageTitle();
-  const [jobs, setJobs] = useState<IJobOffer[]>([]);
+  const [jobs, setJobs] = useState<JobOfferWithStats[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingJob, setEditingJob] = useState<IJobOffer | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Interested workers modal
+  const [interestedModal, setInterestedModal] = useState<{ job: JobOfferWithStats; workers: InterestedWorker[] } | null>(null);
+  const [loadingInterested, setLoadingInterested] = useState(false);
+  const [contactingWorker, setContactingWorker] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
     rubro: '',
     puesto: '',
+    customPuesto: '',
     description: '',
     salary: '',
     schedule: '',
   });
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [customSkill, setCustomSkill] = useState('');
 
   const effectiveRole = getEffectiveAppRole();
 
   const resetForm = useCallback(() => {
-    setFormData({ rubro: '', puesto: '', description: '', salary: '', schedule: '' });
+    setFormData({ rubro: '', puesto: '', customPuesto: '', description: '', salary: '', schedule: '' });
+    setSelectedSkills([]);
+    setCustomSkill('');
     setEditingJob(null);
     setShowForm(false);
   }, []);
@@ -68,7 +93,7 @@ export default function EmployerJobsPage() {
 
     try {
       setLoadingJobs(true);
-      const data = await api.getMyJobOffers() as IJobOffer[];
+      const data = await api.getMyJobOffers() as JobOfferWithStats[];
       setJobs(data);
     } catch (error) {
       console.error('Error:', error);
@@ -76,6 +101,48 @@ export default function EmployerJobsPage() {
       setLoadingJobs(false);
     }
   }, [user, authReady]);
+
+  const openInterestedModal = async (job: JobOfferWithStats) => {
+    setLoadingInterested(true);
+    try {
+      const data = await api.getOfferInterestedWorkers(job.id);
+      setInterestedModal({ job, workers: data.interested });
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al cargar interesados');
+    } finally {
+      setLoadingInterested(false);
+    }
+  };
+
+  const contactWorker = async (workerId: string) => {
+    if (!interestedModal) return;
+
+    setContactingWorker(workerId);
+    try {
+      const result = await api.sendEmployerToWorkerRequest(workerId, interestedModal.job.id);
+      if (result.matchCreated) {
+        toast.success('¡Match creado! Ya pueden chatear');
+      } else {
+        toast.success('Solicitud enviada');
+      }
+      // Update the worker's hasBeenContacted status in the modal
+      setInterestedModal(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          workers: prev.workers.map(w =>
+            w.uid === workerId ? { ...w, hasBeenContacted: true } : w
+          )
+        };
+      });
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Error al enviar solicitud');
+    } finally {
+      setContactingWorker(null);
+    }
+  };
 
   useEffect(() => {
     fetchJobs();
@@ -87,37 +154,49 @@ export default function EmployerJobsPage() {
 
   const handleEdit = (job: IJobOffer) => {
     setEditingJob(job);
+    // Check if puesto is custom (not in available puestos)
+    const category = JOB_CATEGORIES[job.rubro as TRubro];
+    const availablePuestosForJob: readonly string[] = category?.puestos ?? [];
+    const isCustomPuesto = !availablePuestosForJob.includes(job.puesto);
+
     setFormData({
       rubro: job.rubro,
-      puesto: job.puesto,
+      puesto: isCustomPuesto ? 'otro' : job.puesto,
+      customPuesto: isCustomPuesto ? job.puesto : '',
       description: job.description || '',
       salary: job.salary || '',
       schedule: job.schedule || '',
     });
+    setSelectedSkills(job.requiredSkills || []);
     setShowForm(true);
   };
 
   const handleSubmit = async () => {
-    if (!formData.rubro || !formData.puesto) {
+    const finalPuesto = formData.puesto === 'otro' ? formData.customPuesto : formData.puesto;
+
+    if (!formData.rubro || !finalPuesto) {
       toast.error('Seleccioná rubro y puesto');
       return;
     }
 
     setSaving(true);
     try {
+      const offerData = {
+        rubro: formData.rubro,
+        puesto: finalPuesto,
+        description: formData.description || undefined,
+        salary: formData.salary || undefined,
+        schedule: formData.schedule || undefined,
+        requiredSkills: selectedSkills.length > 0 ? selectedSkills : undefined,
+      };
+
       if (editingJob) {
         // Editar oferta existente
-        await api.updateJobOffer(editingJob.id, {
-          rubro: formData.rubro,
-          puesto: formData.puesto,
-          description: formData.description || undefined,
-          salary: formData.salary || undefined,
-          schedule: formData.schedule || undefined,
-        });
+        await api.updateJobOffer(editingJob.id, offerData);
         toast.success('Oferta actualizada');
       } else {
         // Crear nueva oferta
-        const result = await api.createJobOffer(formData) as { newMatches: number };
+        const result = await api.createJobOffer(offerData) as { newMatches: number };
         toast.success(`¡Oferta creada! ${result.newMatches} matches encontrados`);
       }
       resetForm();
@@ -203,7 +282,7 @@ export default function EmployerJobsPage() {
                 <button
                   key={puesto}
                   type="button"
-                  onClick={() => setFormData({ ...formData, puesto })}
+                  onClick={() => setFormData({ ...formData, puesto, customPuesto: '' })}
                   className={`px-4 py-2 rounded-full border-2 transition-all active:scale-95 ${
                     formData.puesto === puesto
                       ? 'border-[#E10600] bg-[#E10600] text-white'
@@ -213,7 +292,128 @@ export default function EmployerJobsPage() {
                   {puesto}
                 </button>
               ))}
+              {/* Otro puesto */}
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, puesto: 'otro' })}
+                className={`px-4 py-2 rounded-full border-2 transition-all active:scale-95 ${
+                  formData.puesto === 'otro'
+                    ? 'border-[#E10600] bg-[#E10600] text-white'
+                    : 'theme-border theme-bg-card theme-text-secondary'
+                }`}
+              >
+                + Otro
+              </button>
             </div>
+
+            {/* Custom puesto input */}
+            {formData.puesto === 'otro' && (
+              <input
+                type="text"
+                value={formData.customPuesto}
+                onChange={(e) => setFormData({ ...formData, customPuesto: e.target.value })}
+                placeholder="Escribí el puesto que buscás..."
+                className="w-full mt-3 p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
+                autoFocus
+              />
+            )}
+          </div>
+        )}
+
+        {/* Required Skills */}
+        {formData.rubro && (formData.puesto || formData.customPuesto) && (
+          <div>
+            <label className="block text-sm font-medium theme-text-muted mb-2">
+              Habilidades requeridas
+            </label>
+            <p className="text-xs theme-text-muted mb-3">
+              Seleccioná las habilidades que necesitás. Esto mejora el matching con candidatos.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {getSuggestedSkills(formData.rubro, formData.puesto === 'otro' ? formData.customPuesto : formData.puesto).map((skill) => {
+                const isSelected = selectedSkills.includes(skill);
+                return (
+                  <button
+                    key={skill}
+                    type="button"
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedSkills(prev => prev.filter(s => s !== skill));
+                      } else {
+                        setSelectedSkills(prev => [...prev, skill]);
+                      }
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full border-2 text-sm transition-all active:scale-95 ${
+                      isSelected
+                        ? 'border-[#E10600] bg-[#E10600] text-white'
+                        : 'theme-border theme-bg-card theme-text-secondary'
+                    }`}
+                  >
+                    {isSelected ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                    {skill}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Add custom skill */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={customSkill}
+                onChange={(e) => setCustomSkill(e.target.value)}
+                placeholder="Agregar otra habilidad..."
+                className="flex-1 p-3 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && customSkill.trim()) {
+                    e.preventDefault();
+                    if (!selectedSkills.includes(customSkill.trim())) {
+                      setSelectedSkills(prev => [...prev, customSkill.trim()]);
+                    }
+                    setCustomSkill('');
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (customSkill.trim() && !selectedSkills.includes(customSkill.trim())) {
+                    setSelectedSkills(prev => [...prev, customSkill.trim()]);
+                    setCustomSkill('');
+                  }
+                }}
+                disabled={!customSkill.trim()}
+                className="px-4 py-2 rounded-xl bg-[#E10600] text-white disabled:opacity-50 active:scale-95"
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Selected skills (including custom ones) */}
+            {selectedSkills.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs theme-text-muted mb-2">
+                  {selectedSkills.length} habilidad(es) seleccionada(s):
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedSkills.map(skill => (
+                    <span
+                      key={skill}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#E10600] text-white text-sm"
+                    >
+                      {skill}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSkills(prev => prev.filter(s => s !== skill))}
+                        className="hover:bg-white/20 rounded-full p-0.5"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -334,6 +534,22 @@ export default function EmployerJobsPage() {
                     )}
                   </div>
                 </div>
+
+                {/* Interested count */}
+                {(job.stats?.interestedCount ?? 0) > 0 && (
+                  <button
+                    onClick={() => openInterestedModal(job)}
+                    className="mt-3 w-full flex items-center justify-between p-3 rounded-xl bg-[#E10600]/10 border border-[#E10600]/20 active:scale-[0.98] transition-transform"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Users className="h-5 w-5 text-[#E10600]" />
+                      <span className="font-medium text-[#E10600]">
+                        {job.stats?.interestedCount} interesado{(job.stats?.interestedCount ?? 0) !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <Eye className="h-4 w-4 text-[#E10600]" />
+                  </button>
+                )}
               </div>
 
               {/* Actions */}
@@ -365,6 +581,126 @@ export default function EmployerJobsPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Modal de Interesados */}
+      {interestedModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
+          <div className="theme-bg-card w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden">
+            {/* Header */}
+            <div className="p-4 border-b theme-border flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold theme-text-primary">Interesados</h3>
+                <p className="text-sm theme-text-muted">
+                  {interestedModal.job.puesto} - {interestedModal.workers.length} persona{interestedModal.workers.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <button
+                onClick={() => setInterestedModal(null)}
+                className="p-2 rounded-full theme-bg-secondary active:scale-95"
+              >
+                <X className="h-5 w-5 theme-text-primary" />
+              </button>
+            </div>
+
+            {/* Workers list */}
+            <div className="overflow-y-auto max-h-[60vh] p-4 space-y-3">
+              {loadingInterested ? (
+                <div className="flex justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E10600]"></div>
+                </div>
+              ) : interestedModal.workers.length === 0 ? (
+                <p className="text-center theme-text-muted py-8">
+                  No hay interesados todavia
+                </p>
+              ) : (
+                interestedModal.workers.map((worker) => (
+                  <div
+                    key={worker.uid}
+                    className="theme-bg-secondary rounded-xl p-4"
+                  >
+                    <div className="flex items-start gap-3">
+                      {/* Photo */}
+                      <div className="w-12 h-12 rounded-full bg-[#E10600]/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                        {worker.photoUrl ? (
+                          <img
+                            src={worker.photoUrl}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span className="text-xl">👤</span>
+                        )}
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-medium theme-text-primary truncate">
+                            {worker.firstName && worker.lastName
+                              ? `${worker.firstName} ${worker.lastName}`
+                              : worker.puesto}
+                          </h4>
+                          {worker.hasBeenContacted && (
+                            <Badge className="bg-green-100 text-green-800 text-xs">
+                              Contactado
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm theme-text-secondary truncate">
+                          {worker.puesto} • {worker.rubro}
+                        </p>
+                        {worker.zona && (
+                          <p className="text-xs theme-text-muted mt-1">
+                            📍 {worker.zona}
+                          </p>
+                        )}
+                        {worker.skills && worker.skills.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {worker.skills.slice(0, 3).map(skill => (
+                              <span
+                                key={skill}
+                                className="px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-xs theme-text-secondary"
+                              >
+                                {skill}
+                              </span>
+                            ))}
+                            {worker.skills.length > 3 && (
+                              <span className="text-xs theme-text-muted">
+                                +{worker.skills.length - 3}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Contact button */}
+                    {!worker.hasBeenContacted && (
+                      <button
+                        onClick={() => contactWorker(worker.uid!)}
+                        disabled={contactingWorker === worker.uid}
+                        className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#E10600] text-white font-medium disabled:opacity-50 active:scale-[0.98] transition-transform"
+                      >
+                        {contactingWorker === worker.uid ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            Enviando...
+                          </>
+                        ) : (
+                          <>
+                            <MessageCircle className="h-4 w-4" />
+                            Contactar
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

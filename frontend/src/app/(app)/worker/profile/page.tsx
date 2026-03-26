@@ -9,6 +9,7 @@ import { JOB_CATEGORIES, ZONAS_MDP, TRubro, getSuggestedSkills } from '@/config/
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '@/config/firebase';
 import { VideoRecorder } from '@/components/VideoRecorder';
+import { CameraCapture } from '@/components/CameraCapture';
 import { toast } from 'sonner';
 import { IWorkerProfile } from '@/types';
 import { Check, Plus } from 'lucide-react';
@@ -27,6 +28,8 @@ export default function WorkerProfilePage() {
     experience: '',
   });
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
   const [saving, setSaving] = useState(false);
@@ -60,6 +63,7 @@ export default function WorkerProfilePage() {
         experience: profile.experience || '',
       });
       setSelectedSkills(profile.skills || []);
+      setPhotoUrl(profile.photoUrl || '');
       setVideoUrl(profile.videoUrl || '');
     }
   }, [userData]);
@@ -78,6 +82,7 @@ export default function WorkerProfilePage() {
       { key: 'experience', label: 'Experiencia', value: formData.experience, required: false },
       { key: 'description', label: 'Descripción', value: formData.description, required: false },
       { key: 'skills', label: 'Habilidades', value: selectedSkills.length > 0, required: false },
+      { key: 'photo', label: 'Foto', value: photoUrl || photoBlob, required: false },
       { key: 'video', label: 'Video', value: videoUrl || videoBlob, required: false },
     ];
 
@@ -98,6 +103,19 @@ export default function WorkerProfilePage() {
 
   const profileCompletion = calculateProfileCompletion();
 
+  const handlePhotoCaptured = (blob: Blob) => {
+    setPhotoBlob(blob);
+    // Clear existing photo URL since we have a new capture
+    setPhotoUrl('');
+    toast.success('Foto tomada correctamente');
+  };
+
+  const handlePhotoDeleted = () => {
+    setPhotoBlob(null);
+    setPhotoUrl('');
+    toast.success('Foto eliminada');
+  };
+
   const handleVideoRecorded = (blob: Blob) => {
     setVideoBlob(blob);
     // Clear existing video URL since we have a new recording
@@ -109,6 +127,21 @@ export default function WorkerProfilePage() {
     setVideoBlob(null);
     setVideoUrl('');
     toast.success('Video eliminado');
+  };
+
+  const uploadPhoto = async (): Promise<string | null> => {
+    if (!photoBlob || !user || !storage) return null;
+
+    try {
+      const fileName = `photos/${user.uid}/${Date.now()}.jpg`;
+      const storageRef = ref(storage, fileName);
+      await uploadBytes(storageRef, photoBlob);
+      const url = await getDownloadURL(storageRef);
+      return url;
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      throw new Error('Error al subir la foto');
+    }
   };
 
   const uploadVideo = async (): Promise<string | null> => {
@@ -134,20 +167,31 @@ export default function WorkerProfilePage() {
 
     setSaving(true);
     try {
+      let finalPhotoUrl = photoUrl;
       let finalVideoUrl = videoUrl;
 
-      if (videoBlob) {
-        toast.loading('Subiendo video...', { id: 'upload' });
-        const uploadedUrl = await uploadVideo();
-        if (uploadedUrl) {
-          finalVideoUrl = uploadedUrl;
+      if (photoBlob) {
+        toast.loading('Subiendo foto...', { id: 'upload-photo' });
+        const uploadedPhotoUrl = await uploadPhoto();
+        if (uploadedPhotoUrl) {
+          finalPhotoUrl = uploadedPhotoUrl;
         }
-        toast.dismiss('upload');
+        toast.dismiss('upload-photo');
+      }
+
+      if (videoBlob) {
+        toast.loading('Subiendo video...', { id: 'upload-video' });
+        const uploadedVideoUrl = await uploadVideo();
+        if (uploadedVideoUrl) {
+          finalVideoUrl = uploadedVideoUrl;
+        }
+        toast.dismiss('upload-video');
       }
 
       await api.createWorkerProfile({
         ...formData,
         skills: selectedSkills,
+        photoUrl: finalPhotoUrl,
         videoUrl: finalVideoUrl,
       });
 
@@ -155,7 +199,8 @@ export default function WorkerProfilePage() {
       toast.success('Perfil guardado');
       router.push('/home');
     } catch (error) {
-      toast.dismiss('upload');
+      toast.dismiss('upload-photo');
+      toast.dismiss('upload-video');
       toast.error(error instanceof Error ? error.message : 'Error al guardar');
     } finally {
       setSaving(false);
@@ -210,6 +255,45 @@ export default function WorkerProfilePage() {
           <p className="text-xs text-[#12B76A] mt-2 flex items-center gap-1">
             <Check className="w-3 h-3" /> Perfil completo - Más visibilidad para empleadores
           </p>
+        )}
+      </div>
+
+      {/* Photo */}
+      <div>
+        <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+          Foto de perfil
+        </label>
+        <p className="text-[#667085] text-sm mb-3">
+          Los empleadores quieren ver con quién van a trabajar. Una buena foto aumenta tus chances.
+        </p>
+
+        {photoBlob ? (
+          <div className="space-y-3">
+            <div className="relative w-32 h-32 mx-auto">
+              <img
+                src={URL.createObjectURL(photoBlob)}
+                alt="Foto de perfil"
+                className="w-full h-full rounded-full object-cover border-4 border-[#12B76A]"
+              />
+            </div>
+            <div className="bg-[#12B76A]/20 text-[#12B76A] p-3 rounded-xl flex items-center justify-center">
+              <span className="mr-2">✓</span>
+              <span>Foto lista para subir</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPhotoBlob(null)}
+              className="w-full p-3 rounded-xl border-2 theme-border theme-text-secondary"
+            >
+              📷 Tomar otra foto
+            </button>
+          </div>
+        ) : (
+          <CameraCapture
+            onPhotoCaptured={handlePhotoCaptured}
+            onPhotoDeleted={handlePhotoDeleted}
+            existingPhotoUrl={photoUrl}
+          />
         )}
       </div>
 

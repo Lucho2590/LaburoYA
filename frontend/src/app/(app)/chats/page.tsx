@@ -80,9 +80,17 @@ export default function ChatsPage() {
           <Link key={chat.id} href={`/chat/${chat.matchId}`}>
             <div className="flex items-center px-4 py-3 active:opacity-70 transition-colors">
               {/* Avatar */}
-              <div className="w-14 h-14 bg-gradient-to-br from-[#E10600] to-[#FF6A00] rounded-full flex items-center justify-center text-white font-semibold text-lg mr-3">
-                {initials}
-              </div>
+              {chat.participant?.photoUrl ? (
+                <img
+                  src={chat.participant.photoUrl}
+                  alt={participantName}
+                  className="w-14 h-14 rounded-full object-cover mr-3 border-2 border-[#E10600]"
+                />
+              ) : (
+                <div className="w-14 h-14 bg-gradient-to-br from-[#E10600] to-[#FF6A00] rounded-full flex items-center justify-center text-white font-semibold text-lg mr-3">
+                  {initials}
+                </div>
+              )}
 
               {/* Content */}
               <div className="flex-1 min-w-0">

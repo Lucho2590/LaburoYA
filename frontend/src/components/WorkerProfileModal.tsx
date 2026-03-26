@@ -125,24 +125,25 @@ export function WorkerProfileModal({
                 <h4 className="text-sm font-medium">Habilidades</h4>
               </div>
               <div className="flex flex-wrap gap-2">
-                {worker.skills.map((skill) => (
-                  <Badge
-                    key={skill}
-                    variant={
-                      worker.relevance.details.matchingSkills.includes(skill)
-                        ? 'default'
-                        : 'outline'
-                    }
-                  >
-                    {worker.relevance.details.matchingSkills.includes(skill) && (
-                      <Check className="h-3 w-3 mr-1" />
-                    )}
-                    {skill}
-                  </Badge>
-                ))}
+                {worker.skills.map((skill) => {
+                  const isMatching = worker.relevance.details.matchingSkills.includes(skill);
+                  return (
+                    <span
+                      key={skill}
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                        isMatching
+                          ? 'bg-[#E10600] text-white'
+                          : 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                      }`}
+                    >
+                      {isMatching && <Check className="h-3 w-3 mr-1" />}
+                      {skill}
+                    </span>
+                  );
+                })}
               </div>
               {worker.relevance.details.matchingSkills.length > 0 && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-[#E10600]">
                   {worker.relevance.details.matchingSkills.length} skill(s) coinciden con tu oferta
                 </p>
               )}

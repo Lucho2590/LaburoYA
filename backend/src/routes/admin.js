@@ -459,7 +459,9 @@ router.get('/job-offers', async (req, res, next) => {
         ...data,
         stats,
         employer,
-        createdAt: data.createdAt?.toDate?.() || data.createdAt
+        createdAt: data.createdAt?.toDate?.() || data.createdAt,
+        expiresAt: data.expiresAt?.toDate?.() || data.expiresAt,
+        updatedAt: data.updatedAt?.toDate?.() || data.updatedAt
       };
     }));
 
@@ -471,6 +473,129 @@ router.get('/job-offers', async (req, res, next) => {
       total: jobOffers.length,
       limit: Number(limit),
       offset: Number(offset)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/admin/job-offers/:id - Update job offer (admin)
+router.patch('/job-offers/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const db = getDb();
+
+    const jobRef = db.collection('jobOffers').doc(id);
+    const jobDoc = await jobRef.get();
+
+    if (!jobDoc.exists) {
+      return res.status(404).json({ error: 'Job offer not found' });
+    }
+
+    const updates = { updatedAt: new Date() };
+    const allowedFields = ['active', 'durationDays', 'expiresAt', 'rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona'];
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        if (field === 'expiresAt' && typeof req.body[field] === 'string') {
+          updates[field] = new Date(req.body[field]);
+        } else if (field === 'active') {
+          updates[field] = Boolean(req.body[field]);
+        } else if (field === 'durationDays') {
+          updates[field] = Number(req.body[field]);
+        } else {
+          updates[field] = req.body[field];
+        }
+      }
+    }
+
+    // If durationDays is updated, recalculate expiresAt from createdAt
+    if (updates.durationDays !== undefined && !updates.expiresAt) {
+      const jobData = jobDoc.data();
+      const createdAt = jobData.createdAt?.toDate?.() || jobData.createdAt || new Date();
+      updates.expiresAt = new Date(new Date(createdAt).getTime() + updates.durationDays * 24 * 60 * 60 * 1000);
+    }
+
+    await jobRef.update(updates);
+
+    const updatedDoc = await jobRef.get();
+    const updatedData = updatedDoc.data();
+
+    res.json({
+      id: updatedDoc.id,
+      ...updatedData,
+      createdAt: updatedData.createdAt?.toDate?.() || updatedData.createdAt,
+      expiresAt: updatedData.expiresAt?.toDate?.() || updatedData.expiresAt,
+      updatedAt: updatedData.updatedAt?.toDate?.() || updatedData.updatedAt
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/admin/job-offers/:id/matches - Get matches for a specific job offer
+router.get('/job-offers/:id/matches', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const { id } = req.params;
+
+    // Get offer first
+    const offerDoc = await db.collection('jobOffers').doc(id).get();
+    if (!offerDoc.exists) {
+      return res.status(404).json({ error: 'Job offer not found' });
+    }
+
+    // Get matches for this offer
+    const matchesSnapshot = await db.collection('matches')
+      .where('offerId', '==', id)
+      .get();
+
+    const matches = await Promise.all(matchesSnapshot.docs.map(async doc => {
+      const data = doc.data();
+
+      // Get worker info
+      let worker = null;
+      let workerUser = null;
+      if (data.workerId) {
+        const workerDoc = await db.collection('workers').doc(data.workerId).get();
+        if (workerDoc.exists) {
+          worker = workerDoc.data();
+        }
+        const userDoc = await db.collection('users').doc(data.workerId).get();
+        if (userDoc.exists) {
+          workerUser = {
+            firstName: userDoc.data().firstName,
+            lastName: userDoc.data().lastName,
+            email: userDoc.data().email
+          };
+        }
+      }
+
+      return {
+        id: doc.id,
+        ...data,
+        worker,
+        workerUser,
+        createdAt: data.createdAt?.toDate?.() || data.createdAt
+      };
+    }));
+
+    // Group by status
+    const grouped = {
+      pending: matches.filter(m => m.status === 'pending'),
+      accepted: matches.filter(m => m.status === 'accepted'),
+      rejected: matches.filter(m => m.status === 'rejected')
+    };
+
+    res.json({
+      offerId: id,
+      matches: grouped,
+      total: matches.length,
+      counts: {
+        pending: grouped.pending.length,
+        accepted: grouped.accepted.length,
+        rejected: grouped.rejected.length
+      }
     });
   } catch (error) {
     next(error);

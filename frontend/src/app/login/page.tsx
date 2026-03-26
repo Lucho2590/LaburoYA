@@ -1,18 +1,34 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthLayout } from "@/components/AuthLayout";
 import { toast } from "sonner";
+import { CheckCircle } from "lucide-react";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signIn, signInWithGoogle, signInWithFacebook } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showVerifiedBanner, setShowVerifiedBanner] = useState(false);
+
+  // Pre-fill email from URL params (e.g., after email verification)
+  useEffect(() => {
+    const emailParam = searchParams.get("email");
+    const verified = searchParams.get("verified");
+
+    if (emailParam) {
+      setEmail(emailParam);
+    }
+    if (verified === "true") {
+      setShowVerifiedBanner(true);
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,6 +75,16 @@ export default function LoginPage() {
   return (
     <AuthLayout>
       <div className="min-h-screen md:min-h-0 flex flex-col">
+        {/* Email verified banner */}
+        {showVerifiedBanner && (
+          <div className="mx-4 mt-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl flex items-center gap-2">
+            <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+            <p className="text-sm text-green-800 dark:text-green-200">
+              Email verificado. Iniciá sesión para continuar.
+            </p>
+          </div>
+        )}
+
         {/* Header */}
         <div className="px-4 pt-12 pb-8 text-center">
           <h1 className="text-3xl font-bold bg-gradient-to-r from-[#E10600] to-[#FF6A00] bg-clip-text text-transparent">
@@ -172,5 +198,21 @@ export default function LoginPage() {
         </div>
       </div>
     </AuthLayout>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <AuthLayout>
+          <div className="min-h-screen flex items-center justify-center">
+            <div className="w-10 h-10 border-4 border-[#E10600] border-t-transparent rounded-full animate-spin" />
+          </div>
+        </AuthLayout>
+      }
+    >
+      <LoginContent />
+    </Suspense>
   );
 }

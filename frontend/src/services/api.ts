@@ -5,6 +5,7 @@ import {
   ICreateEmployerProfileData,
   ICreateJobOfferData,
   IJobOffer,
+  IWorkerProfile,
   IAdminStats,
   IAdminUser,
   IAdminUserDetail,
@@ -196,6 +197,18 @@ class ApiService {
     );
   }
 
+  async getOfferInterestedWorkers(offerId: string) {
+    return this.request<{
+      interested: (IWorkerProfile & {
+        firstName?: string;
+        lastName?: string;
+        email?: string;
+        hasBeenContacted: boolean;
+      })[];
+      total: number;
+    }>(`/job-offers/${offerId}/interested`);
+  }
+
   // Matches
   async getMatches() {
     return this.request('/matches');
@@ -284,6 +297,26 @@ class ApiService {
     return this.request<{ jobOffers: IAdminJobOffer[]; total: number; limit: number; offset: number }>(
       `/admin/job-offers${query ? `?${query}` : ''}`
     );
+  }
+
+  async updateAdminJobOffer(id: string, data: { active?: boolean; durationDays?: number; expiresAt?: string }) {
+    return this.request<IAdminJobOffer>(`/admin/job-offers/${id}`, {
+      method: 'PATCH',
+      body: data,
+    });
+  }
+
+  async getAdminJobOfferMatches(id: string) {
+    return this.request<{
+      offerId: string;
+      matches: {
+        pending: IAdminMatch[];
+        accepted: IAdminMatch[];
+        rejected: IAdminMatch[];
+      };
+      total: number;
+      counts: { pending: number; accepted: number; rejected: number };
+    }>(`/admin/job-offers/${id}/matches`);
   }
 
   async getAdminMatches(params?: { status?: string; limit?: number; offset?: number }) {

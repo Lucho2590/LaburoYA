@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { applyActionCode, Auth } from "firebase/auth";
+import { applyActionCode, checkActionCode, signOut, Auth } from "firebase/auth";
 import { auth } from "@/config/firebase";
 import Link from "next/link";
 import { CheckCircle, XCircle, Loader2, Mail } from "lucide-react";
@@ -12,10 +12,11 @@ type ActionMode = "verifyEmail" | "resetPassword" | "recoverEmail";
 function AuthActionContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [status, setStatus] = useState<"loading" | "success" | "error">(
+  const [status, setStatus] = useState<"loading" | "success" | "error" | "session_mismatch">(
     "loading",
   );
   const [errorMessage, setErrorMessage] = useState("");
+  const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
   const hasRun = useRef(false);
 
   const mode = searchParams.get("mode") as ActionMode | null;
@@ -36,8 +37,28 @@ function AuthActionContent() {
       try {
         switch (mode) {
           case "verifyEmail":
+            // First, get the email from the action code to verify identity
+            const actionCodeInfo = await checkActionCode(auth as Auth, oobCode);
+            const emailFromCode = actionCodeInfo.data.email;
+
+            // Apply the verification
             await applyActionCode(auth as Auth, oobCode);
-            setStatus("success");
+
+            // Check if there's a session mismatch
+            const currentUser = (auth as Auth).currentUser;
+            if (currentUser && currentUser.email !== emailFromCode) {
+              // Session mismatch! Different user is logged in
+              setVerifiedEmail(emailFromCode || null);
+              await signOut(auth as Auth);
+              setStatus("session_mismatch");
+            } else if (!currentUser) {
+              // No user logged in, redirect to login with email pre-filled
+              setVerifiedEmail(emailFromCode || null);
+              setStatus("session_mismatch");
+            } else {
+              // Same user, all good!
+              setStatus("success");
+            }
             break;
           case "resetPassword":
             // For password reset, redirect to a password reset form
@@ -111,6 +132,29 @@ function AuthActionContent() {
             <p className="theme-text-secondary mb-6">
               Redirigiendo...
             </p>
+          </>
+        )}
+
+        {status === "session_mismatch" && (
+          <>
+            <div className="w-20 h-20 mx-auto mb-6 bg-green-100 rounded-full flex items-center justify-center">
+              <CheckCircle className="w-10 h-10 text-green-600" />
+            </div>
+            <h1 className="text-xl font-bold theme-text-primary mb-2">
+              Email verificado
+            </h1>
+            <p className="theme-text-secondary mb-4">
+              Tu email fue verificado correctamente.
+            </p>
+            <p className="theme-text-secondary mb-6 text-sm">
+              Iniciá sesión con <span className="font-semibold">{verifiedEmail}</span> para continuar.
+            </p>
+            <Link
+              href={`/login?verified=true${verifiedEmail ? `&email=${encodeURIComponent(verifiedEmail)}` : ""}`}
+              className="inline-flex items-center justify-center gap-2 w-full bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white py-4 rounded-xl font-semibold active:scale-[0.98] transition-transform"
+            >
+              Iniciar sesión
+            </Link>
           </>
         )}
 

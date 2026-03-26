@@ -6,6 +6,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePageTitle } from '@/contexts/PageTitleContext';
 import { api } from '@/services/api';
 import { JOB_CATEGORIES } from '@/config/constants';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '@/config/firebase';
+import { CameraCapture } from '@/components/CameraCapture';
 import { toast } from 'sonner';
 import { IEmployerProfile } from '@/types';
 
@@ -22,6 +25,8 @@ export default function EmployerProfilePage() {
     address: '',
     phone: '',
   });
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
   const [saving, setSaving] = useState(false);
 
   const effectiveRole = getEffectiveAppRole();
@@ -52,8 +57,36 @@ export default function EmployerProfilePage() {
         address: profile.address || '',
         phone: profile.phone || '',
       });
+      setPhotoUrl(profile.photoUrl || '');
     }
   }, [userData]);
+
+  const handlePhotoCaptured = (blob: Blob) => {
+    setPhotoBlob(blob);
+    setPhotoUrl('');
+    toast.success('Foto tomada correctamente');
+  };
+
+  const handlePhotoDeleted = () => {
+    setPhotoBlob(null);
+    setPhotoUrl('');
+    toast.success('Foto eliminada');
+  };
+
+  const uploadPhoto = async (): Promise<string | null> => {
+    if (!photoBlob || !user || !storage) return null;
+
+    try {
+      const fileName = `photos/${user.uid}/${Date.now()}.jpg`;
+      const storageRef = ref(storage, fileName);
+      await uploadBytes(storageRef, photoBlob);
+      const url = await getDownloadURL(storageRef);
+      return url;
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      throw new Error('Error al subir la foto');
+    }
+  };
 
   const handleSubmit = async () => {
     if (!formData.businessName || !formData.rubro) {
@@ -63,11 +96,26 @@ export default function EmployerProfilePage() {
 
     setSaving(true);
     try {
-      await api.createEmployerProfile(formData);
+      let finalPhotoUrl = photoUrl;
+
+      if (photoBlob) {
+        toast.loading('Subiendo foto...', { id: 'upload-photo' });
+        const uploadedPhotoUrl = await uploadPhoto();
+        if (uploadedPhotoUrl) {
+          finalPhotoUrl = uploadedPhotoUrl;
+        }
+        toast.dismiss('upload-photo');
+      }
+
+      await api.createEmployerProfile({
+        ...formData,
+        photoUrl: finalPhotoUrl,
+      });
       await refreshUserData();
       toast.success('Perfil guardado');
       router.push('/home');
     } catch (error) {
+      toast.dismiss('upload-photo');
       toast.error(error instanceof Error ? error.message : 'Error al guardar');
     } finally {
       setSaving(false);
@@ -84,6 +132,45 @@ export default function EmployerProfilePage() {
 
   return (
     <div className="px-4 py-6 space-y-6">
+      {/* Photo */}
+      <div>
+        <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+          Foto del negocio o logo
+        </label>
+        <p className="text-[#667085] text-sm mb-3">
+          Mostrá tu negocio a los trabajadores. Genera más confianza.
+        </p>
+
+        {photoBlob ? (
+          <div className="space-y-3">
+            <div className="relative w-32 h-32 mx-auto">
+              <img
+                src={URL.createObjectURL(photoBlob)}
+                alt="Foto del negocio"
+                className="w-full h-full rounded-full object-cover border-4 border-[#12B76A]"
+              />
+            </div>
+            <div className="bg-[#12B76A]/20 text-[#12B76A] p-3 rounded-xl flex items-center justify-center">
+              <span className="mr-2">✓</span>
+              <span>Foto lista para subir</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPhotoBlob(null)}
+              className="w-full p-3 rounded-xl border-2 border-[#344054] text-[#98A2B3]"
+            >
+              📷 Tomar otra foto
+            </button>
+          </div>
+        ) : (
+          <CameraCapture
+            onPhotoCaptured={handlePhotoCaptured}
+            onPhotoDeleted={handlePhotoDeleted}
+            existingPhotoUrl={photoUrl}
+          />
+        )}
+      </div>
+
       {/* Business Name */}
       <div>
         <label className="block text-sm font-medium text-[#98A2B3] mb-2">

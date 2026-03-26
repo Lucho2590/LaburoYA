@@ -37,6 +37,7 @@ export interface IWorkerProfile {
   puesto: string;
   zona: string;
   localidad?: string;
+  photoUrl?: string;
   videoUrl?: string;
   description?: string;
   experience?: string;
@@ -53,6 +54,7 @@ export interface IEmployerProfile {
   businessName: string;
   rubro: string;
   localidad?: string;
+  photoUrl?: string;
   description?: string;
   address?: string;
   phone?: string;
@@ -74,7 +76,10 @@ export interface IJobOffer {
   requiredSkills?: string[];
   zona?: string;
   active: boolean;
+  durationDays?: number;
+  expiresAt?: string;
   createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface IJobCategory {
@@ -132,6 +137,7 @@ export interface IChat {
     // Common fields
     rubro?: string;
     zona?: string;
+    photoUrl?: string;
     // User info
     firstName?: string;
     lastName?: string;
@@ -255,6 +261,7 @@ export interface ICreateWorkerProfileData {
   localidad?: string;
   description?: string;
   experience?: string;
+  photoUrl?: string;
   videoUrl?: string;
   skills?: string[];
 }
@@ -263,6 +270,7 @@ export interface ICreateEmployerProfileData {
   businessName: string;
   rubro: string;
   localidad?: string;
+  photoUrl?: string;
   description?: string;
   address?: string;
   phone?: string;

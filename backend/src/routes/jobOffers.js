@@ -5,11 +5,14 @@ const matchingService = require('../services/matchingService');
 
 const router = express.Router();
 
+// Default duration for job offers in days
+const DEFAULT_DURATION_DAYS = 3;
+
 // Create job offer
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { rubro, puesto, description, requirements, salary, schedule, requiredSkills, zona } = req.body;
+    const { rubro, puesto, description, requirements, salary, schedule, requiredSkills, zona, durationDays } = req.body;
 
     if (!rubro || !puesto) {
       return res.status(400).json({ error: 'rubro and puesto are required' });
@@ -29,6 +32,11 @@ router.post('/', authMiddleware, async (req, res, next) => {
       return res.status(403).json({ error: 'User must be registered as employer' });
     }
 
+    // Calculate expiration date
+    const duration = durationDays || DEFAULT_DURATION_DAYS;
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + duration * 24 * 60 * 60 * 1000);
+
     const jobOfferData = {
       employerId: uid,
       rubro,
@@ -40,8 +48,10 @@ router.post('/', authMiddleware, async (req, res, next) => {
       requiredSkills: Array.isArray(requiredSkills) ? requiredSkills : [],
       zona: zona || null,
       active: true,
-      createdAt: new Date(),
-      updatedAt: new Date()
+      durationDays: duration,
+      expiresAt,
+      createdAt: now,
+      updatedAt: now
     };
 
     // Create job offer
@@ -112,13 +122,25 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
     }
 
     // Filter allowed updates
-    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona', 'active'];
+    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona', 'active', 'durationDays', 'expiresAt'];
     const filteredUpdates = {};
 
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
-        filteredUpdates[field] = updates[field];
+        // Convert expiresAt string to Date if needed
+        if (field === 'expiresAt' && typeof updates[field] === 'string') {
+          filteredUpdates[field] = new Date(updates[field]);
+        } else {
+          filteredUpdates[field] = updates[field];
+        }
       }
+    }
+
+    // If durationDays is updated, recalculate expiresAt from createdAt
+    if (filteredUpdates.durationDays !== undefined && !filteredUpdates.expiresAt) {
+      const jobData = jobDoc.data();
+      const createdAt = jobData.createdAt?.toDate?.() || jobData.createdAt || new Date();
+      filteredUpdates.expiresAt = new Date(new Date(createdAt).getTime() + filteredUpdates.durationDays * 24 * 60 * 60 * 1000);
     }
 
     filteredUpdates.updatedAt = new Date();
@@ -191,6 +213,89 @@ router.post('/:id/not-interested', authMiddleware, async (req, res, next) => {
     });
 
     res.json({ message: 'Marked as not interested', offerId: id });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get interested workers for an offer
+router.get('/:id/interested', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const { id } = req.params;
+
+    const db = getDb();
+
+    // Get the offer
+    const offerDoc = await db.collection('jobOffers').doc(id).get();
+    if (!offerDoc.exists) {
+      return res.status(404).json({ error: 'Job offer not found' });
+    }
+
+    // Verify ownership
+    if (offerDoc.data().employerId !== uid) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Get interested interactions
+    const interactionsSnapshot = await db.collection('offerInteractions')
+      .where('offerId', '==', id)
+      .where('type', '==', 'interested')
+      .get();
+
+    if (interactionsSnapshot.empty) {
+      return res.json({ interested: [], total: 0 });
+    }
+
+    // Get worker details for each interested user
+    const workerIds = interactionsSnapshot.docs.map(doc => doc.data().userId);
+
+    // Check which workers already have a contact request from this employer
+    const contactRequestsSnapshot = await db.collection('contactRequests')
+      .where('fromUid', '==', uid)
+      .where('offerId', '==', id)
+      .get();
+
+    const contactedWorkerIds = new Set(
+      contactRequestsSnapshot.docs.map(doc => doc.data().toUid)
+    );
+
+    // Get worker profiles and user info
+    const interested = await Promise.all(
+      workerIds.map(async (workerId) => {
+        const [workerDoc, userDoc] = await Promise.all([
+          db.collection('workers').doc(workerId).get(),
+          db.collection('users').doc(workerId).get()
+        ]);
+
+        const workerData = workerDoc.exists ? workerDoc.data() : null;
+        const userData = userDoc.exists ? userDoc.data() : null;
+
+        if (!workerData) return null;
+
+        return {
+          uid: workerId,
+          ...workerData,
+          firstName: userData?.firstName,
+          lastName: userData?.lastName,
+          email: userData?.email,
+          hasBeenContacted: contactedWorkerIds.has(workerId)
+        };
+      })
+    );
+
+    // Filter out nulls and sort by those not contacted first
+    const filteredInterested = interested
+      .filter(Boolean)
+      .sort((a, b) => {
+        if (a.hasBeenContacted === b.hasBeenContacted) return 0;
+        return a.hasBeenContacted ? 1 : -1;
+      });
+
+    res.json({
+      interested: filteredInterested,
+      total: filteredInterested.length
+    });
   } catch (error) {
     next(error);
   }
