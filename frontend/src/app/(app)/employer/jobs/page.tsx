@@ -9,7 +9,7 @@ import { JOB_CATEGORIES, TRubro, getSuggestedSkills } from '@/config/constants';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { IJobOffer, IWorkerProfile } from '@/types';
-import { Check, Plus, X, Users, Eye, MessageCircle } from 'lucide-react';
+import { Check, Plus, X, Users, Eye, MessageCircle, Clock } from 'lucide-react';
 
 interface InterestedWorker extends IWorkerProfile {
   firstName?: string;
@@ -18,10 +18,25 @@ interface InterestedWorker extends IWorkerProfile {
   hasBeenContacted: boolean;
 }
 
-interface JobOfferWithStats extends IJobOffer {
-  stats?: {
-    interestedCount: number;
-    notInterestedCount: number;
+interface DashboardOffer {
+  id: string;
+  rubro: string;
+  puesto: string;
+  description?: string;
+  salary?: string;
+  schedule?: string;
+  zona?: string;
+  requiredSkills?: string[];
+  active: boolean;
+  isExpired: boolean;
+  durationDays: number;
+  expiresAt?: string;
+  createdAt?: string;
+  stats: {
+    interested: number;
+    interestedNotContacted: number;
+    candidates: number;
+    matches: number;
   };
 }
 
@@ -29,14 +44,14 @@ export default function EmployerJobsPage() {
   const router = useRouter();
   const { user, loading, authReady, getEffectiveAppRole } = useAuth();
   const { setPageConfig } = usePageTitle();
-  const [jobs, setJobs] = useState<JobOfferWithStats[]>([]);
+  const [jobs, setJobs] = useState<DashboardOffer[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingJob, setEditingJob] = useState<IJobOffer | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Interested workers modal
-  const [interestedModal, setInterestedModal] = useState<{ job: JobOfferWithStats; workers: InterestedWorker[] } | null>(null);
+  const [interestedModal, setInterestedModal] = useState<{ job: DashboardOffer; workers: InterestedWorker[] } | null>(null);
   const [loadingInterested, setLoadingInterested] = useState(false);
   const [contactingWorker, setContactingWorker] = useState<string | null>(null);
 
@@ -93,8 +108,8 @@ export default function EmployerJobsPage() {
 
     try {
       setLoadingJobs(true);
-      const data = await api.getMyJobOffers() as JobOfferWithStats[];
-      setJobs(data);
+      const dashboard = await api.getEmployerDashboard();
+      setJobs(dashboard.offers);
     } catch (error) {
       console.error('Error:', error);
     } finally {
@@ -102,7 +117,7 @@ export default function EmployerJobsPage() {
     }
   }, [user, authReady]);
 
-  const openInterestedModal = async (job: JobOfferWithStats) => {
+  const openInterestedModal = async (job: DashboardOffer) => {
     setLoadingInterested(true);
     try {
       const data = await api.getOfferInterestedWorkers(job.id);
@@ -152,8 +167,20 @@ export default function EmployerJobsPage() {
     ? JOB_CATEGORIES[formData.rubro as TRubro]?.puestos || []
     : [];
 
-  const handleEdit = (job: IJobOffer) => {
-    setEditingJob(job);
+  const handleEdit = (job: DashboardOffer) => {
+    // Convert to IJobOffer-like for editing
+    setEditingJob({
+      id: job.id,
+      employerId: '', // Not needed for edit
+      rubro: job.rubro,
+      puesto: job.puesto,
+      description: job.description,
+      salary: job.salary,
+      schedule: job.schedule,
+      zona: job.zona,
+      active: job.active,
+      requiredSkills: job.requiredSkills || [],
+    });
     // Check if puesto is custom (not in available puestos)
     const category = JOB_CATEGORIES[job.rubro as TRubro];
     const availablePuestosForJob: readonly string[] = category?.puestos ?? [];
@@ -513,14 +540,15 @@ export default function EmployerJobsPage() {
               <div className="p-4">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-semibold theme-text-primary">{job.puesto}</h3>
-                      <Badge
-                        variant={job.active ? 'default' : 'secondary'}
-                        className={`text-xs ${job.active ? 'bg-[#12B76A] text-white' : 'theme-bg-secondary theme-text-muted'}`}
-                      >
-                        {job.active ? 'Activa' : 'Pausada'}
-                      </Badge>
+                      {job.isExpired ? (
+                        <Badge className="text-xs bg-gray-500">Expirada</Badge>
+                      ) : !job.active ? (
+                        <Badge variant="secondary" className="text-xs">Pausada</Badge>
+                      ) : (
+                        <Badge className="text-xs bg-[#12B76A]">Activa</Badge>
+                      )}
                     </div>
                     <p className="theme-text-secondary text-sm mt-1">
                       {JOB_CATEGORIES[job.rubro as TRubro]?.label || job.rubro}
@@ -533,23 +561,64 @@ export default function EmployerJobsPage() {
                       </p>
                     )}
                   </div>
+                  {/* Time remaining */}
+                  {job.expiresAt && !job.isExpired && job.active && (
+                    <div className="flex items-center gap-1 text-xs theme-text-muted ml-2">
+                      <Clock className="w-3 h-3" />
+                      {(() => {
+                        const now = new Date();
+                        const expires = new Date(job.expiresAt);
+                        const diffMs = expires.getTime() - now.getTime();
+                        if (diffMs <= 0) return 'Expirada';
+                        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                        const diffDays = Math.floor(diffHours / 24);
+                        return diffDays > 0 ? `${diffDays}d` : `${diffHours}h`;
+                      })()}
+                    </div>
+                  )}
                 </div>
 
-                {/* Interested count */}
-                {(job.stats?.interestedCount ?? 0) > 0 && (
-                  <button
-                    onClick={() => openInterestedModal(job)}
-                    className="mt-3 w-full flex items-center justify-between p-3 rounded-xl bg-[#E10600]/10 border border-[#E10600]/20 active:scale-[0.98] transition-transform"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Users className="h-5 w-5 text-[#E10600]" />
-                      <span className="font-medium text-[#E10600]">
-                        {job.stats?.interestedCount} interesado{(job.stats?.interestedCount ?? 0) !== 1 ? 's' : ''}
-                      </span>
+                {/* Stats row */}
+                <div className="mt-3 flex items-center gap-3 text-sm">
+                  {/* Interested */}
+                  {job.stats.interested > 0 ? (
+                    <button
+                      onClick={() => openInterestedModal(job)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg active:scale-95 transition-transform ${
+                        job.stats.interestedNotContacted > 0
+                          ? 'bg-[#E10600]/10 text-[#E10600]'
+                          : 'theme-bg-secondary theme-text-secondary'
+                      }`}
+                    >
+                      <Users className="h-4 w-4" />
+                      <span className="font-medium">{job.stats.interested}</span>
+                      {job.stats.interestedNotContacted > 0 && (
+                        <Badge variant="destructive" className="text-xs bg-[#E10600] ml-0.5">
+                          {job.stats.interestedNotContacted} nuevo{job.stats.interestedNotContacted !== 1 ? 's' : ''}
+                        </Badge>
+                      )}
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 theme-text-muted">
+                      <Users className="h-4 w-4" />
+                      <span>0</span>
                     </div>
-                    <Eye className="h-4 w-4 text-[#E10600]" />
-                  </button>
-                )}
+                  )}
+
+                  {/* Candidates */}
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 theme-text-muted">
+                    <Eye className="h-4 w-4" />
+                    <span>{job.stats.candidates} candidato{job.stats.candidates !== 1 ? 's' : ''}</span>
+                  </div>
+
+                  {/* Matches */}
+                  {job.stats.matches > 0 && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 text-[#12B76A]">
+                      <MessageCircle className="h-4 w-4" />
+                      <span className="font-medium">{job.stats.matches}</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Actions */}

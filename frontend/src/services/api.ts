@@ -165,6 +165,40 @@ class ApiService {
     return this.request('/employers/me');
   }
 
+  async getEmployerDashboard() {
+    return this.request<{
+      summary: {
+        totalOffers: number;
+        activeOffers: number;
+        totalInterested: number;
+        interestedNotContacted: number;
+        totalCandidates: number;
+        totalMatches: number;
+      };
+      offers: {
+        id: string;
+        rubro: string;
+        puesto: string;
+        description?: string;
+        salary?: string;
+        schedule?: string;
+        zona?: string;
+        requiredSkills?: string[];
+        active: boolean;
+        isExpired: boolean;
+        durationDays: number;
+        expiresAt?: string;
+        createdAt?: string;
+        stats: {
+          interested: number;
+          interestedNotContacted: number;
+          candidates: number;
+          matches: number;
+        };
+      }[];
+    }>('/employers/dashboard');
+  }
+
   // Job Offers
   async createJobOffer(data: ICreateJobOfferData) {
     return this.request('/job-offers', {

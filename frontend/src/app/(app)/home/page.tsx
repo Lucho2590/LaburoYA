@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
@@ -10,6 +10,33 @@ import { useDiscoveryOffers } from "@/hooks/useDiscovery";
 import { useReceivedContactRequests } from "@/hooks/useContactRequests";
 import { Badge } from "@/components/ui/badge";
 import { IWorkerProfile } from "@/types";
+import { api } from "@/services/api";
+import { Users, UserCheck, Clock, Eye, Briefcase, MessageCircle } from "lucide-react";
+
+interface EmployerDashboard {
+  summary: {
+    totalOffers: number;
+    activeOffers: number;
+    totalInterested: number;
+    interestedNotContacted: number;
+    totalCandidates: number;
+    totalMatches: number;
+  };
+  offers: {
+    id: string;
+    rubro: string;
+    puesto: string;
+    active: boolean;
+    isExpired: boolean;
+    expiresAt?: string;
+    stats: {
+      interested: number;
+      interestedNotContacted: number;
+      candidates: number;
+      matches: number;
+    };
+  }[];
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -21,6 +48,30 @@ export default function DashboardPage() {
 
   const effectiveRole = getEffectiveAppRole();
   const isSuperuser = userData?.role === "superuser";
+  const isEmployer = effectiveRole === "employer";
+
+  // Employer dashboard state
+  const [employerDashboard, setEmployerDashboard] = useState<EmployerDashboard | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+
+  const fetchEmployerDashboard = useCallback(async () => {
+    if (!isEmployer) return;
+    setDashboardLoading(true);
+    try {
+      const data = await api.getEmployerDashboard();
+      setEmployerDashboard(data);
+    } catch (error) {
+      console.error("Error fetching dashboard:", error);
+    } finally {
+      setDashboardLoading(false);
+    }
+  }, [isEmployer]);
+
+  useEffect(() => {
+    if (isEmployer && user && !loading) {
+      fetchEmployerDashboard();
+    }
+  }, [isEmployer, user, loading, fetchEmployerDashboard]);
 
   // Set page config
   useEffect(() => {
@@ -87,6 +138,19 @@ export default function DashboardPage() {
   const isWorker = effectiveRole === "worker";
   const pendingMatches = matches.filter((m) => m.status === "pending").length;
   const acceptedMatches = matches.filter((m) => m.status === "accepted").length;
+
+  // Helper for time remaining
+  const getTimeRemaining = (expiresAt?: string) => {
+    if (!expiresAt) return null;
+    const now = new Date();
+    const expires = new Date(expiresAt);
+    const diffMs = expires.getTime() - now.getTime();
+    if (diffMs <= 0) return "Expirada";
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays > 0) return `${diffDays}d`;
+    return `${diffHours}h`;
+  };
 
   // Worker specific: count offers and pending requests
   const totalOffers = offers?.total || 0;
@@ -244,48 +308,162 @@ export default function DashboardPage() {
           </>
         ) : (
           <>
-            {/* Employer: Matches */}
-            <Link href="/matches">
-              <div className="theme-bg-card rounded-2xl p-4 border theme-border active:scale-[0.98] transition-transform">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-3xl">🤝</span>
-                  {!matchesLoading && pendingMatches > 0 && (
-                    <Badge
-                      variant="destructive"
-                      className="text-xs bg-[#E10600]"
-                    >
-                      {pendingMatches}
-                    </Badge>
-                  )}
+            {/* Employer Dashboard Stats */}
+            {dashboardLoading ? (
+              <>
+                <div className="theme-bg-card rounded-2xl p-4 border theme-border animate-pulse">
+                  <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
+                  <div className="h-8 w-12 bg-gray-200 dark:bg-gray-700 rounded mb-1"></div>
+                  <div className="h-4 w-20 bg-gray-200 dark:bg-gray-700 rounded"></div>
                 </div>
-                <p className="text-2xl font-bold theme-text-primary">
-                  {matchesLoading ? (
-                    <span className="inline-block w-5 h-5 border-2 border-[#E10600]/30 border-t-[#E10600] rounded-full animate-spin" />
-                  ) : (
-                    pendingMatches
-                  )}
-                </p>
-                <p className="theme-text-secondary text-sm">Nuevos matches</p>
-              </div>
-            </Link>
+                <div className="theme-bg-card rounded-2xl p-4 border theme-border animate-pulse">
+                  <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded mb-2"></div>
+                  <div className="h-8 w-12 bg-gray-200 dark:bg-gray-700 rounded mb-1"></div>
+                  <div className="h-4 w-20 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Interesados sin contactar */}
+                <Link href="/employer/jobs">
+                  <div className="theme-bg-card rounded-2xl p-4 border theme-border active:scale-[0.98] transition-transform">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="w-10 h-10 rounded-xl bg-[#E10600]/10 flex items-center justify-center">
+                        <Users className="w-5 h-5 text-[#E10600]" />
+                      </div>
+                      {(employerDashboard?.summary.interestedNotContacted ?? 0) > 0 && (
+                        <Badge variant="destructive" className="text-xs bg-[#E10600]">
+                          Nuevo
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-2xl font-bold theme-text-primary">
+                      {employerDashboard?.summary.interestedNotContacted ?? 0}
+                    </p>
+                    <p className="theme-text-secondary text-sm">Interesados</p>
+                  </div>
+                </Link>
 
-            {/* Employer: Conversaciones */}
-            <Link href="/chats">
-              <div className="theme-bg-card rounded-2xl p-4 border theme-border active:scale-[0.98] transition-transform">
-                <span className="text-3xl">💬</span>
-                <p className="text-2xl font-bold theme-text-primary mt-2">
-                  {matchesLoading ? (
-                    <span className="inline-block w-5 h-5 border-2 border-[#E10600]/30 border-t-[#E10600] rounded-full animate-spin" />
-                  ) : (
-                    acceptedMatches
-                  )}
-                </p>
-                <p className="theme-text-secondary text-sm">Conversaciones</p>
-              </div>
-            </Link>
+                {/* Candidatos potenciales */}
+                <Link href="/discover">
+                  <div className="theme-bg-card rounded-2xl p-4 border theme-border active:scale-[0.98] transition-transform">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="w-10 h-10 rounded-xl bg-[#12B76A]/10 flex items-center justify-center">
+                        <UserCheck className="w-5 h-5 text-[#12B76A]" />
+                      </div>
+                    </div>
+                    <p className="text-2xl font-bold theme-text-primary">
+                      {employerDashboard?.summary.totalCandidates ?? 0}
+                    </p>
+                    <p className="theme-text-secondary text-sm">Candidatos</p>
+                  </div>
+                </Link>
+              </>
+            )}
           </>
         )}
       </div>
+
+      {/* Employer: Summary row */}
+      {isEmployer && !dashboardLoading && employerDashboard && (
+        <div className="flex items-center justify-around mb-6 theme-bg-card rounded-2xl p-3 border theme-border">
+          <Link href="/employer/jobs" className="text-center px-4">
+            <p className="text-lg font-bold theme-text-primary">{employerDashboard.summary.activeOffers}</p>
+            <p className="theme-text-muted text-xs">Ofertas activas</p>
+          </Link>
+          <div className="w-px h-8 theme-bg-secondary"></div>
+          <Link href="/matches" className="text-center px-4">
+            <p className="text-lg font-bold theme-text-primary">{employerDashboard.summary.totalMatches}</p>
+            <p className="theme-text-muted text-xs">Matches</p>
+          </Link>
+          <div className="w-px h-8 theme-bg-secondary"></div>
+          <Link href="/chats" className="text-center px-4">
+            <p className="text-lg font-bold theme-text-primary">{acceptedMatches}</p>
+            <p className="theme-text-muted text-xs">Chats</p>
+          </Link>
+        </div>
+      )}
+
+      {/* Employer: Offers with stats */}
+      {isEmployer && !dashboardLoading && employerDashboard && employerDashboard.offers.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold theme-text-primary">Tus ofertas</h2>
+            <Link href="/employer/jobs" className="text-sm text-[#E10600]">
+              Ver todas
+            </Link>
+          </div>
+          <div className="space-y-3">
+            {employerDashboard.offers.slice(0, 3).map((offer) => (
+              <Link key={offer.id} href="/employer/jobs">
+                <div className="theme-bg-card rounded-2xl p-4 border theme-border active:scale-[0.98] transition-transform">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold theme-text-primary">{offer.puesto}</h3>
+                        {offer.isExpired ? (
+                          <Badge className="text-xs bg-gray-500">Expirada</Badge>
+                        ) : !offer.active ? (
+                          <Badge variant="secondary" className="text-xs">Pausada</Badge>
+                        ) : (
+                          <Badge className="text-xs bg-[#12B76A]">Activa</Badge>
+                        )}
+                      </div>
+                      <p className="theme-text-muted text-sm">{offer.rubro}</p>
+                    </div>
+                    {offer.expiresAt && !offer.isExpired && offer.active && (
+                      <div className="flex items-center gap-1 text-xs theme-text-muted">
+                        <Clock className="w-3 h-3" />
+                        {getTimeRemaining(offer.expiresAt)}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stats row */}
+                  <div className="flex items-center gap-4 text-sm">
+                    <div className="flex items-center gap-1.5">
+                      <Users className={`w-4 h-4 ${offer.stats.interestedNotContacted > 0 ? 'text-[#E10600]' : 'theme-text-muted'}`} />
+                      <span className={offer.stats.interestedNotContacted > 0 ? 'text-[#E10600] font-medium' : 'theme-text-muted'}>
+                        {offer.stats.interested} interesado{offer.stats.interested !== 1 ? 's' : ''}
+                      </span>
+                      {offer.stats.interestedNotContacted > 0 && (
+                        <Badge variant="destructive" className="text-xs bg-[#E10600] ml-1">
+                          {offer.stats.interestedNotContacted} nuevo{offer.stats.interestedNotContacted !== 1 ? 's' : ''}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 theme-text-muted">
+                      <Eye className="w-4 h-4" />
+                      <span>{offer.stats.candidates} candidatos</span>
+                    </div>
+                    {offer.stats.matches > 0 && (
+                      <div className="flex items-center gap-1.5 text-[#12B76A]">
+                        <MessageCircle className="w-4 h-4" />
+                        <span>{offer.stats.matches}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Employer: No offers yet */}
+      {isEmployer && !dashboardLoading && employerDashboard && employerDashboard.offers.length === 0 && (
+        <Link href="/employer/jobs">
+          <div className="mb-6 bg-gradient-to-r from-[#E10600] to-[#FF6A00] rounded-2xl p-4 text-white active:scale-[0.98] transition-transform">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold">Publicá tu primera oferta</p>
+                <p className="text-white/80 text-sm">Encontrá candidatos ideales</p>
+              </div>
+              <Briefcase className="w-8 h-8 text-white/80" />
+            </div>
+          </div>
+        </Link>
+      )}
 
       {/* Quick Actions */}
       <h2 className="text-lg font-semibold theme-text-primary mb-3">
