@@ -84,16 +84,21 @@ router.get('/me', authMiddleware, async (req, res, next) => {
 router.patch('/basic-info', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { firstName, lastName, phone, age, nickname } = req.body;
+    const { firstName, lastName, phone, age, nickname, businessName, contactName } = req.body;
 
-    if (!firstName || !lastName) {
+    // For employers, businessName and contactName are required instead of lastName
+    if (businessName) {
+      if (!contactName) {
+        return res.status(400).json({ error: 'contactName is required for employers' });
+      }
+    } else if (!firstName || !lastName) {
       return res.status(400).json({ error: 'firstName and lastName are required' });
     }
 
     const db = getDb();
 
-    // Update user document with basic info
-    await db.collection('users').doc(uid).update({
+    // Build update data
+    const updateData = {
       firstName,
       lastName,
       phone: phone || null,
@@ -101,7 +106,13 @@ router.patch('/basic-info', authMiddleware, async (req, res, next) => {
       nickname: nickname || null,
       onboardingCompleted: true,
       updatedAt: new Date()
-    });
+    };
+
+    // Add employer-specific fields if provided
+    if (businessName !== undefined) updateData.businessName = businessName || null;
+    if (contactName !== undefined) updateData.contactName = contactName || null;
+
+    await db.collection('users').doc(uid).update(updateData);
 
     res.json({
       message: 'Basic info updated successfully',
@@ -109,7 +120,9 @@ router.patch('/basic-info', authMiddleware, async (req, res, next) => {
       lastName,
       phone,
       age,
-      nickname
+      nickname,
+      businessName,
+      contactName
     });
   } catch (error) {
     next(error);

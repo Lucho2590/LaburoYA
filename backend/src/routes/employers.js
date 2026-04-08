@@ -233,6 +233,8 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
         salary: data.salary,
         schedule: data.schedule,
         zona: data.zona,
+        businessName: data.businessName || null,
+        availability: data.availability || null,
         requiredSkills: data.requiredSkills || [],
         active: data.active !== false,
         isExpired,

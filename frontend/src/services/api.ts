@@ -65,10 +65,18 @@ class ApiService {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+      throw new Error('Invalid JSON response from API');
+    }
 
     if (!response.ok) {
-      throw new Error(data.error || 'API request failed');
+      throw new Error(data.error || `API request failed with status ${response.status}`);
     }
 
     return data;
@@ -102,8 +110,8 @@ class ApiService {
     });
   }
 
-  async updateBasicInfo(data: { firstName: string; lastName: string; phone?: string; age?: number; nickname?: string }) {
-    return this.request<{ message: string; firstName: string; lastName: string; phone?: string; age?: number; nickname?: string }>(
+  async updateBasicInfo(data: { firstName: string; lastName: string; phone?: string; age?: number; nickname?: string; businessName?: string; contactName?: string }) {
+    return this.request<{ message: string; firstName: string; lastName: string; phone?: string; age?: number; nickname?: string; businessName?: string; contactName?: string }>(
       '/auth/basic-info',
       {
         method: 'PATCH',
@@ -183,6 +191,7 @@ class ApiService {
         salary?: string;
         schedule?: string;
         zona?: string;
+        businessName?: string;
         requiredSkills?: string[];
         active: boolean;
         isExpired: boolean;

@@ -1,5 +1,7 @@
 const express = require('express');
+const admin = require('firebase-admin');
 const { getDb } = require('../config/firebase');
+const FieldValue = admin.firestore.FieldValue;
 const { authMiddleware } = require('../middleware/auth');
 const notificationService = require('../services/notificationService');
 
@@ -28,9 +30,10 @@ async function findReverseRequest(db, fromUid, toUid, offerId) {
  * Helper: Create a match when both parties express interest
  */
 async function createMutualMatch(db, workerId, employerId, offerId, jobOfferData) {
-  // Check if match already exists
+  // Check if match already exists for this worker + employer + offer
   const existingMatch = await db.collection('matches')
     .where('workerId', '==', workerId)
+    .where('employerId', '==', employerId)
     .where('offerId', '==', offerId)
     .get();
 
@@ -132,36 +135,17 @@ router.post('/worker-to-offer', authMiddleware, async (req, res, next) => {
           createdAt: new Date()
         });
 
-        const currentStats = jobOfferData.stats || { interestedCount: 0, notInterestedCount: 0 };
         await db.collection('jobOffers').doc(offerId).update({
-          stats: {
-            ...currentStats,
-            interestedCount: (currentStats.interestedCount || 0) + 1
-          }
+          'stats.interestedCount': FieldValue.increment(1)
         });
       }
 
-      // Update the reverse request status
+      // Update the reverse request status to matched
       await db.collection('contactRequests').doc(reverseRequest.id).update({
         status: 'matched',
         matchId: match.id,
         updatedAt: new Date()
       });
-
-      // Create worker's request as matched too
-      const requestData = {
-        fromUid: uid,
-        fromType: 'worker',
-        toUid: employerId,
-        toType: 'employer',
-        workerId: uid,
-        employerId,
-        offerId,
-        status: 'matched',
-        matchId: match.id,
-        createdAt: new Date()
-      };
-      await db.collection('contactRequests').add(requestData);
 
       // Send match notifications if it's a new match
       if (!match.alreadyExisted) {
@@ -226,13 +210,9 @@ router.post('/worker-to-offer', authMiddleware, async (req, res, next) => {
         createdAt: new Date()
       });
 
-      // Update offer stats
-      const currentStats = jobOfferData.stats || { interestedCount: 0, notInterestedCount: 0 };
+      // Update offer stats (atomic increment)
       await db.collection('jobOffers').doc(offerId).update({
-        stats: {
-          ...currentStats,
-          interestedCount: (currentStats.interestedCount || 0) + 1
-        }
+        'stats.interestedCount': FieldValue.increment(1)
       });
     }
 
@@ -330,27 +310,12 @@ router.post('/employer-to-worker', authMiddleware, async (req, res, next) => {
       const match = await createMutualMatch(db, workerId, uid, offerId, jobOfferData);
       console.log('[ContactRequests] Match created:', { id: match.id, alreadyExisted: match.alreadyExisted });
 
-      // Update the reverse request status
+      // Update the reverse request status to matched
       await db.collection('contactRequests').doc(reverseRequest.id).update({
         status: 'matched',
         matchId: match.id,
         updatedAt: new Date()
       });
-
-      // Create employer's request as matched too
-      const requestData = {
-        fromUid: uid,
-        fromType: 'employer',
-        toUid: workerId,
-        toType: 'worker',
-        workerId,
-        employerId: uid,
-        offerId,
-        status: 'matched',
-        matchId: match.id,
-        createdAt: new Date()
-      };
-      await db.collection('contactRequests').add(requestData);
 
       // Send match notifications if it's a new match
       if (!match.alreadyExisted) {

@@ -26,6 +26,8 @@ interface DashboardOffer {
   salary?: string;
   schedule?: string;
   zona?: string;
+  businessName?: string;
+  availability?: 'part-time' | 'full-time';
   requiredSkills?: string[];
   active: boolean;
   isExpired: boolean;
@@ -57,11 +59,15 @@ export default function EmployerJobsPage() {
 
   const [formData, setFormData] = useState({
     rubro: '',
+    customRubro: '',
     puesto: '',
     customPuesto: '',
     description: '',
     salary: '',
     schedule: '',
+    businessName: '',
+    zona: '',
+    availability: '' as '' | 'part-time' | 'full-time',
   });
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [customSkill, setCustomSkill] = useState('');
@@ -69,7 +75,7 @@ export default function EmployerJobsPage() {
   const effectiveRole = getEffectiveAppRole();
 
   const resetForm = useCallback(() => {
-    setFormData({ rubro: '', puesto: '', customPuesto: '', description: '', salary: '', schedule: '' });
+    setFormData({ rubro: '', customRubro: '', puesto: '', customPuesto: '', description: '', salary: '', schedule: '', businessName: '', zona: '', availability: '' });
     setSelectedSkills([]);
     setCustomSkill('');
     setEditingJob(null);
@@ -163,7 +169,7 @@ export default function EmployerJobsPage() {
     fetchJobs();
   }, [fetchJobs]);
 
-  const availablePuestos = formData.rubro
+  const availablePuestos = formData.rubro && formData.rubro !== 'otro'
     ? JOB_CATEGORIES[formData.rubro as TRubro]?.puestos || []
     : [];
 
@@ -181,27 +187,35 @@ export default function EmployerJobsPage() {
       active: job.active,
       requiredSkills: job.requiredSkills || [],
     });
+    // Check if rubro is custom (not in JOB_CATEGORIES)
+    const isCustomRubro = !JOB_CATEGORIES[job.rubro as TRubro];
+
     // Check if puesto is custom (not in available puestos)
     const category = JOB_CATEGORIES[job.rubro as TRubro];
     const availablePuestosForJob: readonly string[] = category?.puestos ?? [];
-    const isCustomPuesto = !availablePuestosForJob.includes(job.puesto);
+    const isCustomPuesto = isCustomRubro || !availablePuestosForJob.includes(job.puesto);
 
     setFormData({
-      rubro: job.rubro,
+      rubro: isCustomRubro ? 'otro' : job.rubro,
+      customRubro: isCustomRubro ? job.rubro : '',
       puesto: isCustomPuesto ? 'otro' : job.puesto,
       customPuesto: isCustomPuesto ? job.puesto : '',
       description: job.description || '',
       salary: job.salary || '',
       schedule: job.schedule || '',
+      businessName: job.businessName || '',
+      zona: (job as DashboardOffer & { zona?: string }).zona || '',
+      availability: ((job as DashboardOffer & { availability?: string }).availability || '') as '' | 'part-time' | 'full-time',
     });
     setSelectedSkills(job.requiredSkills || []);
     setShowForm(true);
   };
 
   const handleSubmit = async () => {
+    const finalRubro = formData.rubro === 'otro' ? formData.customRubro : formData.rubro;
     const finalPuesto = formData.puesto === 'otro' ? formData.customPuesto : formData.puesto;
 
-    if (!formData.rubro || !finalPuesto) {
+    if (!finalRubro || !finalPuesto) {
       toast.error('Seleccioná rubro y puesto');
       return;
     }
@@ -209,12 +223,15 @@ export default function EmployerJobsPage() {
     setSaving(true);
     try {
       const offerData = {
-        rubro: formData.rubro,
+        rubro: finalRubro,
         puesto: finalPuesto,
         description: formData.description || undefined,
         salary: formData.salary || undefined,
         schedule: formData.schedule || undefined,
         requiredSkills: selectedSkills.length > 0 ? selectedSkills : undefined,
+        businessName: formData.businessName || undefined,
+        zona: formData.zona || undefined,
+        availability: formData.availability || undefined,
       };
 
       if (editingJob) {
@@ -227,7 +244,8 @@ export default function EmployerJobsPage() {
         toast.success(`¡Oferta creada! ${result.newMatches} matches encontrados`);
       }
       resetForm();
-      fetchJobs();
+      // Re-fetch in background without showing full-page spinner
+      api.getEmployerDashboard().then(d => setJobs(d.offers)).catch(() => {});
     } catch {
       toast.error(editingJob ? 'Error al actualizar' : 'Error al crear la oferta');
     } finally {
@@ -238,8 +256,8 @@ export default function EmployerJobsPage() {
   const toggleJobStatus = async (jobId: string, currentStatus: boolean) => {
     try {
       await api.updateJobOffer(jobId, { active: !currentStatus });
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, active: !currentStatus } : j));
       toast.success(currentStatus ? 'Oferta pausada' : 'Oferta activada');
-      fetchJobs();
     } catch {
       toast.error('Error al actualizar');
     }
@@ -248,8 +266,8 @@ export default function EmployerJobsPage() {
   const deleteJob = async (jobId: string) => {
     try {
       await api.deleteJobOffer(jobId);
+      setJobs(prev => prev.filter(j => j.id !== jobId));
       toast.success('Oferta eliminada');
-      fetchJobs();
     } catch {
       toast.error('Error al eliminar');
     }
@@ -267,6 +285,23 @@ export default function EmployerJobsPage() {
   if (showForm) {
     return (
       <div className="px-4 py-6 space-y-6">
+        {/* Nombre del local */}
+        <div>
+          <label className="block text-sm font-medium theme-text-muted mb-2">
+            Nombre del local / empresa (opcional)
+          </label>
+          <input
+            type="text"
+            value={formData.businessName}
+            onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
+            placeholder="Ej: Café Central, Panadería Don José..."
+            className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
+          />
+          <p className="text-xs theme-text-muted mt-1">
+            Si reclutás para diferentes locales, podés cambiarlo en cada oferta
+          </p>
+        </div>
+
         {/* Rubro */}
         <div>
           <label className="block text-sm font-medium theme-text-muted mb-2">
@@ -277,8 +312,8 @@ export default function EmployerJobsPage() {
               <button
                 key={key}
                 type="button"
-                onClick={() => setFormData({ ...formData, rubro: key, puesto: '' })}
-                className={`p-3 rounded-xl border-2 text-left transition-all active:scale-95 ${
+                onClick={() => setFormData({ ...formData, rubro: key, customRubro: '', puesto: '', customPuesto: '' })}
+                className={`p-3 rounded-xl border-2 text-left transition-all active:scale-95 cursor-pointer ${
                   formData.rubro === key
                     ? 'border-[#E10600] bg-[#E10600]/10'
                     : 'theme-border theme-bg-card'
@@ -295,7 +330,32 @@ export default function EmployerJobsPage() {
                 <span className="font-medium theme-text-primary ml-2 text-sm">{value.label}</span>
               </button>
             ))}
+            {/* Otro rubro */}
+            <button
+              type="button"
+              onClick={() => setFormData({ ...formData, rubro: 'otro', puesto: 'otro', customPuesto: '' })}
+              className={`p-3 rounded-xl border-2 text-left transition-all active:scale-95 cursor-pointer ${
+                formData.rubro === 'otro'
+                  ? 'border-[#E10600] bg-[#E10600]/10'
+                  : 'theme-border theme-bg-card'
+              }`}
+            >
+              <span className="text-xl">➕</span>
+              <span className="font-medium theme-text-primary ml-2 text-sm">Otro</span>
+            </button>
           </div>
+
+          {/* Custom rubro input */}
+          {formData.rubro === 'otro' && (
+            <input
+              type="text"
+              value={formData.customRubro}
+              onChange={(e) => setFormData({ ...formData, customRubro: e.target.value })}
+              placeholder="Escribí el rubro..."
+              className="w-full mt-3 p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
+              autoFocus
+            />
+          )}
         </div>
 
         {/* Puesto */}
@@ -304,45 +364,58 @@ export default function EmployerJobsPage() {
             <label className="block text-sm font-medium theme-text-muted mb-2">
               Puesto *
             </label>
-            <div className="flex flex-wrap gap-2">
-              {availablePuestos.map((puesto) => (
-                <button
-                  key={puesto}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, puesto, customPuesto: '' })}
-                  className={`px-4 py-2 rounded-full border-2 transition-all active:scale-95 ${
-                    formData.puesto === puesto
-                      ? 'border-[#E10600] bg-[#E10600] text-white'
-                      : 'theme-border theme-bg-card theme-text-secondary'
-                  }`}
-                >
-                  {puesto}
-                </button>
-              ))}
-              {/* Otro puesto */}
-              <button
-                type="button"
-                onClick={() => setFormData({ ...formData, puesto: 'otro' })}
-                className={`px-4 py-2 rounded-full border-2 transition-all active:scale-95 ${
-                  formData.puesto === 'otro'
-                    ? 'border-[#E10600] bg-[#E10600] text-white'
-                    : 'theme-border theme-bg-card theme-text-secondary'
-                }`}
-              >
-                + Otro
-              </button>
-            </div>
-
-            {/* Custom puesto input */}
-            {formData.puesto === 'otro' && (
+            {/* Si el rubro es custom, solo mostrar input libre */}
+            {formData.rubro === 'otro' ? (
               <input
                 type="text"
                 value={formData.customPuesto}
                 onChange={(e) => setFormData({ ...formData, customPuesto: e.target.value })}
                 placeholder="Escribí el puesto que buscás..."
-                className="w-full mt-3 p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
-                autoFocus
+                className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
               />
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {availablePuestos.map((puesto) => (
+                    <button
+                      key={puesto}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, puesto, customPuesto: '' })}
+                      className={`px-4 py-2 rounded-full border-2 transition-all active:scale-95 cursor-pointer ${
+                        formData.puesto === puesto
+                          ? 'border-[#E10600] bg-[#E10600] text-white'
+                          : 'theme-border theme-bg-card theme-text-secondary'
+                      }`}
+                    >
+                      {puesto}
+                    </button>
+                  ))}
+                  {/* Otro puesto */}
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, puesto: 'otro' })}
+                    className={`px-4 py-2 rounded-full border-2 transition-all active:scale-95 cursor-pointer ${
+                      formData.puesto === 'otro'
+                        ? 'border-[#E10600] bg-[#E10600] text-white'
+                        : 'theme-border theme-bg-card theme-text-secondary'
+                    }`}
+                  >
+                    + Otro
+                  </button>
+                </div>
+
+                {/* Custom puesto input */}
+                {formData.puesto === 'otro' && (
+                  <input
+                    type="text"
+                    value={formData.customPuesto}
+                    onChange={(e) => setFormData({ ...formData, customPuesto: e.target.value })}
+                    placeholder="Escribí el puesto que buscás..."
+                    className="w-full mt-3 p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
+                    autoFocus
+                  />
+                )}
+              </>
             )}
           </div>
         )}
@@ -458,6 +531,51 @@ export default function EmployerJobsPage() {
           />
         </div>
 
+        {/* Zona / Barrio */}
+        <div>
+          <label className="block text-sm font-medium theme-text-muted mb-2">
+            Barrio / Zona (opcional)
+          </label>
+          <input
+            type="text"
+            value={formData.zona}
+            onChange={(e) => setFormData({ ...formData, zona: e.target.value })}
+            placeholder="Ej: Centro, Güemes, Puerto..."
+            className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
+          />
+        </div>
+
+        {/* Availability */}
+        <div>
+          <label className="block text-sm font-medium theme-text-muted mb-2">
+            Disponibilidad horaria (opcional)
+          </label>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setFormData({ ...formData, availability: formData.availability === 'full-time' ? '' : 'full-time' })}
+              className={`flex-1 py-3 rounded-xl border-2 font-medium transition-all active:scale-95 cursor-pointer ${
+                formData.availability === 'full-time'
+                  ? 'border-[#E10600] bg-[#E10600] text-white'
+                  : 'theme-border theme-bg-card theme-text-secondary'
+              }`}
+            >
+              Full-time
+            </button>
+            <button
+              type="button"
+              onClick={() => setFormData({ ...formData, availability: formData.availability === 'part-time' ? '' : 'part-time' })}
+              className={`flex-1 py-3 rounded-xl border-2 font-medium transition-all active:scale-95 cursor-pointer ${
+                formData.availability === 'part-time'
+                  ? 'border-[#E10600] bg-[#E10600] text-white'
+                  : 'theme-border theme-bg-card theme-text-secondary'
+              }`}
+            >
+              Part-time
+            </button>
+          </div>
+        </div>
+
         {/* Schedule */}
         <div>
           <label className="block text-sm font-medium theme-text-muted mb-2">
@@ -489,8 +607,8 @@ export default function EmployerJobsPage() {
         {/* Submit */}
         <button
           onClick={handleSubmit}
-          disabled={saving || !formData.rubro || !formData.puesto}
-          className="w-full bg-[#E10600] text-white py-4 rounded-xl font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform"
+          disabled={saving || !formData.rubro || (!formData.puesto && formData.rubro !== 'otro') || (formData.rubro === 'otro' && !formData.customRubro) || (formData.puesto === 'otro' && !formData.customPuesto) || (formData.rubro === 'otro' && !formData.customPuesto)}
+          className="w-full bg-[#E10600] text-white py-4 rounded-xl font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform cursor-pointer"
         >
           {saving
             ? (editingJob ? 'Guardando...' : 'Publicando...')
@@ -502,7 +620,7 @@ export default function EmployerJobsPage() {
         {editingJob && (
           <button
             onClick={resetForm}
-            className="w-full py-3 theme-text-muted text-sm"
+            className="w-full py-3 theme-text-muted text-sm cursor-pointer"
           >
             Cancelar
           </button>
@@ -517,7 +635,7 @@ export default function EmployerJobsPage() {
       {/* Add Button */}
       <button
         onClick={() => setShowForm(true)}
-        className="w-full bg-[#E10600] text-white py-4 rounded-xl font-semibold mb-6 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+        className="w-full bg-[#E10600] text-white py-4 rounded-xl font-semibold mb-6 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform cursor-pointer"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -552,6 +670,7 @@ export default function EmployerJobsPage() {
                     </div>
                     <p className="theme-text-secondary text-sm mt-1">
                       {JOB_CATEGORIES[job.rubro as TRubro]?.label || job.rubro}
+                      {job.businessName && ` • ${job.businessName}`}
                     </p>
                     {(job.salary || job.schedule) && (
                       <p className="theme-text-muted text-sm mt-1">
@@ -625,14 +744,14 @@ export default function EmployerJobsPage() {
               <div className="flex border-t theme-border">
                 <button
                   onClick={() => handleEdit(job)}
-                  className="flex-1 py-3 theme-text-secondary text-sm font-medium active:theme-bg-secondary"
+                  className="flex-1 py-3 theme-text-secondary text-sm font-medium active:theme-bg-secondary cursor-pointer"
                 >
                   ✏️ Editar
                 </button>
                 <div className="w-px theme-bg-secondary" />
                 <button
                   onClick={() => toggleJobStatus(job.id, job.active)}
-                  className="flex-1 py-3 theme-text-secondary text-sm font-medium active:theme-bg-secondary"
+                  className="flex-1 py-3 theme-text-secondary text-sm font-medium active:theme-bg-secondary cursor-pointer"
                 >
                   {job.active ? '⏸️ Pausar' : '▶️ Activar'}
                 </button>
@@ -643,9 +762,9 @@ export default function EmployerJobsPage() {
                       deleteJob(job.id);
                     }
                   }}
-                  className="flex-1 py-3 text-[#E10600] text-sm font-medium active:bg-[#E10600]/10"
+                  className="flex-1 py-3 text-[#E10600] text-sm font-medium active:bg-[#E10600]/10 cursor-pointer"
                 >
-                  🗑️
+                  🗑️ Eliminar
                 </button>
               </div>
             </div>

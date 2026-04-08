@@ -97,7 +97,7 @@ export default function AdminPlansPage() {
         toast.success('Plan actualizado correctamente');
       }
       closeModal();
-      fetchPlans();
+      api.getAdminPlans().then(d => setPlans(d.plans)).catch(() => {});
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al guardar');
     } finally {
@@ -112,7 +112,7 @@ export default function AdminPlansPage() {
     try {
       await api.deleteAdminPlan(planId);
       toast.success('Plan eliminado correctamente');
-      fetchPlans();
+      setPlans(prev => prev.filter(p => p.id !== planId));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al eliminar');
     } finally {
@@ -124,7 +124,7 @@ export default function AdminPlansPage() {
     try {
       await api.updateAdminPlan(plan.id, { active: !plan.active });
       toast.success(plan.active ? 'Plan desactivado' : 'Plan activado');
-      fetchPlans();
+      setPlans(prev => prev.map(p => p.id === plan.id ? { ...p, active: !p.active } : p));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al actualizar');
     }

@@ -75,7 +75,7 @@ export default function DashboardPage() {
 
   // Set page config
   useEffect(() => {
-    setPageConfig({ title: "" });
+    setPageConfig({ title: "", showBack: false, onBack: undefined });
   }, [setPageConfig]);
 
   useEffect(() => {

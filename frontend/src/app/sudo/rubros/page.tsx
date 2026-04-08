@@ -91,7 +91,7 @@ export default function AdminRubrosPage() {
         toast.success("Rubro actualizado correctamente");
       }
       closeModal();
-      fetchRubros();
+      api.getAdminRubros().then(d => setRubros(d.rubros)).catch(() => {});
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al guardar");
     } finally {
@@ -106,7 +106,7 @@ export default function AdminRubrosPage() {
     try {
       await api.deleteAdminRubro(rubroId);
       toast.success("Rubro eliminado correctamente");
-      fetchRubros();
+      setRubros(prev => prev.filter(r => r.id !== rubroId));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al eliminar");
     } finally {
@@ -118,7 +118,7 @@ export default function AdminRubrosPage() {
     try {
       await api.updateAdminRubro(rubro.id, { activo: !rubro.activo });
       toast.success(rubro.activo ? "Rubro desactivado" : "Rubro activado");
-      fetchRubros();
+      setRubros(prev => prev.map(r => r.id === rubro.id ? { ...r, activo: !rubro.activo } : r));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al actualizar");
     }
