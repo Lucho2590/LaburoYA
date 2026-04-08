@@ -67,7 +67,7 @@ export default function AdminLeadsPage() {
     try {
       await api.updateAdminLead(lead.id, { contacted: !lead.contacted });
       toast.success(lead.contacted ? 'Marcado como pendiente' : 'Marcado como contactado');
-      fetchData();
+      setLeads((prev) => prev.map((l) => l.id === lead.id ? { ...l, contacted: !lead.contacted } : l));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al actualizar');
     } finally {
@@ -82,7 +82,7 @@ export default function AdminLeadsPage() {
     try {
       await api.deleteAdminLead(leadId);
       toast.success('Lead eliminado correctamente');
-      fetchData();
+      setLeads((prev) => prev.filter((l) => l.id !== leadId));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al eliminar');
     } finally {

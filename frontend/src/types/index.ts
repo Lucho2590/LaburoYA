@@ -284,6 +284,8 @@ export interface ICreateJobOfferData {
   schedule?: string;
   requiredSkills?: string[];
   zona?: string;
+  businessName?: string;
+  availability?: 'part-time' | 'full-time';
 }
 
 // ============================================

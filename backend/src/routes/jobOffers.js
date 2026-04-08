@@ -1,7 +1,9 @@
 const express = require('express');
+const admin = require('firebase-admin');
 const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const matchingService = require('../services/matchingService');
+const FieldValue = admin.firestore.FieldValue;
 
 const router = express.Router();
 
@@ -12,7 +14,7 @@ const DEFAULT_DURATION_DAYS = 3;
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { rubro, puesto, description, requirements, salary, schedule, requiredSkills, zona, durationDays } = req.body;
+    const { rubro, puesto, description, requirements, salary, schedule, requiredSkills, zona, durationDays, businessName, availability } = req.body;
 
     if (!rubro || !puesto) {
       return res.status(400).json({ error: 'rubro and puesto are required' });
@@ -47,6 +49,8 @@ router.post('/', authMiddleware, async (req, res, next) => {
       schedule: schedule || null,
       requiredSkills: Array.isArray(requiredSkills) ? requiredSkills : [],
       zona: zona || null,
+      businessName: businessName || null,
+      availability: availability || null,
       active: true,
       durationDays: duration,
       expiresAt,
@@ -122,7 +126,7 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
     }
 
     // Filter allowed updates
-    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona', 'active', 'durationDays', 'expiresAt'];
+    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona', 'active', 'durationDays', 'expiresAt', 'businessName', 'availability'];
     const filteredUpdates = {};
 
     for (const field of allowedFields) {
@@ -203,13 +207,9 @@ router.post('/:id/not-interested', authMiddleware, async (req, res, next) => {
       createdAt: new Date()
     });
 
-    // Update offer stats
-    const currentStats = offerDoc.data().stats || { interestedCount: 0, notInterestedCount: 0 };
+    // Update offer stats (atomic increment)
     await db.collection('jobOffers').doc(id).update({
-      stats: {
-        ...currentStats,
-        notInterestedCount: (currentStats.notInterestedCount || 0) + 1
-      }
+      'stats.notInterestedCount': FieldValue.increment(1)
     });
 
     res.json({ message: 'Marked as not interested', offerId: id });

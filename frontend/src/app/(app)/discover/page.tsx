@@ -444,10 +444,6 @@ function WorkerCard({
                 {worker.zona}
               </span>
             )}
-            {/* TODO: Temporal - mostrar email para testing */}
-            {worker.email && (
-              <span className="truncate">📧 {worker.email}</span>
-            )}
           </div>
         </div>
 

@@ -89,7 +89,6 @@ export default function OnboardingPage() {
             className="w-full theme-bg-card border-2 theme-border rounded-2xl p-6 text-left active:scale-[0.98] active:border-[#E10600] transition-all disabled:opacity-50"
           >
             <div className="flex items-start">
-              <span className="text-4xl mr-4">💼</span>
               <div>
                 <h2 className="text-xl font-semibold theme-text-primary">
                   Busco trabajo
@@ -119,7 +118,6 @@ export default function OnboardingPage() {
             className="w-full theme-bg-card border-2 theme-border rounded-2xl p-6 text-left active:scale-[0.98] active:border-[#12B76A] transition-all disabled:opacity-50"
           >
             <div className="flex items-start">
-              <span className="text-4xl mr-4">🏢</span>
               <div>
                 <h2 className="text-xl font-semibold theme-text-primary">
                   Busco empleados

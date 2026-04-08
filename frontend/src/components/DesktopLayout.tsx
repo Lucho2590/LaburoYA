@@ -167,14 +167,14 @@ export function DesktopLayout({
       {/* Sidebar */}
       <aside className="w-64 theme-bg-secondary border-r theme-border flex flex-col h-screen flex-shrink-0">
         {/* Logo */}
-        <div className="p-4 border-b theme-border flex-shrink-0">
+        <div className="h-14 px-4 border-b theme-border flex-shrink-0 flex items-center">
           <Link href="/home" className="flex items-center">
             <Image
               src="/logo.png"
               alt="LaburoYA"
               width={320}
               height={80}
-              className="h-16 w-auto"
+              className="h-10 w-auto"
               priority
             />
           </Link>
