@@ -34,6 +34,8 @@ interface ApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   requireAuth?: boolean;
+  extraHeaders?: Record<string, string>;
+  formData?: FormData;
 }
 
 class ApiService {
@@ -45,11 +47,12 @@ class ApiService {
   }
 
   async request<T>(endpoint: string, options: ApiOptions = {}): Promise<T> {
-    const { method = 'GET', body, requireAuth = true } = options;
+    const { method = 'GET', body, requireAuth = true, extraHeaders, formData } = options;
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
+    const headers: Record<string, string> = {};
+    if (!formData) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     if (requireAuth) {
       const token = await this.getAuthToken();
@@ -59,10 +62,14 @@ class ApiService {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
+    if (extraHeaders) {
+      Object.assign(headers, extraHeaders);
+    }
+
     const response = await fetch(`${API_URL}${endpoint}`, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: formData ? formData : (body ? JSON.stringify(body) : undefined),
     });
 
     let data;
@@ -292,14 +299,32 @@ class ApiService {
     return this.request<IAdminStats>('/admin/stats');
   }
 
-  async createAdminUser(data: { email: string; firstName?: string; lastName?: string; role: 'worker' | 'employer'; plan?: string }) {
-    return this.request<{ success: boolean; message: string; user: { uid: string; email: string; role: string } }>(
-      '/admin/users',
-      {
-        method: 'POST',
-        body: data,
-      }
-    );
+  async createAdminUser(data: {
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    role: 'worker' | 'employer';
+    plan?: string;
+    workerProfile?: {
+      rubro: string;
+      puesto: string;
+      zona?: string | null;
+      localidad?: string | null;
+      description?: string | null;
+      experience?: string | null;
+      skills?: string[];
+    };
+  }) {
+    return this.request<{
+      success: boolean;
+      message: string;
+      workerProfileCreated?: boolean;
+      user: { uid: string; email: string; role: string };
+    }>('/admin/users', {
+      method: 'POST',
+      body: data,
+    });
   }
 
   async getAdminUsers(params?: { role?: EUserRole; limit?: number; offset?: number }) {
@@ -714,6 +739,101 @@ class ApiService {
         // Silently fail - not critical
       }
     }
+  }
+
+  // ============================================
+  // Admin - Security (PIN)
+  // ============================================
+
+  async getAdminPinStatus() {
+    return this.request<{ isSet: boolean }>('/admin/security/pin-status');
+  }
+
+  async setInitialAdminPin(pin: string) {
+    return this.request<{ message: string }>('/admin/security/set-initial-pin', {
+      method: 'POST',
+      body: { pin },
+    });
+  }
+
+  async changeAdminPin(currentPin: string, newPin: string) {
+    return this.request<{ message: string }>('/admin/security/change-pin', {
+      method: 'POST',
+      body: { currentPin, newPin },
+    });
+  }
+
+  async verifyAdminPin(pin: string) {
+    return this.request<{ token: string; expiresIn: number }>('/admin/security/verify-pin', {
+      method: 'POST',
+      body: { pin },
+    });
+  }
+
+  // ============================================
+  // Admin - AI Config
+  // ============================================
+
+  async getAdminAiConfig() {
+    return this.request<{
+      provider: 'claude' | 'openai' | 'gemini' | null;
+      apiKeyMasked: string | null;
+      configured: boolean;
+      updatedAt?: string;
+      updatedBy?: string;
+      supportedProviders: ('claude' | 'openai' | 'gemini')[];
+      models: Record<string, string>;
+    }>('/admin/ai-config');
+  }
+
+  async updateAdminAiConfig(
+    pinToken: string,
+    data: { provider?: 'claude' | 'openai' | 'gemini'; apiKey?: string }
+  ) {
+    return this.request<{ message: string; provider: string; apiKeyMasked: string }>(
+      '/admin/ai-config',
+      {
+        method: 'POST',
+        body: data,
+        extraHeaders: { 'X-Pin-Token': pinToken },
+      }
+    );
+  }
+
+  async revealAdminAiKey(pinToken: string) {
+    return this.request<{ apiKey: string }>('/admin/ai-config/reveal', {
+      method: 'POST',
+      extraHeaders: { 'X-Pin-Token': pinToken },
+    });
+  }
+
+  // ============================================
+  // Admin - Parse CV
+  // ============================================
+
+  async adminParseCv(file: File, useAi: boolean) {
+    const formData = new FormData();
+    formData.append('pdf', file);
+    formData.append('useAi', String(useAi));
+    return this.request<{
+      mode: 'heuristic' | 'ai';
+      rawText: string;
+      fields: {
+        firstName: string | null;
+        lastName: string | null;
+        email: string | null;
+        phone: string | null;
+        rubro?: string | null;
+        puesto?: string | null;
+        zona?: string | null;
+        description?: string | null;
+        experience?: string | null;
+        skills?: string[];
+      };
+    }>('/admin/parse-cv', {
+      method: 'POST',
+      formData,
+    });
   }
 }
 
