@@ -1,10 +1,19 @@
 const express = require('express');
+const multer = require('multer');
 const { getDb, getAuth } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const { superuserMiddleware } = require('../middleware/superuser');
 const { sendInvitationEmail } = require('../services/emailService');
+const adminSecurity = require('../services/adminSecurity');
+const aiProvider = require('../services/aiProvider');
+const pdfParser = require('../services/pdfParser');
 
 const router = express.Router();
+
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
 
 // Apply auth and superuser middleware to all routes
 router.use(authMiddleware);
@@ -62,7 +71,7 @@ router.get('/stats', async (req, res, next) => {
 // POST /api/admin/users - Create a new user (invitation)
 router.post('/users', async (req, res, next) => {
   try {
-    const { email, firstName, lastName, role, plan } = req.body;
+    const { email, firstName, lastName, phone, role, plan, workerProfile } = req.body;
     const db = getDb();
     const auth = getAuth();
 
@@ -99,11 +108,34 @@ router.post('/users', async (req, res, next) => {
       role,
       firstName: firstName || null,
       lastName: lastName || null,
+      phone: phone || null,
       plan: plan || 'free',
       invitedBy: req.user.uid,
       createdAt: new Date(),
       updatedAt: new Date()
     });
+
+    // 2b. Si role=worker y vienen datos de worker profile, crear el perfil
+    let workerProfileCreated = false;
+    if (role === 'worker' && workerProfile && workerProfile.rubro && workerProfile.puesto) {
+      const profileData = {
+        uid: userRecord.uid,
+        rubro: workerProfile.rubro,
+        puesto: workerProfile.puesto,
+        zona: workerProfile.zona || null,
+        localidad: workerProfile.localidad || null,
+        description: workerProfile.description || null,
+        experience: workerProfile.experience || null,
+        skills: Array.isArray(workerProfile.skills) ? workerProfile.skills : [],
+        photoUrl: null,
+        videoUrl: null,
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      await db.collection('workers').doc(userRecord.uid).set(profileData);
+      workerProfileCreated = true;
+    }
 
     // 3. Generar link de reset password
     const resetLink = await auth.generatePasswordResetLink(email);
@@ -118,6 +150,7 @@ router.post('/users', async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Usuario creado y email de invitación enviado',
+      workerProfileCreated,
       user: {
         uid: userRecord.uid,
         email,
@@ -1439,6 +1472,147 @@ router.put('/settings/whatsapp-template', async (req, res, next) => {
       updatedBy: data.updatedBy
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// SECURITY (PIN admin)
+// ============================================
+
+router.get('/security/pin-status', async (req, res, next) => {
+  try {
+    const isSet = await adminSecurity.isPinSet();
+    res.json({ isSet });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/security/set-initial-pin', async (req, res, next) => {
+  try {
+    const { pin } = req.body;
+    await adminSecurity.setInitialPin({ pin, updatedBy: req.user.uid });
+    res.json({ message: 'PIN inicial configurado' });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+router.post('/security/change-pin', async (req, res, next) => {
+  try {
+    const { currentPin, newPin } = req.body;
+    await adminSecurity.changePin({ currentPin, newPin, updatedBy: req.user.uid });
+    res.json({ message: 'PIN actualizado' });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+router.post('/security/verify-pin', async (req, res, next) => {
+  try {
+    const { pin } = req.body;
+    const result = await adminSecurity.verifyPin(pin);
+    res.json(result);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+// ============================================
+// AI CONFIG
+// ============================================
+
+router.get('/ai-config', async (req, res, next) => {
+  try {
+    const config = await aiProvider.getAiConfigPublic();
+    res.json({ ...config, supportedProviders: aiProvider.SUPPORTED_PROVIDERS, models: aiProvider.MODELS });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/ai-config', async (req, res, next) => {
+  try {
+    adminSecurity.requirePinToken(req);
+    const { provider, apiKey } = req.body;
+    if (!provider && !apiKey) {
+      return res.status(400).json({ error: 'Debe enviar provider y/o apiKey' });
+    }
+    await aiProvider.updateAiConfig({ provider, apiKey, updatedBy: req.user.uid });
+    const updated = await aiProvider.getAiConfigPublic();
+    res.json({ message: 'Configuración actualizada', ...updated });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+router.post('/ai-config/reveal', async (req, res, next) => {
+  try {
+    adminSecurity.requirePinToken(req);
+    const apiKey = await aiProvider.getAiApiKeyPlain();
+    if (!apiKey) return res.status(404).json({ error: 'No hay API key configurada' });
+    res.json({ apiKey });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+// ============================================
+// PARSE CV (PDF → datos para crear worker)
+// ============================================
+
+router.post('/parse-cv', pdfUpload.single('pdf'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Falta el archivo PDF (campo "pdf")' });
+    }
+    const useAi = req.body.useAi === 'true' || req.body.useAi === true;
+
+    const heuristic = await pdfParser.parseHeuristic(req.file.buffer);
+
+    if (!useAi) {
+      return res.json({
+        mode: 'heuristic',
+        rawText: heuristic.text,
+        fields: heuristic.fields
+      });
+    }
+
+    let aiFields;
+    try {
+      aiFields = await aiProvider.parseCvWithAi(heuristic.text);
+    } catch (err) {
+      const status = err.status || 500;
+      return res.status(status).json({ error: `Error al usar IA: ${err.message}` });
+    }
+
+    // Merge: fields explicitly returned by IA take precedence; fall back to heuristic
+    const merged = {
+      firstName: aiFields.firstName || heuristic.fields.firstName,
+      lastName: aiFields.lastName || heuristic.fields.lastName,
+      email: aiFields.email || heuristic.fields.email,
+      phone: aiFields.phone || heuristic.fields.phone,
+      rubro: aiFields.rubro || null,
+      puesto: aiFields.puesto || null,
+      zona: aiFields.zona || null,
+      description: aiFields.description || null,
+      experience: aiFields.experience || null,
+      skills: Array.isArray(aiFields.skills) ? aiFields.skills : []
+    };
+
+    res.json({
+      mode: 'ai',
+      rawText: heuristic.text,
+      fields: merged
+    });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     next(error);
   }
 });
