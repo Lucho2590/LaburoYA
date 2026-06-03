@@ -25,7 +25,9 @@ import {
   ILead,
   ICreateLeadData,
   ILeadStats,
-  ITermsAndConditions
+  ITermsAndConditions,
+  IAssessCvResponse,
+  IPinnedCandidate
 } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -137,6 +139,7 @@ class ApiService {
         age?: number;
         nickname?: string;
         onboardingCompleted?: boolean;
+        aiCvEnabled?: boolean;
       };
       profile: unknown;
     }>('/auth/me');
@@ -342,7 +345,7 @@ class ApiService {
     return this.request<IAdminUserDetail>(`/admin/users/${uid}`);
   }
 
-  async updateAdminUser(uid: string, data: { role?: EUserRole; disabled?: boolean }) {
+  async updateAdminUser(uid: string, data: { role?: EUserRole; disabled?: boolean; aiCvEnabled?: boolean }) {
     return this.request<{ message: string; user: IAdminUser }>(`/admin/users/${uid}`, {
       method: 'PATCH',
       body: data,
@@ -353,6 +356,13 @@ class ApiService {
     return this.request<{ message: string }>(`/admin/users/${uid}${hard ? '?hard=true' : ''}`, {
       method: 'DELETE',
     });
+  }
+
+  async resendAdminUserInvitation(uid: string) {
+    return this.request<{ success: boolean; message: string; email: string }>(
+      `/admin/users/${uid}/resend-invitation`,
+      { method: 'POST' }
+    );
   }
 
   async getAdminJobOffers(params?: { active?: boolean; employerId?: string; limit?: number; offset?: number }) {
@@ -833,6 +843,32 @@ class ApiService {
     }>('/admin/parse-cv', {
       method: 'POST',
       formData,
+    });
+  }
+
+  async assessOfferCv(offerId: string, file: File) {
+    const formData = new FormData();
+    formData.append('cv', file);
+    return this.request<IAssessCvResponse>(`/job-offers/${offerId}/assess-cv`, {
+      method: 'POST',
+      formData,
+    });
+  }
+
+  async pinCandidate(offerId: string, payload: { candidate: unknown; assessment: unknown }) {
+    return this.request<IPinnedCandidate>(`/job-offers/${offerId}/pinned-candidates`, {
+      method: 'POST',
+      body: payload,
+    });
+  }
+
+  async getPinnedCandidates(offerId: string) {
+    return this.request<{ pinned: IPinnedCandidate[] }>(`/job-offers/${offerId}/pinned-candidates`);
+  }
+
+  async deletePinnedCandidate(offerId: string, pinId: string) {
+    return this.request<{ message: string; id: string }>(`/job-offers/${offerId}/pinned-candidates/${pinId}`, {
+      method: 'DELETE',
     });
   }
 }

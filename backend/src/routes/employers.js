@@ -167,6 +167,17 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
       }
     });
 
+    // Get pinned candidates count per offer for this employer
+    const pinnedSnapshot = await db.collection('pinnedCandidates')
+      .where('employerId', '==', uid)
+      .get();
+
+    const pinnedByOffer = new Map();
+    pinnedSnapshot.docs.forEach(doc => {
+      const oId = doc.data().offerId;
+      pinnedByOffer.set(oId, (pinnedByOffer.get(oId) || 0) + 1);
+    });
+
     // Get worker profiles for candidate count estimation
     const workersSnapshot = await db.collection('workers')
       .where('active', '!=', false)
@@ -245,7 +256,8 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
           interested: interested.length,
           interestedNotContacted: interestedNotContactedCount,
           candidates: candidates.length,
-          matches: acceptedMatches.length
+          matches: acceptedMatches.length,
+          pinned: pinnedByOffer.get(offerId) || 0
         }
       };
     });

@@ -67,6 +67,35 @@ export default function AdminUserDetailPage() {
     }
   };
 
+  const handleToggleAiCv = async () => {
+    if (!userDetail) return;
+    setUpdating(true);
+    try {
+      const next = !userDetail.user.aiCvEnabled;
+      await api.updateAdminUser(uid, { aiCvEnabled: next });
+      setUserDetail({
+        ...userDetail,
+        user: { ...userDetail.user, aiCvEnabled: next }
+      });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al actualizar el módulo de IA');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleResendInvitation = async () => {
+    setUpdating(true);
+    try {
+      const res = await api.resendAdminUserInvitation(uid);
+      alert(`Invitación reenviada a ${res.email}`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al reenviar la invitación');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const handleDelete = async (hard: boolean) => {
     setUpdating(true);
     try {
@@ -412,6 +441,46 @@ export default function AdminUserDetailPage() {
                 {user.disabled ? 'Habilitar cuenta' : 'Deshabilitar cuenta'}
               </button>
             </div>
+
+            {/* Resend invitation */}
+            <div>
+              <label className="block text-xs theme-text-muted mb-2">Invitación</label>
+              <button
+                onClick={handleResendInvitation}
+                disabled={updating}
+                className="w-full px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200"
+              >
+                ✉️ Reenviar invitación
+              </button>
+              <p className="text-xs theme-text-muted mt-1">
+                Reenvía el email de activación con un nuevo link para crear la contraseña.
+              </p>
+            </div>
+
+            {/* Toggle AI CV module (employers only) */}
+            {user.role === 'employer' && (
+              <div>
+                <label className="block text-xs theme-text-muted mb-2">
+                  Módulo IA: Evaluación de CV
+                </label>
+                <button
+                  onClick={handleToggleAiCv}
+                  disabled={updating}
+                  className={`w-full px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                    user.aiCvEnabled
+                      ? 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900 dark:text-red-200'
+                      : 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900 dark:text-green-200'
+                  }`}
+                >
+                  {user.aiCvEnabled ? '🤖 Desactivar módulo IA' : '🤖 Activar módulo IA'}
+                </button>
+                <p className="text-xs theme-text-muted mt-1">
+                  {user.aiCvEnabled
+                    ? 'El empleador puede evaluar CVs con IA en sus ofertas.'
+                    : 'Desactivado: el empleador no ve la opción de evaluar CVs.'}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

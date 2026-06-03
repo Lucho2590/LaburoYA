@@ -25,6 +25,7 @@ export interface IUserData {
   age?: number;
   nickname?: string;
   onboardingCompleted?: boolean;
+  aiCvEnabled?: boolean; // Admin-controlled: AI CV-assessment module enabled
 }
 
 // ============================================
@@ -315,12 +316,76 @@ export interface IAdminUser {
   nickname?: string;
   onboardingCompleted?: boolean;
   secondaryRole?: string;
+  aiCvEnabled?: boolean; // Admin-controlled: AI CV-assessment module enabled
   lastLocation?: {
     city?: string;
     region?: string;
     country?: string;
     updatedAt?: string;
   };
+}
+
+export interface ICvCandidate {
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  rubro: string | null;
+  puesto: string | null;
+  zona: string | null;
+  description: string | null;
+  experience: string | null;
+  skills: string[];
+}
+
+export interface IAssessCvResponse {
+  mode: 'basic' | 'ai';
+  source?: 'text' | 'ocr'; // ai mode only
+  candidate: Partial<ICvCandidate> & {
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+    phone: string | null;
+  };
+  assessment: {
+    score: number;
+    matchingSkills: string[];
+    missingSkills: string[];
+    // ai mode (recruiter verdict)
+    recommendation?: 'yes' | 'maybe' | 'no';
+    summary?: string;
+    strengths?: string[];
+    gaps?: string[];
+    // basic mode (structural match)
+    matchType?: 'full_match' | 'partial_match' | 'skills_match' | null;
+    rubroMatch?: boolean;
+    puestoMatch?: boolean;
+    zonaMatch?: boolean;
+  };
+}
+
+export interface IPinnedCandidate {
+  id: string;
+  candidate: {
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+    phone: string | null;
+    puesto?: string | null;
+    zona?: string | null;
+    skills?: string[];
+  };
+  assessment: {
+    mode: 'basic' | 'ai';
+    score: number;
+    stars: number;
+    matchType?: 'full_match' | 'partial_match' | 'skills_match' | null;
+    recommendation?: 'yes' | 'maybe' | 'no';
+    summary?: string | null;
+    matchingSkills: string[];
+    missingSkills: string[];
+  };
+  createdAt?: string;
 }
 
 export interface IAdminUserDetail {

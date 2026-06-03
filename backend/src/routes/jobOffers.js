@@ -1,14 +1,38 @@
 const express = require('express');
+const multer = require('multer');
 const admin = require('firebase-admin');
 const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const matchingService = require('../services/matchingService');
+const cvAssessment = require('../services/cvAssessment');
 const FieldValue = admin.firestore.FieldValue;
 
 const router = express.Router();
 
 // Default duration for job offers in days
 const DEFAULT_DURATION_DAYS = 3;
+
+// CV upload for assessment (in-memory, 5MB cap). Accepts PDF, JPG/PNG and .docx.
+const ALLOWED_CV_MIME = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+]);
+const ALLOWED_CV_EXT = new Set(['pdf', 'jpg', 'jpeg', 'png', 'docx']);
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = (file.originalname || '').toLowerCase().split('.').pop();
+    if (ALLOWED_CV_MIME.has(file.mimetype) || ALLOWED_CV_EXT.has(ext)) {
+      return cb(null, true);
+    }
+    const err = new Error('Formato no soportado. Subí un PDF, una imagen (JPG/PNG) o un Word (.docx).');
+    err.status = 422;
+    cb(err);
+  }
+});
 
 // Create job offer
 router.post('/', authMiddleware, async (req, res, next) => {
@@ -324,6 +348,180 @@ router.delete('/:id', authMiddleware, async (req, res, next) => {
 
     res.json({ message: 'Job offer deleted', id });
   } catch (error) {
+    next(error);
+  }
+});
+
+// Assess a CV (PDF) against a specific job offer
+router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const { offerId } = req.params;
+    const db = getDb();
+
+    const offerDoc = await db.collection('jobOffers').doc(offerId).get();
+    if (!offerDoc.exists) {
+      return res.status(404).json({ error: 'Oferta no encontrada' });
+    }
+    const offer = offerDoc.data();
+
+    if (offer.employerId !== uid) {
+      return res.status(403).json({ error: 'No tenés permiso sobre esta oferta' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'Falta el archivo PDF (campo "cv")' });
+    }
+
+    // The per-employer aiCvEnabled flag decides the evaluation mode:
+    //  - enabled  → AI extraction (reads scanned PDFs too) + structural match
+    //  - disabled → basic text reading + keyword match (no AI)
+    const userDoc = await db.collection('users').doc(uid).get();
+    const aiEnabled = userDoc.exists && userDoc.data().aiCvEnabled === true;
+
+    if (aiEnabled) {
+      const a = await cvAssessment.assessFit(req.file.buffer, req.file.mimetype, req.file.originalname, offer);
+
+      return res.json({
+        mode: 'ai',
+        source: a.source,
+        candidate: {
+          firstName: a.firstName || null,
+          lastName: a.lastName || null,
+          email: a.email || null,
+          phone: a.phone || null
+        },
+        assessment: {
+          score: a.fitScore,
+          recommendation: a.recommendation,
+          summary: a.summary,
+          strengths: Array.isArray(a.strengths) ? a.strengths : [],
+          gaps: Array.isArray(a.gaps) ? a.gaps : [],
+          matchingSkills: Array.isArray(a.matchingSkills) ? a.matchingSkills : [],
+          missingSkills: Array.isArray(a.missingSkills) ? a.missingSkills : []
+        }
+      });
+    }
+
+    // Basic mode (no AI): read the CV (text or OCR), build a profile from the
+    // taxonomy and score it with the same engine as the real match.
+    const r = await cvAssessment.assessBasic(req.file.buffer, req.file.mimetype, req.file.originalname, offer);
+    return res.json({ mode: 'basic', ...r });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+// ----- Pinned candidates (evaluated CVs the employer wants to keep on an offer) -----
+
+// Loads an offer and ensures the requesting user owns it.
+async function loadOwnedOffer(db, offerId, uid) {
+  const offerDoc = await db.collection('jobOffers').doc(offerId).get();
+  if (!offerDoc.exists) {
+    const err = new Error('Oferta no encontrada');
+    err.status = 404;
+    throw err;
+  }
+  if (offerDoc.data().employerId !== uid) {
+    const err = new Error('No tenés permiso sobre esta oferta');
+    err.status = 403;
+    throw err;
+  }
+  return offerDoc;
+}
+
+// Pin a candidate (evaluated CV) to an offer
+router.post('/:offerId/pinned-candidates', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const { offerId } = req.params;
+    const db = getDb();
+    await loadOwnedOffer(db, offerId, uid);
+
+    const { candidate, assessment } = req.body || {};
+    if (!candidate || !assessment) {
+      return res.status(400).json({ error: 'Faltan datos del candidato' });
+    }
+
+    const docData = {
+      offerId,
+      employerId: uid,
+      candidate: {
+        firstName: candidate.firstName || null,
+        lastName: candidate.lastName || null,
+        email: candidate.email || null,
+        phone: candidate.phone || null,
+        puesto: candidate.puesto || null,
+        zona: candidate.zona || null,
+        skills: Array.isArray(candidate.skills) ? candidate.skills : []
+      },
+      assessment: {
+        mode: assessment.mode || 'basic',
+        score: Number(assessment.score) || 0,
+        stars: Number(assessment.stars) || 0,
+        matchType: assessment.matchType || null,
+        recommendation: assessment.recommendation || null,
+        summary: assessment.summary || null,
+        matchingSkills: Array.isArray(assessment.matchingSkills) ? assessment.matchingSkills : [],
+        missingSkills: Array.isArray(assessment.missingSkills) ? assessment.missingSkills : []
+      },
+      createdAt: new Date()
+    };
+
+    const ref = await db.collection('pinnedCandidates').add(docData);
+    res.status(201).json({ id: ref.id, ...docData });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+// List pinned candidates of an offer
+router.get('/:offerId/pinned-candidates', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const { offerId } = req.params;
+    const db = getDb();
+    await loadOwnedOffer(db, offerId, uid);
+
+    const snapshot = await db.collection('pinnedCandidates')
+      .where('offerId', '==', offerId)
+      .where('employerId', '==', uid)
+      .get();
+
+    const pinned = snapshot.docs
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt
+      }))
+      .sort((a, b) => (b.assessment?.score || 0) - (a.assessment?.score || 0));
+
+    res.json({ pinned });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+// Remove a pinned candidate
+router.delete('/:offerId/pinned-candidates/:pinId', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const { offerId, pinId } = req.params;
+    const db = getDb();
+    await loadOwnedOffer(db, offerId, uid);
+
+    const pinRef = db.collection('pinnedCandidates').doc(pinId);
+    const pinDoc = await pinRef.get();
+    if (!pinDoc.exists || pinDoc.data().offerId !== offerId || pinDoc.data().employerId !== uid) {
+      return res.status(404).json({ error: 'Candidato fijado no encontrado' });
+    }
+    await pinRef.delete();
+    res.json({ message: 'Candidato quitado', id: pinId });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     next(error);
   }
 });

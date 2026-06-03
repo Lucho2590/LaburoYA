@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
 import { toast } from 'sonner';
-import { ArrowLeft, UserPlus, Mail, Send, Upload, FileText, Sparkles } from 'lucide-react';
+import { ArrowLeft, UserPlus, Mail, Send } from 'lucide-react';
 
 interface FormState {
   email: string;
@@ -43,68 +43,9 @@ export default function CreateUserPage() {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState<FormState>(EMPTY_FORM);
 
-  const [useAi, setUseAi] = useState(false);
-  const [parsing, setParsing] = useState(false);
-  const [rawText, setRawText] = useState<string | null>(null);
-  const [aiConfigured, setAiConfigured] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    api
-      .getAdminAiConfig()
-      .then((cfg) => setAiConfigured(cfg.configured))
-      .catch(() => setAiConfigured(false));
-  }, []);
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (file.type !== 'application/pdf') {
-      toast.error('El archivo debe ser un PDF');
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('El PDF supera el límite de 5MB');
-      return;
-    }
-
-    setParsing(true);
-    setRawText(null);
-    try {
-      const result = await api.adminParseCv(file, useAi);
-      setRawText(result.rawText);
-      const f = result.fields;
-      setFormData((prev) => ({
-        ...prev,
-        firstName: f.firstName || prev.firstName,
-        lastName: f.lastName || prev.lastName,
-        email: f.email || prev.email,
-        phone: f.phone || prev.phone,
-        rubro: f.rubro || prev.rubro,
-        puesto: f.puesto || prev.puesto,
-        zona: f.zona || prev.zona,
-        description: f.description || prev.description,
-        experience: f.experience || prev.experience,
-        skills: f.skills?.length ? f.skills.join(', ') : prev.skills,
-      }));
-      toast.success(
-        result.mode === 'ai'
-          ? 'CV parseado con IA. Revisá los datos antes de guardar.'
-          : 'Texto extraído del PDF. Completá los campos a mano.'
-      );
-    } catch (error) {
-      const err = error as Error;
-      toast.error(err.message || 'Error al procesar el PDF');
-    } finally {
-      setParsing(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -166,83 +107,22 @@ export default function CreateUserPage() {
         Volver a usuarios
       </Link>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="theme-bg-card rounded-xl p-6 border theme-border">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-[#E10600] to-[#FF6A00] rounded-xl flex items-center justify-center">
-                <UserPlus className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold theme-text-primary">Crear nuevo usuario</h1>
-                <p className="text-sm theme-text-secondary">
-                  Opcionalmente subí un CV en PDF para precargar los campos.
-                </p>
-              </div>
+      <div className="max-w-2xl mx-auto space-y-6">
+        <div className="theme-bg-card rounded-xl p-6 border theme-border">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-gradient-to-br from-[#E10600] to-[#FF6A00] rounded-xl flex items-center justify-center">
+              <UserPlus className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold theme-text-primary">Crear nuevo usuario</h1>
+              <p className="text-sm theme-text-secondary">
+                Completá los datos para crear el usuario y enviar la invitación.
+              </p>
             </div>
           </div>
+        </div>
 
-          {isWorker && (
-            <div className="theme-bg-card rounded-xl p-6 border theme-border">
-              <h2 className="text-lg font-semibold theme-text-primary mb-3 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-[#E10600]" />
-                Subir CV (PDF)
-              </h2>
-
-              <label className="flex items-center gap-2 mb-4 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={useAi}
-                  onChange={(e) => setUseAi(e.target.checked)}
-                  className="w-4 h-4 cursor-pointer"
-                  disabled={!aiConfigured}
-                />
-                <span className="text-sm theme-text-primary">
-                  Usar IA para parsear el CV{' '}
-                  <span className="text-xs theme-text-muted">(extrae todos los campos automáticamente)</span>
-                </span>
-              </label>
-
-              {!aiConfigured && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
-                  La IA no está configurada.{' '}
-                  <Link href="/sudo/ai-settings" className="underline">
-                    Configurala acá
-                  </Link>{' '}
-                  para activarla.
-                </p>
-              )}
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/pdf"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={parsing}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed theme-border hover:border-[#E10600] cursor-pointer disabled:opacity-50"
-              >
-                {parsing ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-[#E10600] border-t-transparent rounded-full animate-spin" />
-                    Procesando PDF...
-                  </>
-                ) : (
-                  <>
-                    {useAi ? <Sparkles className="w-4 h-4" /> : <Upload className="w-4 h-4" />}
-                    {useAi ? 'Subir y parsear con IA' : 'Subir y extraer texto'}
-                  </>
-                )}
-              </button>
-              <p className="text-xs theme-text-muted mt-2">Máximo 5MB. PDFs escaneados (imágenes) no funcionan.</p>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="theme-bg-card rounded-xl p-6 border theme-border">
+        <form onSubmit={handleSubmit} className="theme-bg-card rounded-xl p-6 border theme-border">
             <div className="space-y-5">
               <div>
                 <label className="block text-sm font-medium theme-text-primary mb-2">Email *</label>
@@ -445,25 +325,6 @@ export default function CreateUserPage() {
               )}
             </button>
           </form>
-        </div>
-
-        <div className="lg:col-span-1">
-          <div className="sticky top-6 theme-bg-card rounded-xl p-4 border theme-border max-h-[calc(100vh-7rem)] flex flex-col">
-            <h3 className="text-sm font-semibold theme-text-primary mb-2 flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              Texto del CV
-            </h3>
-            {rawText ? (
-              <pre className="text-xs theme-text-secondary whitespace-pre-wrap font-mono overflow-y-auto flex-1 bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
-                {rawText}
-              </pre>
-            ) : (
-              <p className="text-xs theme-text-muted">
-                Subí un PDF para ver acá el texto extraído. Útil para copiar datos a mano cuando no usás IA.
-              </p>
-            )}
-          </div>
-        </div>
       </div>
     </AdminLayout>
   );

@@ -8,8 +8,8 @@ import { api } from '@/services/api';
 import { JOB_CATEGORIES, TRubro, getSuggestedSkills } from '@/config/constants';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { IJobOffer, IWorkerProfile } from '@/types';
-import { Check, Plus, X, Users, Eye, MessageCircle, Clock } from 'lucide-react';
+import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate } from '@/types';
+import { Check, Plus, X, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Pin, Trash2 } from 'lucide-react';
 
 interface InterestedWorker extends IWorkerProfile {
   firstName?: string;
@@ -39,12 +39,25 @@ interface DashboardOffer {
     interestedNotContacted: number;
     candidates: number;
     matches: number;
+    pinned?: number;
   };
 }
 
+interface AssessItem {
+  id: string;
+  file: File;
+  status: 'pending' | 'running' | 'done' | 'error';
+  result?: IAssessCvResponse;
+  error?: string;
+  pinned?: boolean;
+  pinning?: boolean;
+}
+
+const MAX_CVS = 5;
+
 export default function EmployerJobsPage() {
   const router = useRouter();
-  const { user, loading, authReady, getEffectiveAppRole } = useAuth();
+  const { user, userData, loading, authReady, getEffectiveAppRole } = useAuth();
   const { setPageConfig } = usePageTitle();
   const [jobs, setJobs] = useState<DashboardOffer[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
@@ -56,6 +69,15 @@ export default function EmployerJobsPage() {
   const [interestedModal, setInterestedModal] = useState<{ job: DashboardOffer; workers: InterestedWorker[] } | null>(null);
   const [loadingInterested, setLoadingInterested] = useState(false);
   const [contactingWorker, setContactingWorker] = useState<string | null>(null);
+
+  // CV assessment modal (up to 5 CVs, evaluated one by one)
+  const [assessModal, setAssessModal] = useState<{ job: DashboardOffer } | null>(null);
+  const [assessItems, setAssessItems] = useState<AssessItem[]>([]);
+  const [assessRunning, setAssessRunning] = useState(false);
+
+  // Pinned candidates modal
+  const [pinnedModal, setPinnedModal] = useState<{ job: DashboardOffer; items: IPinnedCandidate[] } | null>(null);
+  const [loadingPinned, setLoadingPinned] = useState(false);
 
   const [formData, setFormData] = useState({
     rubro: '',
@@ -73,6 +95,7 @@ export default function EmployerJobsPage() {
   const [customSkill, setCustomSkill] = useState('');
 
   const effectiveRole = getEffectiveAppRole();
+  const aiOn = !!userData?.aiCvEnabled;
 
   const resetForm = useCallback(() => {
     setFormData({ rubro: '', customRubro: '', puesto: '', customPuesto: '', description: '', salary: '', schedule: '', businessName: '', zona: '', availability: '' });
@@ -272,6 +295,167 @@ export default function EmployerJobsPage() {
       toast.error('Error al eliminar');
     }
   };
+
+  const openAssessModal = (job: DashboardOffer) => {
+    setAssessModal({ job });
+    setAssessItems([]);
+    setAssessRunning(false);
+  };
+
+  const closeAssessModal = () => {
+    setAssessModal(null);
+    setAssessItems([]);
+    setAssessRunning(false);
+  };
+
+  const isAllowedCvFile = (file: File) => {
+    const allowedMime = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ];
+    const ext = file.name.toLowerCase().split('.').pop() || '';
+    const allowedExt = ['pdf', 'jpg', 'jpeg', 'png', 'docx'];
+    return allowedMime.includes(file.type) || allowedExt.includes(ext);
+  };
+
+  const handleAssessFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = ''; // allow re-picking the same file
+    if (picked.length === 0) return;
+
+    const valid: File[] = [];
+    for (const file of picked) {
+      if (!isAllowedCvFile(file)) {
+        toast.error(`${file.name}: formato no soportado`);
+        continue;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error(`${file.name}: supera el límite de 5MB`);
+        continue;
+      }
+      valid.push(file);
+    }
+
+    setAssessItems((prev) => {
+      const room = MAX_CVS - prev.length;
+      if (room <= 0) {
+        toast.error(`Máximo ${MAX_CVS} CVs`);
+        return prev;
+      }
+      if (valid.length > room) {
+        toast.error(`Máximo ${MAX_CVS} CVs (se agregaron ${room})`);
+      }
+      const toAdd = valid.slice(0, room).map((file, i) => ({
+        id: `${file.name}-${file.size}-${prev.length + i}`,
+        file,
+        status: 'pending' as const,
+      }));
+      return [...prev, ...toAdd];
+    });
+  };
+
+  const removeAssessItem = (id: string) => {
+    setAssessItems((prev) => prev.filter((it) => it.id !== id));
+  };
+
+  const updateItem = (id: string, patch: Partial<AssessItem>) => {
+    setAssessItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  };
+
+  const runAssessment = async () => {
+    if (!assessModal) return;
+    setAssessRunning(true);
+    // Snapshot of items to process (those not yet done) — evaluate one by one.
+    const pending = assessItems.filter((it) => it.status === 'pending' || it.status === 'error');
+    for (const item of pending) {
+      updateItem(item.id, { status: 'running', error: undefined });
+      try {
+        const result = await api.assessOfferCv(assessModal.job.id, item.file);
+        updateItem(item.id, { status: 'done', result });
+      } catch (error) {
+        updateItem(item.id, { status: 'error', error: error instanceof Error ? error.message : 'Error al evaluar el CV' });
+      }
+    }
+    setAssessRunning(false);
+  };
+
+  const pinItem = async (item: AssessItem) => {
+    if (!assessModal || !item.result) return;
+    updateItem(item.id, { pinning: true });
+    try {
+      await api.pinCandidate(assessModal.job.id, {
+        candidate: item.result.candidate,
+        assessment: {
+          ...item.result.assessment,
+          mode: item.result.mode,
+          stars: matchStars(item.result),
+        },
+      });
+      updateItem(item.id, { pinned: true, pinning: false });
+      toast.success('Candidato fijado a la oferta');
+      fetchJobs();
+    } catch (error) {
+      updateItem(item.id, { pinning: false });
+      toast.error(error instanceof Error ? error.message : 'Error al fijar el candidato');
+    }
+  };
+
+  const openPinnedModal = async (job: DashboardOffer) => {
+    setPinnedModal({ job, items: [] });
+    setLoadingPinned(true);
+    try {
+      const { pinned } = await api.getPinnedCandidates(job.id);
+      setPinnedModal({ job, items: pinned });
+    } catch {
+      toast.error('No se pudieron cargar los candidatos fijados');
+      setPinnedModal(null);
+    } finally {
+      setLoadingPinned(false);
+    }
+  };
+
+  const removePin = async (pinId: string) => {
+    if (!pinnedModal) return;
+    try {
+      await api.deletePinnedCandidate(pinnedModal.job.id, pinId);
+      setPinnedModal({ ...pinnedModal, items: pinnedModal.items.filter(p => p.id !== pinId) });
+      fetchJobs();
+    } catch {
+      toast.error('No se pudo quitar el candidato');
+    }
+  };
+
+  const RECOMMENDATION: Record<string, { label: string; cls: string }> = {
+    yes: { label: 'Recomendado', cls: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' },
+    maybe: { label: 'A revisar', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200' },
+    no: { label: 'No recomendado', cls: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' },
+  };
+
+  const MATCH_LABELS: Record<string, string> = {
+    full_match: 'Match completo',
+    partial_match: 'Match parcial',
+    skills_match: 'Match por skills',
+  };
+
+  // Catalogación por estrellas, misma lógica que el match de perfiles en la app
+  // (full=3, partial=2, skills=1). En modo IA se deriva del puntaje 0-100.
+  const matchStars = (r: IAssessCvResponse): number => {
+    if (r.mode === 'ai') {
+      const s = r.assessment.score;
+      return s >= 75 ? 3 : s >= 50 ? 2 : s > 0 ? 1 : 0;
+    }
+    const mt = r.assessment.matchType;
+    return mt === 'full_match' ? 3 : mt === 'partial_match' ? 2 : mt === 'skills_match' ? 1 : 0;
+  };
+
+  const renderStars = (level: number) => (
+    <span className="text-lg leading-none">
+      <span className="text-yellow-500">{'★'.repeat(level)}</span>
+      <span className="text-gray-400">{'☆'.repeat(3 - level)}</span>
+    </span>
+  );
 
   if (loading || loadingJobs) {
     return (
@@ -737,6 +921,30 @@ export default function EmployerJobsPage() {
                       <span className="font-medium">{job.stats.matches}</span>
                     </div>
                   )}
+
+                  {/* Pinned candidates */}
+                  {(job.stats.pinned ?? 0) > 0 && (
+                    <button
+                      onClick={() => openPinnedModal(job)}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[#7C3AED] bg-[#7C3AED]/10 active:scale-95 transition-transform cursor-pointer"
+                    >
+                      <Pin className="h-4 w-4" />
+                      <span className="font-medium">{job.stats.pinned}</span>
+                    </button>
+                  )}
+
+                  {/* Evaluar CV (delicado, alineado a la derecha) */}
+                  <button
+                    onClick={() => openAssessModal(job)}
+                    className={`ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition active:scale-95 cursor-pointer ${
+                      aiOn
+                        ? 'bg-[#7C3AED]/10 text-[#7C3AED] hover:bg-[#7C3AED]/15'
+                        : 'theme-bg-secondary theme-text-secondary hover:opacity-80'
+                    }`}
+                  >
+                    {aiOn ? <Sparkles className="h-3.5 w-3.5" /> : <FileSearch className="h-3.5 w-3.5" />}
+                    {aiOn ? 'Evaluar CV ✨' : 'Evaluar CV'}
+                  </button>
                 </div>
               </div>
 
@@ -769,6 +977,248 @@ export default function EmployerJobsPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Modal Evaluar CV */}
+      {assessModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
+          <div className="theme-bg-card w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b theme-border">
+              <div>
+                <h3 className="font-semibold theme-text-primary flex items-center gap-2">
+                  {aiOn ? <Sparkles className="h-5 w-5 text-[#7C3AED]" /> : <FileSearch className="h-5 w-5 text-[#7C3AED]" />}
+                  {aiOn ? 'Evaluar CV con IA' : 'Evaluar CV'}
+                </h3>
+                <p className="text-sm theme-text-muted">{assessModal.job.puesto}</p>
+              </div>
+              <button onClick={closeAssessModal} className="p-1 active:theme-bg-secondary rounded-lg cursor-pointer">
+                <X className="h-5 w-5 theme-text-secondary" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 overflow-y-auto flex-1 space-y-4">
+              {/* File picker (hasta 5) */}
+              <label className="block">
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.jpg,.jpeg,.png,.docx,application/pdf,image/jpeg,image/png,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={handleAssessFilesChange}
+                  className="hidden"
+                  disabled={assessRunning || assessItems.length >= MAX_CVS}
+                />
+                <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed theme-border text-sm ${assessRunning || assessItems.length >= MAX_CVS ? 'opacity-50' : 'hover:border-[#7C3AED] cursor-pointer'} theme-text-secondary`}>
+                  <Upload className="h-4 w-4" />
+                  {assessItems.length >= MAX_CVS
+                    ? `Máximo ${MAX_CVS} CVs (${assessItems.length}/${MAX_CVS})`
+                    : assessItems.length > 0
+                      ? `Agregar más CVs (${assessItems.length}/${MAX_CVS})`
+                      : `Subí hasta ${MAX_CVS} CVs (PDF, JPG/PNG o .docx) — máx 5MB c/u`}
+                </div>
+              </label>
+
+              {/* Items list */}
+              {assessItems.map((item) => (
+                <div key={item.id} className="border theme-border rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium theme-text-primary truncate">{item.file.name}</p>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {item.status === 'running' && <Loader2 className="h-4 w-4 animate-spin text-[#7C3AED]" />}
+                      {item.status === 'pending' && <span className="text-xs theme-text-muted">Pendiente</span>}
+                      {item.status === 'done' && <Check className="h-4 w-4 text-green-600" />}
+                      {item.status === 'error' && <span className="text-xs text-[#E10600]">Error</span>}
+                      {!assessRunning && item.status !== 'running' && (
+                        <button onClick={() => removeAssessItem(item.id)} className="p-1 active:theme-bg-secondary rounded-lg cursor-pointer" title="Quitar">
+                          <X className="h-4 w-4 theme-text-secondary" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {item.status === 'error' && (
+                    <p className="text-xs text-[#E10600]">{item.error}</p>
+                  )}
+
+                  {item.status === 'done' && item.result && (
+                    <div className="space-y-3 pt-1">
+                      {/* Score + verdict */}
+                      <div className="flex items-center gap-4 p-3 rounded-xl theme-bg-secondary">
+                        <div className="flex flex-col">
+                          <div className="text-2xl font-bold theme-text-primary leading-none">
+                            {item.result.assessment.score}
+                            <span className="text-sm theme-text-muted">{item.result.mode === 'ai' ? '%' : ' pts'}</span>
+                          </div>
+                          <div className="mt-1">{renderStars(matchStars(item.result))}</div>
+                        </div>
+                        {item.result.mode === 'ai' && item.result.assessment.recommendation ? (
+                          <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${RECOMMENDATION[item.result.assessment.recommendation]?.cls || ''}`}>
+                            {RECOMMENDATION[item.result.assessment.recommendation]?.label}
+                          </span>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs">
+                            {item.result.assessment.matchType ? MATCH_LABELS[item.result.assessment.matchType] : 'Sin coincidencia'}
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Candidate summary */}
+                      <div className="text-sm theme-text-secondary space-y-1">
+                        <p><span className="theme-text-muted">Candidato:</span> {[item.result.candidate.firstName, item.result.candidate.lastName].filter(Boolean).join(' ') || '—'}</p>
+                        {item.result.candidate.email && <p><span className="theme-text-muted">Email:</span> {item.result.candidate.email}</p>}
+                        {item.result.candidate.phone && <p><span className="theme-text-muted">Teléfono:</span> {item.result.candidate.phone}</p>}
+                      </div>
+
+                      {/* AI verdict */}
+                      {item.result.mode === 'ai' && item.result.assessment.summary && (
+                        <p className="text-sm theme-text-primary">{item.result.assessment.summary}</p>
+                      )}
+                      {item.result.mode === 'ai' && (item.result.assessment.strengths?.length ?? 0) > 0 && (
+                        <div>
+                          <p className="text-xs theme-text-muted mb-1">Fortalezas</p>
+                          <ul className="text-sm theme-text-secondary list-disc pl-5 space-y-0.5">
+                            {item.result.assessment.strengths!.map((s, i) => <li key={i}>{s}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {item.result.mode === 'ai' && (item.result.assessment.gaps?.length ?? 0) > 0 && (
+                        <div>
+                          <p className="text-xs theme-text-muted mb-1">Brechas / a tener en cuenta</p>
+                          <ul className="text-sm theme-text-secondary list-disc pl-5 space-y-0.5">
+                            {item.result.assessment.gaps!.map((g, i) => <li key={i}>{g}</li>)}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Skills */}
+                      {item.result.assessment.matchingSkills.length > 0 && (
+                        <div>
+                          <p className="text-xs theme-text-muted mb-1">Skills coincidentes</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {item.result.assessment.matchingSkills.map((s) => (
+                              <span key={s} className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">{s}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {item.result.assessment.missingSkills.length > 0 && (
+                        <div>
+                          <p className="text-xs theme-text-muted mb-1">Skills que pide la oferta y faltan</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {item.result.assessment.missingSkills.map((s) => (
+                              <span key={s} className="text-xs px-2 py-0.5 rounded-full theme-bg-secondary theme-text-muted">{s}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Fijar */}
+                      <button
+                        onClick={() => pinItem(item)}
+                        disabled={item.pinning || item.pinned}
+                        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition cursor-pointer disabled:opacity-70 ${
+                          item.pinned
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            : 'bg-[#7C3AED] text-white hover:opacity-90 active:scale-[0.99]'
+                        }`}
+                      >
+                        {item.pinned ? <Check className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                        {item.pinning ? 'Fijando...' : item.pinned ? 'Fijado a la oferta' : '📌 Fijar a esta oferta'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Evaluar */}
+              {(() => {
+                const pendingCount = assessItems.filter((i) => i.status === 'pending' || i.status === 'error').length;
+                return (
+                  <button
+                    onClick={runAssessment}
+                    disabled={assessRunning || pendingCount === 0}
+                    className="w-full py-3 rounded-xl bg-[#7C3AED] text-white font-medium disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {assessRunning ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Analizando...
+                      </>
+                    ) : (
+                      `Evaluar${pendingCount > 0 ? ` (${pendingCount})` : ''}`
+                    )}
+                  </button>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Candidatos fijados */}
+      {pinnedModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
+          <div className="theme-bg-card w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b theme-border">
+              <div>
+                <h3 className="font-semibold theme-text-primary flex items-center gap-2">
+                  <Pin className="h-5 w-5 text-[#7C3AED]" />
+                  Candidatos fijados
+                </h3>
+                <p className="text-sm theme-text-muted">{pinnedModal.job.puesto}</p>
+              </div>
+              <button onClick={() => setPinnedModal(null)} className="p-1 active:theme-bg-secondary rounded-lg cursor-pointer">
+                <X className="h-5 w-5 theme-text-secondary" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-4 overflow-y-auto flex-1 space-y-3">
+              {loadingPinned ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-[#7C3AED]" /></div>
+              ) : pinnedModal.items.length === 0 ? (
+                <p className="text-sm theme-text-muted text-center py-8">Todavía no fijaste candidatos a esta oferta.</p>
+              ) : (
+                pinnedModal.items.map((p) => (
+                  <div key={p.id} className="border theme-border rounded-xl p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium theme-text-primary truncate">
+                          {[p.candidate.firstName, p.candidate.lastName].filter(Boolean).join(' ') || 'Sin nombre'}
+                        </p>
+                        {p.candidate.email && <p className="text-xs theme-text-muted truncate">{p.candidate.email}</p>}
+                        {p.candidate.phone && <p className="text-xs theme-text-muted">{p.candidate.phone}</p>}
+                      </div>
+                      <button
+                        onClick={() => removePin(p.id)}
+                        className="p-2 text-[#E10600] hover:bg-[#E10600]/10 rounded-lg transition-colors cursor-pointer shrink-0"
+                        title="Quitar"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-sm font-bold theme-text-primary">
+                        {p.assessment.score}{p.assessment.mode === 'ai' ? '%' : ' pts'}
+                      </span>
+                      {renderStars(p.assessment.stars ?? 0)}
+                      {p.assessment.mode === 'ai' && p.assessment.recommendation && (
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${RECOMMENDATION[p.assessment.recommendation]?.cls || ''}`}>
+                          {RECOMMENDATION[p.assessment.recommendation]?.label}
+                        </span>
+                      )}
+                      {p.assessment.mode === 'basic' && p.assessment.matchType && (
+                        <Badge variant="secondary" className="text-xs">{MATCH_LABELS[p.assessment.matchType]}</Badge>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       )}
 

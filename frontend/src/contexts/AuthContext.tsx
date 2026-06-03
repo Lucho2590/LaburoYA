@@ -65,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         age: data.user?.age,
         nickname: data.user?.nickname,
         onboardingCompleted: data.user?.onboardingCompleted,
+        aiCvEnabled: data.user?.aiCvEnabled,
       });
     } catch {
       // User not registered in backend yet
@@ -102,6 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             age: data.user?.age,
             nickname: data.user?.nickname,
             onboardingCompleted: data.user?.onboardingCompleted,
+            aiCvEnabled: data.user?.aiCvEnabled,
           });
 
           // Track login location (IP-based, silent)
