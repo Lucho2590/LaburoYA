@@ -225,11 +225,15 @@ export default function AdminUsersPage() {
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#E10600] to-[#FF6A00] flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                            {user.photoURL ? (
-                              <img src={user.photoURL} alt="" className="w-full h-full rounded-full object-cover" />
-                            ) : (
-                              (user.displayName?.[0] || user.email?.[0] || '?').toUpperCase()
+                          <div className="relative w-10 h-10 rounded-full bg-gradient-to-br from-[#E10600] to-[#FF6A00] flex items-center justify-center text-white font-bold text-sm flex-shrink-0 overflow-hidden">
+                            {(user.firstName?.[0] || user.displayName?.[0] || user.email?.[0] || '?').toUpperCase()}
+                            {user.photoURL && (
+                              <img
+                                src={user.photoURL}
+                                alt=""
+                                className="absolute inset-0 w-full h-full rounded-full object-cover"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
                             )}
                           </div>
                           <div>

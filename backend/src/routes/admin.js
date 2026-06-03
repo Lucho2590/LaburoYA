@@ -166,6 +166,44 @@ router.post('/users', async (req, res, next) => {
   }
 });
 
+// POST /api/admin/users/:uid/resend-invitation - Resend the activation/invitation email
+router.post('/users/:uid/resend-invitation', async (req, res, next) => {
+  try {
+    const { uid } = req.params;
+    const db = getDb();
+    const auth = getAuth();
+
+    // Resolve the user's email (Auth is source of truth, fall back to Firestore)
+    let email = null;
+    let firstName = null;
+    try {
+      const userRecord = await auth.getUser(uid);
+      email = userRecord.email;
+    } catch (e) {
+      if (e.code !== 'auth/user-not-found') throw e;
+    }
+
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (userDoc.exists) {
+      const data = userDoc.data();
+      email = email || data.email;
+      firstName = data.firstName || null;
+    }
+
+    if (!email) {
+      return res.status(404).json({ error: 'El usuario no tiene un email asociado' });
+    }
+
+    const resetLink = await auth.generatePasswordResetLink(email);
+    await sendInvitationEmail({ to: email, firstName, resetLink });
+
+    res.json({ success: true, message: 'Invitación reenviada', email });
+  } catch (error) {
+    console.error('Error resending invitation:', error);
+    next(error);
+  }
+});
+
 // GET /api/admin/users - List users with optional role filter
 router.get('/users', async (req, res, next) => {
   try {
@@ -235,7 +273,7 @@ router.get('/users', async (req, res, next) => {
         ...userData,
         email: authData?.email || userData.email,
         displayName: authData?.displayName,
-        photoURL: authData?.photoURL,
+        photoURL: profile?.photoUrl || authData?.photoURL,
         phoneNumber: authData?.phoneNumber,
         emailVerified: authData?.emailVerified,
         authDisabled: authData?.disabled,
@@ -322,6 +360,9 @@ router.get('/users/:uid', async (req, res, next) => {
       }
     }
 
+    // Prefer the profile photo uploaded in-app over the Firebase Auth photo
+    userData.photoURL = profile?.photoUrl || userData.photoURL;
+
     // Get user stats
     const stats = { matches: 0, jobOffers: 0, chats: 0 };
 
@@ -356,7 +397,7 @@ router.get('/users/:uid', async (req, res, next) => {
 router.patch('/users/:uid', async (req, res, next) => {
   try {
     const { uid } = req.params;
-    const { role, disabled } = req.body;
+    const { role, disabled, aiCvEnabled } = req.body;
     const db = getDb();
 
     const userRef = db.collection('users').doc(uid);
@@ -377,6 +418,10 @@ router.patch('/users/:uid', async (req, res, next) => {
 
     if (disabled !== undefined) {
       updates.disabled = Boolean(disabled);
+    }
+
+    if (aiCvEnabled !== undefined) {
+      updates.aiCvEnabled = Boolean(aiCvEnabled);
     }
 
     await userRef.update(updates);
