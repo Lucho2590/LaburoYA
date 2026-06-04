@@ -9,8 +9,37 @@ const SUPPORTED_PROVIDERS = ['claude', 'openai', 'gemini'];
 const MODELS = {
   claude: 'claude-sonnet-4-6',
   openai: 'gpt-4o-mini',
-  gemini: 'gemini-1.5-flash'
+  gemini: 'gemini-2.5-flash'
 };
+
+// Translates raw SDK/runtime errors from the AI providers into a short,
+// user-facing message. Errors we threw ourselves (they already carry a
+// `.status`) pass through untouched. The original error is kept in `.cause`
+// so the server logs still show the full provider message.
+function friendlyAiError(error) {
+  if (error && error.status) return error;
+  const raw = error && error.message ? String(error.message) : '';
+  const lower = raw.toLowerCase();
+
+  let message = 'No se pudo procesar el CV con la IA. Intentá de nuevo en unos minutos.';
+  let status = 502;
+
+  if (/api[_ ]?key|invalid key|unauthor|permission denied|\b401\b|\b403\b/.test(lower)) {
+    message = 'La API key de IA no es válida o no tiene permisos. Revisá la configuración en /sudo/ai-settings.';
+  } else if (/not found|is not supported|does not exist|no such model|\b404\b/.test(lower)) {
+    message = 'El modelo de IA configurado ya no está disponible. Avisá al administrador para que lo actualice.';
+  } else if (/quota|rate.?limit|resource has been exhausted|too many requests|\b429\b/.test(lower)) {
+    message = 'Se alcanzó el límite de uso de la API de IA. Probá de nuevo en unos minutos.';
+    status = 503;
+  } else if (/json|unexpected token|parse|safety|blocked|recitation/.test(lower)) {
+    message = 'La IA devolvió una respuesta inesperada. Probá con otro archivo o de nuevo en un rato.';
+  }
+
+  const err = new Error(message);
+  err.status = status;
+  err.cause = error;
+  return err;
+}
 
 const SYSTEM_PROMPT = `Sos un asistente experto en extraer datos estructurados de CVs en español (variante argentina).
 Recibís el texto crudo de un CV y devolvés un JSON con los campos solicitados.
@@ -209,12 +238,16 @@ async function parseCvWithAi(pdfText) {
   const apiKey = decrypt(data.apiKeyEncrypted);
   const rubros = await getRubroNames();
 
-  switch (data.provider) {
-    case 'claude': return parseWithClaude(pdfText, apiKey, rubros);
-    case 'openai': return parseWithOpenAI(pdfText, apiKey, rubros);
-    case 'gemini': return parseWithGemini(pdfText, apiKey, rubros);
-    default:
-      throw new Error(`Provider desconocido: ${data.provider}`);
+  try {
+    switch (data.provider) {
+      case 'claude': return await parseWithClaude(pdfText, apiKey, rubros);
+      case 'openai': return await parseWithOpenAI(pdfText, apiKey, rubros);
+      case 'gemini': return await parseWithGemini(pdfText, apiKey, rubros);
+      default:
+        throw new Error(`Provider desconocido: ${data.provider}`);
+    }
+  } catch (error) {
+    throw friendlyAiError(error);
   }
 }
 
@@ -304,16 +337,20 @@ async function parseCvFromPdf(buffer, mimeType) {
   const rubros = await getRubroNames();
   const base64 = buffer.toString('base64');
 
-  switch (data.provider) {
-    case 'claude': return parseWithClaudePdf(base64, mimeType, apiKey, rubros);
-    case 'gemini': return parseWithGeminiPdf(base64, mimeType, apiKey, rubros);
-    case 'openai': {
-      const err = new Error('El OCR de PDFs escaneados requiere Claude o Gemini. Cambiá el proveedor en /sudo/ai-settings.');
-      err.status = 422;
-      throw err;
+  try {
+    switch (data.provider) {
+      case 'claude': return await parseWithClaudePdf(base64, mimeType, apiKey, rubros);
+      case 'gemini': return await parseWithGeminiPdf(base64, mimeType, apiKey, rubros);
+      case 'openai': {
+        const err = new Error('El OCR de PDFs escaneados requiere Claude o Gemini. Cambiá el proveedor en /sudo/ai-settings.');
+        err.status = 422;
+        throw err;
+      }
+      default:
+        throw new Error(`Provider desconocido: ${data.provider}`);
     }
-    default:
-      throw new Error(`Provider desconocido: ${data.provider}`);
+  } catch (error) {
+    throw friendlyAiError(error);
   }
 }
 
@@ -463,37 +500,41 @@ async function assessCvFit({ offer, cvText, fileBuffer, mimeType }) {
   const apiKey = decrypt(data.apiKeyEncrypted);
   const provider = data.provider;
 
-  if (cvText) {
-    const userText = buildAssessUserMessage(offer, cvText);
-    switch (provider) {
-      case 'claude': return assessWithClaude(userText, apiKey);
-      case 'openai': return assessWithOpenAI(userText, apiKey);
-      case 'gemini': return assessWithGemini([userText], apiKey);
-      default: throw new Error(`Provider desconocido: ${provider}`);
+  try {
+    if (cvText) {
+      const userText = buildAssessUserMessage(offer, cvText);
+      switch (provider) {
+        case 'claude': return await assessWithClaude(userText, apiKey);
+        case 'openai': return await assessWithOpenAI(userText, apiKey);
+        case 'gemini': return await assessWithGemini([userText], apiKey);
+        default: throw new Error(`Provider desconocido: ${provider}`);
+      }
     }
-  }
 
-  // No text layer → multimodal (scanned PDFs / images)
-  const base64 = fileBuffer.toString('base64');
-  const text = buildAssessUserMessage(offer, null);
-  switch (provider) {
-    case 'claude':
-      return assessWithClaude([
-        claudeMediaBlock(base64, mimeType),
-        { type: 'text', text }
-      ], apiKey);
-    case 'gemini':
-      return assessWithGemini([
-        { inlineData: { mimeType: mimeType || 'application/pdf', data: base64 } },
-        text
-      ], apiKey);
-    case 'openai': {
-      const err = new Error('El OCR de PDFs escaneados requiere Claude o Gemini. Cambiá el proveedor en /sudo/ai-settings.');
-      err.status = 422;
-      throw err;
+    // No text layer → multimodal (scanned PDFs / images)
+    const base64 = fileBuffer.toString('base64');
+    const text = buildAssessUserMessage(offer, null);
+    switch (provider) {
+      case 'claude':
+        return await assessWithClaude([
+          claudeMediaBlock(base64, mimeType),
+          { type: 'text', text }
+        ], apiKey);
+      case 'gemini':
+        return await assessWithGemini([
+          { inlineData: { mimeType: mimeType || 'application/pdf', data: base64 } },
+          text
+        ], apiKey);
+      case 'openai': {
+        const err = new Error('El OCR de PDFs escaneados requiere Claude o Gemini. Cambiá el proveedor en /sudo/ai-settings.');
+        err.status = 422;
+        throw err;
+      }
+      default:
+        throw new Error(`Provider desconocido: ${provider}`);
     }
-    default:
-      throw new Error(`Provider desconocido: ${provider}`);
+  } catch (error) {
+    throw friendlyAiError(error);
   }
 }
 
