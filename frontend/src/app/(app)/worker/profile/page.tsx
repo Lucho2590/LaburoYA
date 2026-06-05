@@ -11,8 +11,9 @@ import { storage } from '@/config/firebase';
 import { VideoRecorder } from '@/components/VideoRecorder';
 import { CameraCapture } from '@/components/CameraCapture';
 import { toast } from 'sonner';
-import { IWorkerProfile } from '@/types';
-import { Check, Plus } from 'lucide-react';
+import { IWorkerProfile, IGeoLocation } from '@/types';
+import { getBrowserLocation } from '@/lib/geo';
+import { Check, Plus, MapPin } from 'lucide-react';
 
 export default function WorkerProfilePage() {
   const router = useRouter();
@@ -32,6 +33,8 @@ export default function WorkerProfilePage() {
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
+  const [location, setLocation] = useState<IGeoLocation | null>(null);
+  const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const effectiveRole = getEffectiveAppRole();
@@ -65,8 +68,22 @@ export default function WorkerProfilePage() {
       setSelectedSkills(profile.skills || []);
       setPhotoUrl(profile.photoUrl || '');
       setVideoUrl(profile.videoUrl || '');
+      setLocation(profile.location || null);
     }
   }, [userData]);
+
+  const handleUseMyLocation = async () => {
+    setLocating(true);
+    try {
+      const coords = await getBrowserLocation();
+      setLocation(coords);
+      toast.success('Ubicación activada. Guardá el perfil para aplicarla.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo obtener tu ubicación');
+    } finally {
+      setLocating(false);
+    }
+  };
 
   const availablePuestos = formData.rubro
     ? JOB_CATEGORIES[formData.rubro as TRubro]?.puestos || []
@@ -193,6 +210,7 @@ export default function WorkerProfilePage() {
         skills: selectedSkills,
         photoUrl: finalPhotoUrl,
         videoUrl: finalVideoUrl,
+        location,
       });
 
       await refreshUserData();
@@ -411,6 +429,37 @@ export default function WorkerProfilePage() {
             <option key={zona} value={zona}>{zona}</option>
           ))}
         </select>
+
+        {/* Ubicación para cercanía */}
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleUseMyLocation}
+            disabled={locating}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 theme-border theme-bg-card theme-text-primary hover:border-[#E10600] disabled:opacity-50"
+          >
+            <MapPin className="w-4 h-4" />
+            {locating ? 'Obteniendo ubicación...' : location ? 'Actualizar mi ubicación' : 'Usar mi ubicación actual'}
+          </button>
+          {location ? (
+            <span className="text-sm text-[#12B76A] flex items-center gap-1">
+              <Check className="w-4 h-4" /> Ubicación activada
+            </span>
+          ) : (
+            <span className="text-sm theme-text-muted">
+              Compartí tu ubicación para ver primero las búsquedas más cercanas.
+            </span>
+          )}
+        </div>
+        {location && (
+          <button
+            type="button"
+            onClick={() => setLocation(null)}
+            className="mt-2 text-xs theme-text-muted underline"
+          >
+            Quitar ubicación
+          </button>
+        )}
       </div>
 
       {/* Localidad */}

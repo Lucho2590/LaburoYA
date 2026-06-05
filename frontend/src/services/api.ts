@@ -825,6 +825,36 @@ class ApiService {
   }
 
   // ============================================
+  // Admin - AI Prompts
+  // ============================================
+
+  async getAdminAiPrompts() {
+    return this.request<{
+      parse: string;
+      assess: string;
+      defaults: { parse: string; assess: string };
+      isCustom: { parse: boolean; assess: boolean };
+    }>('/admin/ai-prompts');
+  }
+
+  async updateAdminAiPrompts(
+    pinToken: string,
+    data: { parsePrompt?: string | null; assessPrompt?: string | null }
+  ) {
+    return this.request<{
+      message: string;
+      parse: string;
+      assess: string;
+      defaults: { parse: string; assess: string };
+      isCustom: { parse: boolean; assess: boolean };
+    }>('/admin/ai-prompts', {
+      method: 'POST',
+      body: data,
+      extraHeaders: { 'X-Pin-Token': pinToken },
+    });
+  }
+
+  // ============================================
   // Admin - Parse CV
   // ============================================
 

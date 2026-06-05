@@ -29,6 +29,15 @@ export interface IUserData {
 }
 
 // ============================================
+// Shared Types
+// ============================================
+
+export interface IGeoLocation {
+  lat: number;
+  lng: number;
+}
+
+// ============================================
 // Worker Types
 // ============================================
 
@@ -44,6 +53,7 @@ export interface IWorkerProfile {
   experience?: string;
   skills?: string[];
   active?: boolean;
+  location?: IGeoLocation | null;
 }
 
 // ============================================
@@ -76,6 +86,7 @@ export interface IJobOffer {
   schedule?: string;
   requiredSkills?: string[];
   zona?: string;
+  location?: IGeoLocation | null;
   active: boolean;
   durationDays?: number;
   expiresAt?: string;
@@ -181,6 +192,7 @@ export interface IRelevanceDetails {
   rubroMatch: boolean;
   puestoMatch: boolean;
   zonaMatch: boolean;
+  distanceKm?: number | null;
   matchingSkills: string[];
   bonuses: string[];
 }
@@ -268,6 +280,7 @@ export interface ICreateWorkerProfileData {
   photoUrl?: string;
   videoUrl?: string;
   skills?: string[];
+  location?: IGeoLocation | null;
 }
 
 export interface ICreateEmployerProfileData {
@@ -290,6 +303,7 @@ export interface ICreateJobOfferData {
   zona?: string;
   businessName?: string;
   availability?: 'part-time' | 'full-time';
+  location?: IGeoLocation | null;
 }
 
 // ============================================

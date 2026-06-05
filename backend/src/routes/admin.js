@@ -1609,6 +1609,35 @@ router.post('/ai-config/reveal', async (req, res, next) => {
 });
 
 // ============================================
+// AI PROMPTS (editables, fallback a defaults)
+// ============================================
+
+router.get('/ai-prompts', async (req, res, next) => {
+  try {
+    const prompts = await aiProvider.getAiPromptsPublic();
+    res.json(prompts);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/ai-prompts', async (req, res, next) => {
+  try {
+    adminSecurity.requirePinToken(req);
+    const { parsePrompt, assessPrompt } = req.body;
+    if (parsePrompt === undefined && assessPrompt === undefined) {
+      return res.status(400).json({ error: 'Debe enviar parsePrompt y/o assessPrompt' });
+    }
+    await aiProvider.updateAiPrompts({ parsePrompt, assessPrompt, updatedBy: req.user.uid });
+    const updated = await aiProvider.getAiPromptsPublic();
+    res.json({ message: 'Prompts actualizados', ...updated });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+// ============================================
 // PARSE CV (PDF → datos para crear worker)
 // ============================================
 

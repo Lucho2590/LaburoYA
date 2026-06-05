@@ -69,7 +69,7 @@ function estimateCostUsd(model, usage) {
   return (inTok / 1e6) * p.in + (outTok / 1e6) * p.out;
 }
 
-const SYSTEM_PROMPT = `Sos un asistente experto en extraer datos estructurados de CVs en español (variante argentina).
+const DEFAULT_SYSTEM_PROMPT = `Sos un asistente experto en extraer datos estructurados de CVs en español (variante argentina).
 Recibís el texto crudo de un CV y devolvés un JSON con los campos solicitados.
 Reglas:
 - Devolvé null para cualquier campo que no esté presente o no puedas inferir con confianza.
@@ -166,12 +166,57 @@ async function updateAiConfig({ provider, apiKey, updatedBy }) {
   await ref.set(update, { merge: true });
 }
 
-async function parseWithClaude(pdfText, apiKey, rubros) {
+// ============================================
+// PROMPTS (editable overrides, fallback a defaults)
+// ============================================
+
+// Devuelve los prompts efectivos que usa el motor: el override guardado si existe
+// y no está vacío, o el default hardcodeado.
+async function getResolvedPrompts() {
+  const data = await getAiConfigDoc();
+  const parse = (data && typeof data.parsePrompt === 'string' && data.parsePrompt.trim())
+    ? data.parsePrompt
+    : DEFAULT_SYSTEM_PROMPT;
+  const assess = (data && typeof data.assessPrompt === 'string' && data.assessPrompt.trim())
+    ? data.assessPrompt
+    : DEFAULT_ASSESS_SYSTEM_PROMPT;
+  return { parse, assess };
+}
+
+// Versión para la UI del admin: prompts actuales, defaults y si están customizados.
+async function getAiPromptsPublic() {
+  const data = await getAiConfigDoc();
+  const hasParse = Boolean(data && typeof data.parsePrompt === 'string' && data.parsePrompt.trim());
+  const hasAssess = Boolean(data && typeof data.assessPrompt === 'string' && data.assessPrompt.trim());
+  return {
+    parse: hasParse ? data.parsePrompt : DEFAULT_SYSTEM_PROMPT,
+    assess: hasAssess ? data.assessPrompt : DEFAULT_ASSESS_SYSTEM_PROMPT,
+    defaults: { parse: DEFAULT_SYSTEM_PROMPT, assess: DEFAULT_ASSESS_SYSTEM_PROMPT },
+    isCustom: { parse: hasParse, assess: hasAssess }
+  };
+}
+
+// Guarda overrides de prompts. Para restaurar un default, enviar string vacío o
+// null en ese campo (se borra el override y vuelve a usarse el default).
+async function updateAiPrompts({ parsePrompt, assessPrompt, updatedBy }) {
+  const db = getDb();
+  const ref = db.collection('appConfig').doc('aiConfig');
+  const update = { updatedAt: new Date(), updatedBy: updatedBy || null };
+  if (parsePrompt !== undefined) {
+    update.parsePrompt = (typeof parsePrompt === 'string' && parsePrompt.trim()) ? parsePrompt : null;
+  }
+  if (assessPrompt !== undefined) {
+    update.assessPrompt = (typeof assessPrompt === 'string' && assessPrompt.trim()) ? assessPrompt : null;
+  }
+  await ref.set(update, { merge: true });
+}
+
+async function parseWithClaude(pdfText, apiKey, rubros, systemPrompt) {
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create({
     model: MODELS.claude,
     max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt,
     tools: [
       {
         name: 'save_cv_fields',
@@ -189,12 +234,12 @@ async function parseWithClaude(pdfText, apiKey, rubros) {
   return toolUse.input;
 }
 
-async function parseWithOpenAI(pdfText, apiKey, rubros) {
+async function parseWithOpenAI(pdfText, apiKey, rubros, systemPrompt) {
   const client = new OpenAI({ apiKey });
   const response = await client.chat.completions.create({
     model: MODELS.openai,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: buildUserMessage(pdfText, rubros) }
     ],
     response_format: {
@@ -227,11 +272,11 @@ async function parseWithOpenAI(pdfText, apiKey, rubros) {
   return JSON.parse(content);
 }
 
-async function parseWithGemini(pdfText, apiKey, rubros) {
+async function parseWithGemini(pdfText, apiKey, rubros, systemPrompt) {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
     model: MODELS.gemini,
-    systemInstruction: SYSTEM_PROMPT,
+    systemInstruction: systemPrompt,
     generationConfig: {
       responseMimeType: 'application/json',
       responseSchema: {
@@ -265,12 +310,13 @@ async function parseCvWithAi(pdfText) {
   }
   const apiKey = decrypt(data.apiKeyEncrypted);
   const rubros = await getRubroNames();
+  const { parse: systemPrompt } = await getResolvedPrompts();
 
   try {
     switch (data.provider) {
-      case 'claude': return await parseWithClaude(pdfText, apiKey, rubros);
-      case 'openai': return await parseWithOpenAI(pdfText, apiKey, rubros);
-      case 'gemini': return await parseWithGemini(pdfText, apiKey, rubros);
+      case 'claude': return await parseWithClaude(pdfText, apiKey, rubros, systemPrompt);
+      case 'openai': return await parseWithOpenAI(pdfText, apiKey, rubros, systemPrompt);
+      case 'gemini': return await parseWithGemini(pdfText, apiKey, rubros, systemPrompt);
       default:
         throw new Error(`Provider desconocido: ${data.provider}`);
     }
@@ -287,12 +333,12 @@ function claudeMediaBlock(base64, mimeType) {
   return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } };
 }
 
-async function parseWithClaudePdf(base64, mimeType, apiKey, rubros) {
+async function parseWithClaudePdf(base64, mimeType, apiKey, rubros, systemPrompt) {
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create({
     model: MODELS.claude,
     max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt,
     tools: [
       {
         name: 'save_cv_fields',
@@ -318,11 +364,11 @@ async function parseWithClaudePdf(base64, mimeType, apiKey, rubros) {
   return toolUse.input;
 }
 
-async function parseWithGeminiPdf(base64, mimeType, apiKey, rubros) {
+async function parseWithGeminiPdf(base64, mimeType, apiKey, rubros, systemPrompt) {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
     model: MODELS.gemini,
-    systemInstruction: SYSTEM_PROMPT,
+    systemInstruction: systemPrompt,
     generationConfig: {
       responseMimeType: 'application/json',
       responseSchema: {
@@ -363,12 +409,13 @@ async function parseCvFromPdf(buffer, mimeType) {
   }
   const apiKey = decrypt(data.apiKeyEncrypted);
   const rubros = await getRubroNames();
+  const { parse: systemPrompt } = await getResolvedPrompts();
   const base64 = buffer.toString('base64');
 
   try {
     switch (data.provider) {
-      case 'claude': return await parseWithClaudePdf(base64, mimeType, apiKey, rubros);
-      case 'gemini': return await parseWithGeminiPdf(base64, mimeType, apiKey, rubros);
+      case 'claude': return await parseWithClaudePdf(base64, mimeType, apiKey, rubros, systemPrompt);
+      case 'gemini': return await parseWithGeminiPdf(base64, mimeType, apiKey, rubros, systemPrompt);
       case 'openai': {
         const err = new Error('El OCR de PDFs escaneados requiere Claude o Gemini. Cambiá el proveedor en /sudo/ai-settings.');
         err.status = 422;
@@ -386,7 +433,7 @@ async function parseCvFromPdf(buffer, mimeType) {
 // CV FIT ASSESSMENT (recruiter-style verdict)
 // ============================================
 
-const ASSESS_SYSTEM_PROMPT = `Sos un reclutador experto en RRHH (Argentina). Evaluás si un candidato encaja en una búsqueda laboral concreta, leyendo su CV.
+const DEFAULT_ASSESS_SYSTEM_PROMPT = `Sos un reclutador experto en RRHH (Argentina). Evaluás si un candidato encaja en una búsqueda laboral concreta, leyendo su CV.
 Reglas:
 - Considerá sinónimos y experiencia equivalente (ej: "mesero" ≈ "mozo", "encargado" ≈ "supervisor", "atención al público" ≈ "atención al cliente"). No compares texto literal: interpretá.
 - "fitScore": entero 0-100 que refleja qué tan bien encaja el candidato con ESTA búsqueda (puesto, rubro, skills, experiencia y zona). Sé honesto y estricto, no infles el puntaje. Usá esta rúbrica de 5 bandas para distribuir el puntaje:
@@ -434,12 +481,12 @@ function buildAssessUserMessage(offer, cvText) {
   return `${offerBlock}\n\nEvaluá el CV adjunto (PDF). Si es una imagen escaneada, leelo con OCR.`;
 }
 
-async function assessWithClaude(userContent, apiKey) {
+async function assessWithClaude(userContent, apiKey, systemPrompt) {
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create({
     model: MODELS.claude,
     max_tokens: 1024,
-    system: ASSESS_SYSTEM_PROMPT,
+    system: systemPrompt,
     tools: [{ name: 'save_assessment', description: 'Guarda la evaluación del candidato', input_schema: ASSESS_SCHEMA }],
     tool_choice: { type: 'tool', name: 'save_assessment' },
     messages: [{ role: 'user', content: userContent }]
@@ -452,12 +499,12 @@ async function assessWithClaude(userContent, apiKey) {
   };
 }
 
-async function assessWithOpenAI(userText, apiKey) {
+async function assessWithOpenAI(userText, apiKey, systemPrompt) {
   const client = new OpenAI({ apiKey });
   const response = await client.chat.completions.create({
     model: MODELS.openai,
     messages: [
-      { role: 'system', content: ASSESS_SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userText }
     ],
     response_format: {
@@ -494,11 +541,11 @@ async function assessWithOpenAI(userText, apiKey) {
   };
 }
 
-async function assessWithGemini(parts, apiKey) {
+async function assessWithGemini(parts, apiKey, systemPrompt) {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
     model: MODELS.gemini,
-    systemInstruction: ASSESS_SYSTEM_PROMPT,
+    systemInstruction: systemPrompt,
     generationConfig: {
       responseMimeType: 'application/json',
       responseSchema: {
@@ -542,15 +589,16 @@ async function assessCvFit({ offer, cvText, fileBuffer, mimeType }) {
   }
   const apiKey = decrypt(data.apiKeyEncrypted);
   const provider = data.provider;
+  const { assess: systemPrompt } = await getResolvedPrompts();
 
   try {
     let out;
     if (cvText) {
       const userText = buildAssessUserMessage(offer, cvText);
       switch (provider) {
-        case 'claude': out = await assessWithClaude(userText, apiKey); break;
-        case 'openai': out = await assessWithOpenAI(userText, apiKey); break;
-        case 'gemini': out = await assessWithGemini([userText], apiKey); break;
+        case 'claude': out = await assessWithClaude(userText, apiKey, systemPrompt); break;
+        case 'openai': out = await assessWithOpenAI(userText, apiKey, systemPrompt); break;
+        case 'gemini': out = await assessWithGemini([userText], apiKey, systemPrompt); break;
         default: throw new Error(`Provider desconocido: ${provider}`);
       }
     } else {
@@ -562,13 +610,13 @@ async function assessCvFit({ offer, cvText, fileBuffer, mimeType }) {
           out = await assessWithClaude([
             claudeMediaBlock(base64, mimeType),
             { type: 'text', text }
-          ], apiKey);
+          ], apiKey, systemPrompt);
           break;
         case 'gemini':
           out = await assessWithGemini([
             { inlineData: { mimeType: mimeType || 'application/pdf', data: base64 } },
             text
-          ], apiKey);
+          ], apiKey, systemPrompt);
           break;
         case 'openai': {
           const err = new Error('El OCR de PDFs escaneados requiere Claude o Gemini. Cambiá el proveedor en /sudo/ai-settings.');
@@ -604,5 +652,7 @@ module.exports = {
   MODEL_PRICING,
   getAiConfigPublic,
   getAiApiKeyPlain,
-  updateAiConfig
+  updateAiConfig,
+  getAiPromptsPublic,
+  updateAiPrompts
 };

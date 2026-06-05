@@ -40,7 +40,7 @@ const pdfUpload = multer({
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { rubro, puesto, description, requirements, salary, schedule, requiredSkills, zona, durationDays, businessName, availability } = req.body;
+    const { rubro, puesto, description, requirements, salary, schedule, requiredSkills, zona, durationDays, businessName, availability, location } = req.body;
 
     if (!rubro || !puesto) {
       return res.status(400).json({ error: 'rubro and puesto are required' });
@@ -75,6 +75,7 @@ router.post('/', authMiddleware, async (req, res, next) => {
       schedule: schedule || null,
       requiredSkills: Array.isArray(requiredSkills) ? requiredSkills : [],
       zona: zona || null,
+      location: matchingService.sanitizeLocation(location),
       businessName: businessName || null,
       availability: availability || null,
       active: true,
@@ -152,7 +153,7 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
     }
 
     // Filter allowed updates
-    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona', 'active', 'durationDays', 'expiresAt', 'businessName', 'availability', 'aiAssessEnabled'];
+    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona', 'active', 'durationDays', 'expiresAt', 'businessName', 'availability', 'aiAssessEnabled', 'location'];
     const filteredUpdates = {};
 
     for (const field of allowedFields) {
@@ -162,6 +163,8 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
           filteredUpdates[field] = new Date(updates[field]);
         } else if (field === 'aiAssessEnabled') {
           filteredUpdates[field] = Boolean(updates[field]);
+        } else if (field === 'location') {
+          filteredUpdates[field] = matchingService.sanitizeLocation(updates[field]);
         } else {
           filteredUpdates[field] = updates[field];
         }
