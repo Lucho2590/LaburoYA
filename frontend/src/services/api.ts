@@ -85,7 +85,14 @@ class ApiService {
     }
 
     if (!response.ok) {
-      throw new Error(data.error || `API request failed with status ${response.status}`);
+      const err = new Error(data.error || `API request failed with status ${response.status}`) as Error & {
+        status?: number; rateLimited?: boolean; rateScope?: string; retryAfter?: number;
+      };
+      err.status = response.status;
+      err.rateLimited = data.rateLimited;
+      err.rateScope = data.rateScope;
+      err.retryAfter = data.retryAfter;
+      throw err;
     }
 
     return data;
@@ -855,10 +862,10 @@ class ApiService {
     });
   }
 
-  async pinCandidate(offerId: string, payload: { candidate: unknown; assessment: unknown }) {
-    return this.request<IPinnedCandidate>(`/job-offers/${offerId}/pinned-candidates`, {
-      method: 'POST',
-      body: payload,
+  async setCandidateSelected(offerId: string, id: string, selected: boolean) {
+    return this.request<{ id: string; selected: boolean }>(`/job-offers/${offerId}/pinned-candidates/${id}`, {
+      method: 'PATCH',
+      body: { selected },
     });
   }
 

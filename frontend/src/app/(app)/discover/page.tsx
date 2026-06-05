@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePageTitle } from "@/contexts/PageTitleContext";
 import { useDiscoveryOffers, useDiscoveryWorkers } from "@/hooks/useDiscovery";
 import { IRelevantOffer, IRelevantWorker } from "@/types";
+import { scoreToStars, STAR_MAX, STAR_FILTERS } from "@/lib/stars";
 import { JOB_CATEGORIES, TRubro } from "@/config/constants";
 import { OfferDetailModal } from "@/components/OfferDetailModal";
 import { WorkerProfileModal } from "@/components/WorkerProfileModal";
@@ -24,6 +25,7 @@ export default function DiscoverPage() {
     null,
   );
   const [isRequesting, setIsRequesting] = useState(false);
+  const [minStars, setMinStars] = useState(0);
 
   const isWorker =
     userData?.role === "worker" ||
@@ -142,46 +144,47 @@ export default function DiscoverPage() {
 
   // Worker view - show offers (con estrellas como el employer)
   if (isWorker) {
-    // Combinar todas las ofertas con su nivel de match
+    // Combinar todas las ofertas y derivar el nivel (1-5) del backend.
     const allOffers = [
-      ...(offers?.fullMatch || []).map((o) => ({
+      ...(offers?.fullMatch || []),
+      ...(offers?.partialMatch || []),
+      ...(offers?.skillsMatch || []),
+    ]
+      .map((o) => ({
         ...o,
-        matchLevel: 3 as const,
-      })),
-      ...(offers?.partialMatch || []).map((o) => ({
-        ...o,
-        matchLevel: 2 as const,
-      })),
-      ...(offers?.skillsMatch || []).map((o) => ({
-        ...o,
-        matchLevel: 1 as const,
-      })),
-    ];
+        matchLevel: o.relevance.stars ?? scoreToStars(o.relevance.score),
+      }))
+      .filter((o) => o.matchLevel >= minStars)
+      .sort((a, b) => b.matchLevel - a.matchLevel || b.relevance.score - a.relevance.score);
 
     const totalCount = allOffers.length;
 
     return (
       <>
         <div className="px-4 py-4">
-          {/* Header con leyenda de estrellas */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3 text-xs theme-text-muted">
-              <span className="flex items-center gap-1">
-                <span className="text-yellow-500">★★★</span>
-                <span>Perfecto</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="text-yellow-500">★★</span>
-                <span>Bueno</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="text-yellow-500">★</span>
-                <span>Sugerido</span>
-              </span>
-            </div>
+          {/* Filtro + leyenda de estrellas (1 a 5) */}
+          <div className="flex items-center justify-between mb-3">
             <span className="text-xs theme-text-muted">
-              {totalCount} ofertas
+              <span className="text-yellow-500">★</span> afinidad (1 a 5)
             </span>
+            <span className="text-xs theme-text-muted">
+              {totalCount} oferta{totalCount !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 overflow-x-auto mb-4">
+            {STAR_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setMinStars(f.value)}
+                className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium transition active:scale-95 cursor-pointer ${
+                  minStars === f.value
+                    ? 'bg-[#E10600] text-white'
+                    : 'theme-bg-secondary theme-text-secondary hover:opacity-80'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
 
           {/* Offers List */}
@@ -223,46 +226,47 @@ export default function DiscoverPage() {
 
   // Employer view - show workers (todos en una lista con estrellas)
   if (isEmployer) {
-    // Combinar todos los workers con su nivel de match
+    // Combinar todos los candidatos y derivar el nivel (1-5) del backend.
     const allWorkers = [
-      ...(workers?.fullMatch || []).map((w) => ({
+      ...(workers?.fullMatch || []),
+      ...(workers?.partialMatch || []),
+      ...(workers?.skillsMatch || []),
+    ]
+      .map((w) => ({
         ...w,
-        matchLevel: 3 as const,
-      })),
-      ...(workers?.partialMatch || []).map((w) => ({
-        ...w,
-        matchLevel: 2 as const,
-      })),
-      ...(workers?.skillsMatch || []).map((w) => ({
-        ...w,
-        matchLevel: 1 as const,
-      })),
-    ];
+        matchLevel: w.relevance.stars ?? w.bestStars ?? scoreToStars(w.relevance.score),
+      }))
+      .filter((w) => w.matchLevel >= minStars)
+      .sort((a, b) => b.matchLevel - a.matchLevel || b.relevance.score - a.relevance.score);
 
     const totalCount = allWorkers.length;
 
     return (
       <>
         <div className="px-4 py-4">
-          {/* Header con leyenda de estrellas */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3 text-xs theme-text-muted">
-              <span className="flex items-center gap-1">
-                <span className="text-yellow-500">★★★</span>
-                <span>Perfecto</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="text-yellow-500">★★</span>
-                <span>Bueno</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="text-yellow-500">★</span>
-                <span>Recomendados</span>
-              </span>
-            </div>
+          {/* Filtro + leyenda de estrellas (1 a 5) */}
+          <div className="flex items-center justify-between mb-3">
             <span className="text-xs theme-text-muted">
-              {totalCount} candidatos
+              <span className="text-yellow-500">★</span> afinidad (1 a 5)
             </span>
+            <span className="text-xs theme-text-muted">
+              {totalCount} candidato{totalCount !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 overflow-x-auto mb-4">
+            {STAR_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setMinStars(f.value)}
+                className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium transition active:scale-95 cursor-pointer ${
+                  minStars === f.value
+                    ? 'bg-[#E10600] text-white'
+                    : 'theme-bg-secondary theme-text-secondary hover:opacity-80'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
 
           {/* Workers List */}
@@ -319,13 +323,13 @@ function OfferCard({
   onClick,
 }: {
   offer: IRelevantOffer;
-  matchLevel?: 1 | 2 | 3;
+  matchLevel?: number;
   onClick: () => void;
 }) {
-  // Renderizar estrellas según nivel de match
+  // Renderizar estrellas según nivel de match (1-5)
   const renderStars = (level: number) => {
     const stars = "★".repeat(level);
-    const emptyStars = "☆".repeat(3 - level);
+    const emptyStars = "☆".repeat(Math.max(0, STAR_MAX - level));
     return (
       <span className="text-sm">
         <span className="text-yellow-500">{stars}</span>
@@ -386,7 +390,7 @@ function WorkerCard({
   onClick,
 }: {
   worker: IRelevantWorker;
-  matchLevel?: 1 | 2 | 3;
+  matchLevel?: number;
   onClick: () => void;
 }) {
   const displayName =
@@ -394,10 +398,10 @@ function WorkerCard({
       ? `${worker.firstName} ${worker.lastName}`
       : worker.puesto;
 
-  // Renderizar estrellas según nivel de match
+  // Renderizar estrellas según nivel de match (1-5)
   const renderStars = (level: number) => {
     const stars = "★".repeat(level);
-    const emptyStars = "☆".repeat(3 - level);
+    const emptyStars = "☆".repeat(Math.max(0, STAR_MAX - level));
     return (
       <span className="text-sm">
         <span className="text-yellow-500">{stars}</span>
