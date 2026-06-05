@@ -1,10 +1,12 @@
 const express = require('express');
 const multer = require('multer');
+const crypto = require('crypto');
 const admin = require('firebase-admin');
 const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const matchingService = require('../services/matchingService');
 const cvAssessment = require('../services/cvAssessment');
+const aiProvider = require('../services/aiProvider');
 const FieldValue = admin.firestore.FieldValue;
 
 const router = express.Router();
@@ -150,7 +152,7 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
     }
 
     // Filter allowed updates
-    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona', 'active', 'durationDays', 'expiresAt', 'businessName', 'availability'];
+    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona', 'active', 'durationDays', 'expiresAt', 'businessName', 'availability', 'aiAssessEnabled'];
     const filteredUpdates = {};
 
     for (const field of allowedFields) {
@@ -158,6 +160,8 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
         // Convert expiresAt string to Date if needed
         if (field === 'expiresAt' && typeof updates[field] === 'string') {
           filteredUpdates[field] = new Date(updates[field]);
+        } else if (field === 'aiAssessEnabled') {
+          filteredUpdates[field] = Boolean(updates[field]);
         } else {
           filteredUpdates[field] = updates[field];
         }
@@ -373,16 +377,46 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
       return res.status(400).json({ error: 'Falta el archivo PDF (campo "cv")' });
     }
 
+    // Fingerprint of the exact file, to detect the same CV uploaded twice.
+    const fileHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+
+    // Load the offer's existing ranking once; reuse it for both dedup checks.
+    const existingSnap = await db.collection('pinnedCandidates')
+      .where('offerId', '==', offerId)
+      .get();
+    const existingDocs = existingSnap.docs
+      .filter(d => d.data().employerId === uid)
+      .map(d => ({ id: d.id, ...d.data() }));
+
+    // a) Same file already in the ranking → don't re-run AI nor duplicate.
+    const sameFile = existingDocs.find(d => d.fileHash && d.fileHash === fileHash);
+    if (sameFile) {
+      return res.json({
+        duplicate: 'file',
+        existingId: sameFile.id,
+        id: sameFile.id,
+        mode: sameFile.assessment?.mode || 'basic',
+        source: sameFile.assessment?.source,
+        candidate: sameFile.candidate,
+        assessment: sameFile.assessment,
+      });
+    }
+
     // The per-employer aiCvEnabled flag decides the evaluation mode:
     //  - enabled  → AI extraction (reads scanned PDFs too) + structural match
     //  - disabled → basic text reading + keyword match (no AI)
     const userDoc = await db.collection('users').doc(uid).get();
-    const aiEnabled = userDoc.exists && userDoc.data().aiCvEnabled === true;
+    const userAi = userDoc.exists && userDoc.data().aiCvEnabled === true;
+    // Per-offer toggle: default ON when undefined (backward compatible).
+    const aiEnabled = userAi && offer.aiAssessEnabled !== false;
 
+    // b) Evaluate (AI or basic) and normalize into { mode, source, candidate, assessment }.
+    let result;
+    let aiUsage = null;
     if (aiEnabled) {
       const a = await cvAssessment.assessFit(req.file.buffer, req.file.mimetype, req.file.originalname, offer);
-
-      return res.json({
+      aiUsage = a.usage || null;
+      result = {
         mode: 'ai',
         source: a.source,
         candidate: {
@@ -393,6 +427,7 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
         },
         assessment: {
           score: a.fitScore,
+          stars: matchingService.scoreToStars(a.fitScore),
           recommendation: a.recommendation,
           summary: a.summary,
           strengths: Array.isArray(a.strengths) ? a.strengths : [],
@@ -400,15 +435,61 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
           matchingSkills: Array.isArray(a.matchingSkills) ? a.matchingSkills : [],
           missingSkills: Array.isArray(a.missingSkills) ? a.missingSkills : []
         }
-      });
+      };
+    } else {
+      // Basic mode (no AI): read the CV (text or OCR), build a profile from the
+      // taxonomy and score it with the same engine as the real match.
+      const r = await cvAssessment.assessBasic(req.file.buffer, req.file.mimetype, req.file.originalname, offer);
+      result = { mode: 'basic', source: r.source, candidate: r.candidate, assessment: r.assessment };
     }
 
-    // Basic mode (no AI): read the CV (text or OCR), build a profile from the
-    // taxonomy and score it with the same engine as the real match.
-    const r = await cvAssessment.assessBasic(req.file.buffer, req.file.mimetype, req.file.originalname, offer);
-    return res.json({ mode: 'basic', ...r });
+    // c) Same person already in the ranking (different file): keep both so the
+    // employer can compare; just flag it so the UI can warn.
+    const email = result.candidate.email ? String(result.candidate.email).trim().toLowerCase() : null;
+    const phone = result.candidate.phone ? String(result.candidate.phone).replace(/\D/g, '') : null;
+    const samePerson = existingDocs.find(d => {
+      const dEmail = d.candidate?.email ? String(d.candidate.email).trim().toLowerCase() : null;
+      const dPhone = d.candidate?.phone ? String(d.candidate.phone).replace(/\D/g, '') : null;
+      return (email && dEmail && email === dEmail) || (phone && dPhone && phone === dPhone);
+    });
+
+    // d) Persist the new ranking entry.
+    const docData = buildCandidateDoc(uid, offerId, fileHash, result);
+    const ref = await db.collection('pinnedCandidates').add(docData);
+
+    // e) Accumulate AI spend on the offer (only when a real AI call happened).
+    if (aiUsage) {
+      try {
+        const cost = aiProvider.estimateCostUsd(aiUsage.model, aiUsage);
+        await db.collection('jobOffers').doc(offerId).update({
+          'aiUsage.cvCount': FieldValue.increment(1),
+          'aiUsage.inputTokens': FieldValue.increment(aiUsage.inputTokens || 0),
+          'aiUsage.outputTokens': FieldValue.increment(aiUsage.outputTokens || 0),
+          'aiUsage.costUsd': FieldValue.increment(cost),
+          'aiUsage.updatedAt': new Date(),
+        });
+      } catch (e) {
+        console.error('[assess-cv] no se pudo actualizar aiUsage:', e.message);
+      }
+    }
+
+    return res.json({
+      id: ref.id,
+      ...(samePerson ? { duplicate: 'person', existingId: samePerson.id } : {}),
+      mode: result.mode,
+      source: result.source,
+      candidate: result.candidate,
+      assessment: result.assessment,
+    });
   } catch (error) {
-    if (error.status) return res.status(error.status).json({ error: error.message });
+    if (error.status) {
+      return res.status(error.status).json({
+        error: error.message,
+        rateLimited: !!error.rateLimited,
+        rateScope: error.rateScope,
+        retryAfter: error.retryAfter,
+      });
+    }
     next(error);
   }
 });
@@ -431,51 +512,40 @@ async function loadOwnedOffer(db, offerId, uid) {
   return offerDoc;
 }
 
-// Pin a candidate (evaluated CV) to an offer
-router.post('/:offerId/pinned-candidates', authMiddleware, async (req, res, next) => {
-  try {
-    const { uid } = req.user;
-    const { offerId } = req.params;
-    const db = getDb();
-    await loadOwnedOffer(db, offerId, uid);
-
-    const { candidate, assessment } = req.body || {};
-    if (!candidate || !assessment) {
-      return res.status(400).json({ error: 'Faltan datos del candidato' });
-    }
-
-    const docData = {
-      offerId,
-      employerId: uid,
-      candidate: {
-        firstName: candidate.firstName || null,
-        lastName: candidate.lastName || null,
-        email: candidate.email || null,
-        phone: candidate.phone || null,
-        puesto: candidate.puesto || null,
-        zona: candidate.zona || null,
-        skills: Array.isArray(candidate.skills) ? candidate.skills : []
-      },
-      assessment: {
-        mode: assessment.mode || 'basic',
-        score: Number(assessment.score) || 0,
-        stars: Number(assessment.stars) || 0,
-        matchType: assessment.matchType || null,
-        recommendation: assessment.recommendation || null,
-        summary: assessment.summary || null,
-        matchingSkills: Array.isArray(assessment.matchingSkills) ? assessment.matchingSkills : [],
-        missingSkills: Array.isArray(assessment.missingSkills) ? assessment.missingSkills : []
-      },
-      createdAt: new Date()
-    };
-
-    const ref = await db.collection('pinnedCandidates').add(docData);
-    res.status(201).json({ id: ref.id, ...docData });
-  } catch (error) {
-    if (error.status) return res.status(error.status).json({ error: error.message });
-    next(error);
-  }
-});
+// Builds the Firestore doc for a ranking entry from a normalized assessment result.
+function buildCandidateDoc(uid, offerId, fileHash, result) {
+  const candidate = result.candidate || {};
+  const assessment = result.assessment || {};
+  return {
+    offerId,
+    employerId: uid,
+    fileHash: fileHash || null,
+    selected: false,
+    candidate: {
+      firstName: candidate.firstName || null,
+      lastName: candidate.lastName || null,
+      email: candidate.email || null,
+      phone: candidate.phone || null,
+      puesto: candidate.puesto || null,
+      zona: candidate.zona || null,
+      skills: Array.isArray(candidate.skills) ? candidate.skills : []
+    },
+    assessment: {
+      mode: result.mode || assessment.mode || 'basic',
+      source: result.source || null,
+      score: Number(assessment.score) || 0,
+      stars: Number(assessment.stars) || 0,
+      matchType: assessment.matchType || null,
+      recommendation: assessment.recommendation || null,
+      summary: assessment.summary || null,
+      strengths: Array.isArray(assessment.strengths) ? assessment.strengths : [],
+      gaps: Array.isArray(assessment.gaps) ? assessment.gaps : [],
+      matchingSkills: Array.isArray(assessment.matchingSkills) ? assessment.matchingSkills : [],
+      missingSkills: Array.isArray(assessment.missingSkills) ? assessment.missingSkills : []
+    },
+    createdAt: new Date()
+  };
+}
 
 // List pinned candidates of an offer
 router.get('/:offerId/pinned-candidates', authMiddleware, async (req, res, next) => {
@@ -520,6 +590,28 @@ router.delete('/:offerId/pinned-candidates/:pinId', authMiddleware, async (req, 
     }
     await pinRef.delete();
     res.json({ message: 'Candidato quitado', id: pinId });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+// Mark/unmark a ranked candidate as selected (shortlist)
+router.patch('/:offerId/pinned-candidates/:pinId', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const { offerId, pinId } = req.params;
+    const db = getDb();
+    await loadOwnedOffer(db, offerId, uid);
+
+    const pinRef = db.collection('pinnedCandidates').doc(pinId);
+    const pinDoc = await pinRef.get();
+    if (!pinDoc.exists || pinDoc.data().offerId !== offerId || pinDoc.data().employerId !== uid) {
+      return res.status(404).json({ error: 'Candidato no encontrado' });
+    }
+    const selected = Boolean(req.body?.selected);
+    await pinRef.update({ selected });
+    res.json({ id: pinId, selected });
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: error.message });
     next(error);

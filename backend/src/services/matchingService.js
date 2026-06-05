@@ -7,15 +7,28 @@ const MATCH_TYPES = {
   SKILLS_MATCH: 'skills_match'    // only skills match
 };
 
-// Score weights
+// Score weights (granular, normalized to a 0-100 scale)
 const SCORES = {
-  FULL_MATCH: 100,
-  PARTIAL_MATCH: 50,
-  SKILL_MATCH: 6,        // per matching skill (max 5 skills = 30 pts)
-  VIDEO_BONUS: 10,
-  DESCRIPTION_BONUS: 5,
-  EXPERIENCE_BONUS: 5
+  RUBRO_MATCH: 15,        // same rubro
+  PUESTO_MATCH: 25,       // same puesto (rubro + puesto = 40)
+  ZONA_MATCH: 15,         // same zona (rubro + puesto + zona = 55)
+  SKILLS_MAX: 30,         // proportional to required-skills coverage
+  NO_SKILLS_ROLE_CREDIT: 20, // offer lists no skills: don't penalize a strong role match
+  VIDEO_BONUS: 8,         // profile quality
+  DESCRIPTION_BONUS: 4,
+  EXPERIENCE_BONUS: 3
 };
+
+// Map a 0-100 relevance/fit score to a 1-5 star rating (single source of truth).
+function scoreToStars(score) {
+  const s = Number(score) || 0;
+  if (s >= 80) return 5;
+  if (s >= 60) return 4;
+  if (s >= 40) return 3;
+  if (s >= 20) return 2;
+  if (s >= 1) return 1;
+  return 0;
+}
 
 class MatchingService {
   /**
@@ -35,62 +48,59 @@ class MatchingService {
       bonuses: []
     };
 
-    // Check rubro and puesto match
-    if (worker.rubro === offer.rubro && worker.puesto === offer.puesto) {
-      details.rubroMatch = true;
-      details.puestoMatch = true;
+    // --- Role: rubro + puesto (scored independently for finer granularity) ---
+    const rubroMatch = !!worker.rubro && worker.rubro === offer.rubro;
+    const puestoMatch = !!worker.puesto && worker.puesto === offer.puesto;
+    details.rubroMatch = rubroMatch;
+    details.puestoMatch = puestoMatch;
+    if (rubroMatch) score += SCORES.RUBRO_MATCH;
+    if (puestoMatch) score += SCORES.PUESTO_MATCH;
 
-      // Check zona match
-      if (worker.zona && offer.zona && worker.zona === offer.zona) {
-        score = SCORES.FULL_MATCH;
-        matchType = MATCH_TYPES.FULL_MATCH;
-        details.zonaMatch = true;
-      } else {
-        score = SCORES.PARTIAL_MATCH;
-        matchType = MATCH_TYPES.PARTIAL_MATCH;
-      }
-    }
+    // --- Zona (only meaningful when both sides declare a zona) ---
+    const zonaApplicable = !!worker.zona && !!offer.zona;
+    const zonaMatch = zonaApplicable && worker.zona === offer.zona;
+    details.zonaMatch = zonaMatch;
+    if (zonaMatch) score += SCORES.ZONA_MATCH;
 
-    // Calculate skills match
+    // --- Skills: proportional to required-skills coverage ---
     const workerSkills = worker.skills || [];
     const requiredSkills = offer.requiredSkills || [];
-
-    if (workerSkills.length > 0 && requiredSkills.length > 0) {
-      const matchingSkills = workerSkills.filter(skill =>
-        requiredSkills.includes(skill)
-      );
+    if (requiredSkills.length > 0) {
+      const matchingSkills = workerSkills.filter(skill => requiredSkills.includes(skill));
       details.matchingSkills = matchingSkills;
-
-      // Cap at 5 skills (30 pts max)
-      const skillScore = Math.min(matchingSkills.length, 5) * SCORES.SKILL_MATCH;
-      score += skillScore;
-
-      // If no rubro/puesto match but has skill matches, it's a skills match
-      if (!matchType && matchingSkills.length > 0) {
-        matchType = MATCH_TYPES.SKILLS_MATCH;
-      }
+      const ratio = matchingSkills.length / requiredSkills.length; // 0..1
+      score += Math.round(ratio * SCORES.SKILLS_MAX);
+    } else if (puestoMatch) {
+      // Offer lists no skills: don't penalize a strong role match.
+      score += SCORES.NO_SKILLS_ROLE_CREDIT;
     }
 
-    // Bonus for video
+    // --- Profile quality bonuses ---
     if (worker.videoUrl) {
       score += SCORES.VIDEO_BONUS;
       details.bonuses.push('video');
     }
-
-    // Bonus for description
     if (worker.description && worker.description.length >= 50) {
       score += SCORES.DESCRIPTION_BONUS;
       details.bonuses.push('description');
     }
-
-    // Bonus for experience
     if (worker.experience && worker.experience.length >= 20) {
       score += SCORES.EXPERIENCE_BONUS;
       details.bonuses.push('experience');
     }
 
+    score = Math.min(score, 100);
+
+    // --- Match type (kept for badges & discovery grouping; inclusion unchanged) ---
+    if (rubroMatch && puestoMatch) {
+      matchType = zonaMatch ? MATCH_TYPES.FULL_MATCH : MATCH_TYPES.PARTIAL_MATCH;
+    } else if (details.matchingSkills.length > 0) {
+      matchType = MATCH_TYPES.SKILLS_MATCH;
+    }
+
     return {
       score,
+      stars: scoreToStars(score),
       matchType,
       details
     };
@@ -257,6 +267,7 @@ class MatchingService {
             workerScores.set(worker.uid, {
               ...worker,
               bestScore: relevance.score,
+              bestStars: relevance.stars,
               bestMatchType: relevance.matchType,
               bestOffer: offer,
               relevance
@@ -483,3 +494,4 @@ const matchingServiceInstance = new MatchingService();
 module.exports = matchingServiceInstance;
 module.exports.MATCH_TYPES = MATCH_TYPES;
 module.exports.SCORES = SCORES;
+module.exports.scoreToStars = scoreToStars;

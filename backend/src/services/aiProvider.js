@@ -29,8 +29,19 @@ function friendlyAiError(error) {
   } else if (/not found|is not supported|does not exist|no such model|\b404\b/.test(lower)) {
     message = 'El modelo de IA configurado ya no está disponible. Avisá al administrador para que lo actualice.';
   } else if (/quota|rate.?limit|resource has been exhausted|too many requests|\b429\b/.test(lower)) {
-    message = 'Se alcanzó el límite de uso de la API de IA. Probá de nuevo en unos minutos.';
     status = 503;
+    const isDaily = /per ?day|perday|requests per day|perdayper/.test(lower);
+    message = isDaily
+      ? 'Se alcanzó el límite diario de la API de IA. Probá mañana o cambiá de proveedor/plan en /sudo/ai-settings.'
+      : 'Se alcanzó el límite por minuto de la API de IA. Esperá un momento y reintentá.';
+    const retryMatch = raw.match(/retryDelay"?\s*:?\s*"?(\d+(?:\.\d+)?)s/i) || raw.match(/retry in ([\d.]+)s/i);
+    const err = new Error(message);
+    err.status = status;
+    err.rateLimited = true;
+    err.rateScope = isDaily ? 'day' : 'minute';
+    if (retryMatch) err.retryAfter = Math.ceil(parseFloat(retryMatch[1]));
+    err.cause = error;
+    return err;
   } else if (/json|unexpected token|parse|safety|blocked|recitation/.test(lower)) {
     message = 'La IA devolvió una respuesta inesperada. Probá con otro archivo o de nuevo en un rato.';
   }
@@ -39,6 +50,23 @@ function friendlyAiError(error) {
   err.status = status;
   err.cause = error;
   return err;
+}
+
+// Precios aprox por modelo (USD por 1M tokens, input/output). Actualizar con un
+// deploy si el proveedor cambia tarifas. Referencia: tarifas públicas a 2026-06.
+const MODEL_PRICING = {
+  'claude-sonnet-4-6': { in: 3, out: 15 },
+  'gpt-4o-mini': { in: 0.15, out: 0.60 },
+  'gemini-2.5-flash': { in: 0.30, out: 2.50 },
+};
+const DEFAULT_PRICING = { in: 1, out: 3 };
+
+// Estimación de costo en USD a partir del modelo y los tokens usados.
+function estimateCostUsd(model, usage) {
+  const p = MODEL_PRICING[model] || DEFAULT_PRICING;
+  const inTok = Number(usage?.inputTokens) || 0;
+  const outTok = Number(usage?.outputTokens) || 0;
+  return (inTok / 1e6) * p.in + (outTok / 1e6) * p.out;
 }
 
 const SYSTEM_PROMPT = `Sos un asistente experto en extraer datos estructurados de CVs en español (variante argentina).
@@ -361,8 +389,13 @@ async function parseCvFromPdf(buffer, mimeType) {
 const ASSESS_SYSTEM_PROMPT = `Sos un reclutador experto en RRHH (Argentina). Evaluás si un candidato encaja en una búsqueda laboral concreta, leyendo su CV.
 Reglas:
 - Considerá sinónimos y experiencia equivalente (ej: "mesero" ≈ "mozo", "encargado" ≈ "supervisor", "atención al público" ≈ "atención al cliente"). No compares texto literal: interpretá.
-- "fitScore": entero 0-100 que refleja qué tan bien encaja el candidato con ESTA búsqueda (puesto, rubro, skills, experiencia y zona). Sé honesto y estricto, no infles el puntaje.
-- "recommendation": "yes" si encaja claramente, "maybe" si encaja parcialmente o falta información, "no" si no encaja.
+- "fitScore": entero 0-100 que refleja qué tan bien encaja el candidato con ESTA búsqueda (puesto, rubro, skills, experiencia y zona). Sé honesto y estricto, no infles el puntaje. Usá esta rúbrica de 5 bandas para distribuir el puntaje:
+  · 80-100: encaja muy bien (cumple puesto/rubro y la mayoría de skills/experiencia que pide la oferta).
+  · 60-79: encaja bien, con algún faltante menor.
+  · 40-59: encaja parcialmente (el rol coincide pero faltan skills/experiencia, o tiene las skills pero el rol no es exacto).
+  · 20-39: encaja poco (coincidencias débiles o aisladas).
+  · 1-19: casi no encaja.
+- "recommendation": alineá con el fitScore → "yes" si fitScore ≥ 60, "maybe" si está entre 20 y 59, "no" si es menor a 20.
 - "summary": 1-2 oraciones en español explicando el veredicto.
 - "strengths": hasta 5 puntos fuertes del candidato para esta búsqueda.
 - "gaps": hasta 5 faltantes o riesgos respecto a lo que pide la oferta.
@@ -413,7 +446,10 @@ async function assessWithClaude(userContent, apiKey) {
   });
   const toolUse = response.content.find(c => c.type === 'tool_use');
   if (!toolUse) throw new Error('Claude no devolvió la evaluación esperada');
-  return toolUse.input;
+  return {
+    data: toolUse.input,
+    usage: { inputTokens: response.usage?.input_tokens || 0, outputTokens: response.usage?.output_tokens || 0 }
+  };
 }
 
 async function assessWithOpenAI(userText, apiKey) {
@@ -452,7 +488,10 @@ async function assessWithOpenAI(userText, apiKey) {
   });
   const content = response.choices?.[0]?.message?.content;
   if (!content) throw new Error('OpenAI no devolvió contenido');
-  return JSON.parse(content);
+  return {
+    data: JSON.parse(content),
+    usage: { inputTokens: response.usage?.prompt_tokens || 0, outputTokens: response.usage?.completion_tokens || 0 }
+  };
 }
 
 async function assessWithGemini(parts, apiKey) {
@@ -481,7 +520,11 @@ async function assessWithGemini(parts, apiKey) {
     }
   });
   const result = await model.generateContent(parts);
-  return JSON.parse(result.response.text());
+  const um = result.response.usageMetadata || {};
+  return {
+    data: JSON.parse(result.response.text()),
+    usage: { inputTokens: um.promptTokenCount || 0, outputTokens: um.candidatesTokenCount || 0 }
+  };
 }
 
 /**
@@ -501,38 +544,51 @@ async function assessCvFit({ offer, cvText, fileBuffer, mimeType }) {
   const provider = data.provider;
 
   try {
+    let out;
     if (cvText) {
       const userText = buildAssessUserMessage(offer, cvText);
       switch (provider) {
-        case 'claude': return await assessWithClaude(userText, apiKey);
-        case 'openai': return await assessWithOpenAI(userText, apiKey);
-        case 'gemini': return await assessWithGemini([userText], apiKey);
+        case 'claude': out = await assessWithClaude(userText, apiKey); break;
+        case 'openai': out = await assessWithOpenAI(userText, apiKey); break;
+        case 'gemini': out = await assessWithGemini([userText], apiKey); break;
         default: throw new Error(`Provider desconocido: ${provider}`);
+      }
+    } else {
+      // No text layer → multimodal (scanned PDFs / images)
+      const base64 = fileBuffer.toString('base64');
+      const text = buildAssessUserMessage(offer, null);
+      switch (provider) {
+        case 'claude':
+          out = await assessWithClaude([
+            claudeMediaBlock(base64, mimeType),
+            { type: 'text', text }
+          ], apiKey);
+          break;
+        case 'gemini':
+          out = await assessWithGemini([
+            { inlineData: { mimeType: mimeType || 'application/pdf', data: base64 } },
+            text
+          ], apiKey);
+          break;
+        case 'openai': {
+          const err = new Error('El OCR de PDFs escaneados requiere Claude o Gemini. Cambiá el proveedor en /sudo/ai-settings.');
+          err.status = 422;
+          throw err;
+        }
+        default:
+          throw new Error(`Provider desconocido: ${provider}`);
       }
     }
 
-    // No text layer → multimodal (scanned PDFs / images)
-    const base64 = fileBuffer.toString('base64');
-    const text = buildAssessUserMessage(offer, null);
-    switch (provider) {
-      case 'claude':
-        return await assessWithClaude([
-          claudeMediaBlock(base64, mimeType),
-          { type: 'text', text }
-        ], apiKey);
-      case 'gemini':
-        return await assessWithGemini([
-          { inlineData: { mimeType: mimeType || 'application/pdf', data: base64 } },
-          text
-        ], apiKey);
-      case 'openai': {
-        const err = new Error('El OCR de PDFs escaneados requiere Claude o Gemini. Cambiá el proveedor en /sudo/ai-settings.');
-        err.status = 422;
-        throw err;
+    return {
+      ...out.data,
+      usage: {
+        inputTokens: out.usage?.inputTokens || 0,
+        outputTokens: out.usage?.outputTokens || 0,
+        model: MODELS[provider],
+        provider
       }
-      default:
-        throw new Error(`Provider desconocido: ${provider}`);
-    }
+    };
   } catch (error) {
     throw friendlyAiError(error);
   }
@@ -544,6 +600,8 @@ module.exports = {
   parseCvWithAi,
   parseCvFromPdf,
   assessCvFit,
+  estimateCostUsd,
+  MODEL_PRICING,
   getAiConfigPublic,
   getAiApiKeyPlain,
   updateAiConfig

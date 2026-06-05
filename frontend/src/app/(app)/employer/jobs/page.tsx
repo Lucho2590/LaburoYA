@@ -9,7 +9,8 @@ import { JOB_CATEGORIES, TRubro, getSuggestedSkills } from '@/config/constants';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate } from '@/types';
-import { Check, Plus, X, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Pin, Trash2 } from 'lucide-react';
+import { scoreToStars, STAR_MAX, STAR_FILTERS } from '@/lib/stars';
+import { Check, Plus, X, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2 } from 'lucide-react';
 
 interface InterestedWorker extends IWorkerProfile {
   firstName?: string;
@@ -28,6 +29,8 @@ interface DashboardOffer {
   zona?: string;
   businessName?: string;
   availability?: 'part-time' | 'full-time';
+  aiAssessEnabled?: boolean;
+  aiUsage?: { cvCount: number; inputTokens: number; outputTokens: number; costUsd: number };
   requiredSkills?: string[];
   active: boolean;
   isExpired: boolean;
@@ -46,14 +49,26 @@ interface DashboardOffer {
 interface AssessItem {
   id: string;
   file: File;
+  hash?: string;
   status: 'pending' | 'running' | 'done' | 'error';
   result?: IAssessCvResponse;
   error?: string;
-  pinned?: boolean;
-  pinning?: boolean;
 }
 
-const MAX_CVS = 5;
+const MAX_CVS = 20;
+const AI_PACING_MS = 3000; // espaciado entre llamadas de IA para no gatillar el rate-limit
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const formatUsd = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+
+// SHA-256 hex of a file (Web Crypto) — used to detect the same file twice.
+async function hashFile(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 export default function EmployerJobsPage() {
   const router = useRouter();
@@ -78,6 +93,10 @@ export default function EmployerJobsPage() {
   // Pinned candidates modal
   const [pinnedModal, setPinnedModal] = useState<{ job: DashboardOffer; items: IPinnedCandidate[] } | null>(null);
   const [loadingPinned, setLoadingPinned] = useState(false);
+  const [pinnedMinStars, setPinnedMinStars] = useState(0);
+  const [pinnedOnlySelected, setPinnedOnlySelected] = useState(false);
+  const [expandedRank, setExpandedRank] = useState<string | null>(null);
+  const [compareGroup, setCompareGroup] = useState<IPinnedCandidate[] | null>(null);
 
   const [formData, setFormData] = useState({
     rubro: '',
@@ -145,6 +164,14 @@ export default function EmployerJobsPage() {
       setLoadingJobs(false);
     }
   }, [user, authReady]);
+
+  // Background refresh without flipping loadingJobs (no full-page spinner / remount).
+  const refreshJobsSilent = useCallback(async () => {
+    try {
+      const d = await api.getEmployerDashboard();
+      setJobs(d.offers);
+    } catch { /* noop */ }
+  }, []);
 
   const openInterestedModal = async (job: DashboardOffer) => {
     setLoadingInterested(true);
@@ -268,7 +295,7 @@ export default function EmployerJobsPage() {
       }
       resetForm();
       // Re-fetch in background without showing full-page spinner
-      api.getEmployerDashboard().then(d => setJobs(d.offers)).catch(() => {});
+      refreshJobsSilent();
     } catch {
       toast.error(editingJob ? 'Error al actualizar' : 'Error al crear la oferta');
     } finally {
@@ -282,6 +309,19 @@ export default function EmployerJobsPage() {
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, active: !currentStatus } : j));
       toast.success(currentStatus ? 'Oferta pausada' : 'Oferta activada');
     } catch {
+      toast.error('Error al actualizar');
+    }
+  };
+
+  // Per-offer AI toggle (only visible when the employer's AI module is active).
+  const toggleJobAi = async (jobId: string, current: boolean) => {
+    const next = !current;
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, aiAssessEnabled: next } : j));
+    try {
+      await api.updateJobOffer(jobId, { aiAssessEnabled: next });
+      toast.success(next ? 'IA activada para esta oferta' : 'IA desactivada para esta oferta');
+    } catch {
+      setJobs(prev => prev.map(j => j.id === jobId ? { ...j, aiAssessEnabled: current } : j));
       toast.error('Error al actualizar');
     }
   };
@@ -320,7 +360,7 @@ export default function EmployerJobsPage() {
     return allowedMime.includes(file.type) || allowedExt.includes(ext);
   };
 
-  const handleAssessFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAssessFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files || []);
     e.target.value = ''; // allow re-picking the same file
     if (picked.length === 0) return;
@@ -337,19 +377,36 @@ export default function EmployerJobsPage() {
       }
       valid.push(file);
     }
+    if (valid.length === 0) return;
+
+    // Hash each file to drop duplicates already queued in this batch.
+    const hashed = await Promise.all(
+      valid.map(async (file) => ({ file, hash: await hashFile(file) }))
+    );
 
     setAssessItems((prev) => {
+      const seen = new Set(prev.map((it) => it.hash).filter(Boolean) as string[]);
+      const fresh: { file: File; hash: string }[] = [];
+      let dupes = 0;
+      for (const h of hashed) {
+        if (seen.has(h.hash)) { dupes++; continue; }
+        seen.add(h.hash);
+        fresh.push(h);
+      }
+      if (dupes > 0) toast.error(dupes === 1 ? 'Ese archivo ya lo agregaste' : `${dupes} archivos repetidos se omitieron`);
+
       const room = MAX_CVS - prev.length;
       if (room <= 0) {
         toast.error(`Máximo ${MAX_CVS} CVs`);
         return prev;
       }
-      if (valid.length > room) {
+      if (fresh.length > room) {
         toast.error(`Máximo ${MAX_CVS} CVs (se agregaron ${room})`);
       }
-      const toAdd = valid.slice(0, room).map((file, i) => ({
-        id: `${file.name}-${file.size}-${prev.length + i}`,
+      const toAdd = fresh.slice(0, room).map(({ file, hash }, i) => ({
+        id: `${file.name}-${file.size}-${hash.slice(0, 8)}-${prev.length + i}`,
         file,
+        hash,
         status: 'pending' as const,
       }));
       return [...prev, ...toAdd];
@@ -369,50 +426,71 @@ export default function EmployerJobsPage() {
     setAssessRunning(true);
     // Snapshot of items to process (those not yet done) — evaluate one by one.
     const pending = assessItems.filter((it) => it.status === 'pending' || it.status === 'error');
-    for (const item of pending) {
+    // AI mode bursts hit provider rate limits → space the calls a bit.
+    const willUseAi = aiOn && assessModal.job.aiAssessEnabled !== false;
+    let done = 0;
+    let stopped = false;
+    for (let i = 0; i < pending.length; i++) {
+      const item = pending[i];
       updateItem(item.id, { status: 'running', error: undefined });
       try {
         const result = await api.assessOfferCv(assessModal.job.id, item.file);
         updateItem(item.id, { status: 'done', result });
+        done++;
       } catch (error) {
-        updateItem(item.id, { status: 'error', error: error instanceof Error ? error.message : 'Error al evaluar el CV' });
+        const e = error as { rateLimited?: boolean; rateScope?: string; message?: string };
+        if (e?.rateLimited) {
+          // Hit the AI limit: stop the queue, keep what was analyzed, let the user retry.
+          updateItem(item.id, { status: 'pending', error: undefined });
+          stopped = true;
+          const remaining = pending.length - done;
+          toast.error(
+            (e.rateScope === 'day'
+              ? 'Límite diario de la IA alcanzado. '
+              : 'Límite por minuto de la IA alcanzado. ') +
+            `Se analizaron ${done}; quedaron ${remaining} sin analizar. Reintentá más tarde con "Evaluar".`
+          );
+          break;
+        }
+        updateItem(item.id, { status: 'error', error: e?.message || 'Error al evaluar el CV' });
+        done++;
+      }
+      // Pacing between AI calls (skip after the last one and when stopping).
+      if (willUseAi && !stopped && i < pending.length - 1) {
+        await sleep(AI_PACING_MS);
       }
     }
     setAssessRunning(false);
-  };
-
-  const pinItem = async (item: AssessItem) => {
-    if (!assessModal || !item.result) return;
-    updateItem(item.id, { pinning: true });
-    try {
-      await api.pinCandidate(assessModal.job.id, {
-        candidate: item.result.candidate,
-        assessment: {
-          ...item.result.assessment,
-          mode: item.result.mode,
-          stars: matchStars(item.result),
-        },
-      });
-      updateItem(item.id, { pinned: true, pinning: false });
-      toast.success('Candidato fijado a la oferta');
-      fetchJobs();
-    } catch (error) {
-      updateItem(item.id, { pinning: false });
-      toast.error(error instanceof Error ? error.message : 'Error al fijar el candidato');
-    }
+    refreshJobsSilent(); // update ranking count + AI spend without the full-page spinner
   };
 
   const openPinnedModal = async (job: DashboardOffer) => {
     setPinnedModal({ job, items: [] });
+    setPinnedMinStars(0);
+    setPinnedOnlySelected(false);
+    setExpandedRank(null);
+    setCompareGroup(null);
     setLoadingPinned(true);
     try {
       const { pinned } = await api.getPinnedCandidates(job.id);
       setPinnedModal({ job, items: pinned });
     } catch {
-      toast.error('No se pudieron cargar los candidatos fijados');
+      toast.error('No se pudo cargar el ranking');
       setPinnedModal(null);
     } finally {
       setLoadingPinned(false);
+    }
+  };
+
+  const toggleSelected = async (item: IPinnedCandidate) => {
+    if (!pinnedModal) return;
+    const next = !item.selected;
+    setPinnedModal((m) => m && { ...m, items: m.items.map((p) => p.id === item.id ? { ...p, selected: next } : p) });
+    try {
+      await api.setCandidateSelected(pinnedModal.job.id, item.id, next);
+    } catch {
+      setPinnedModal((m) => m && { ...m, items: m.items.map((p) => p.id === item.id ? { ...p, selected: item.selected } : p) });
+      toast.error('No se pudo actualizar la selección');
     }
   };
 
@@ -421,7 +499,12 @@ export default function EmployerJobsPage() {
     try {
       await api.deletePinnedCandidate(pinnedModal.job.id, pinId);
       setPinnedModal({ ...pinnedModal, items: pinnedModal.items.filter(p => p.id !== pinId) });
-      fetchJobs();
+      // Sync the card's ranking count locally — no full refetch / no spinner.
+      setJobs(prev => prev.map(j =>
+        j.id === pinnedModal.job.id
+          ? { ...j, stats: { ...j.stats, pinned: Math.max(0, (j.stats.pinned ?? 0) - 1) } }
+          : j
+      ));
     } catch {
       toast.error('No se pudo quitar el candidato');
     }
@@ -439,23 +522,58 @@ export default function EmployerJobsPage() {
     skills_match: 'Match por skills',
   };
 
-  // Catalogación por estrellas, misma lógica que el match de perfiles en la app
-  // (full=3, partial=2, skills=1). En modo IA se deriva del puntaje 0-100.
-  const matchStars = (r: IAssessCvResponse): number => {
-    if (r.mode === 'ai') {
-      const s = r.assessment.score;
-      return s >= 75 ? 3 : s >= 50 ? 2 : s > 0 ? 1 : 0;
-    }
-    const mt = r.assessment.matchType;
-    return mt === 'full_match' ? 3 : mt === 'partial_match' ? 2 : mt === 'skills_match' ? 1 : 0;
-  };
+  // Estrellas unificadas 1-5: el backend calcula `stars` desde el puntaje 0-100
+  // (IA y básico usan la misma escala). Fallback a scoreToStars por seguridad.
+  const matchStars = (r: IAssessCvResponse): number =>
+    r.assessment.stars ?? scoreToStars(r.assessment.score);
 
   const renderStars = (level: number) => (
     <span className="text-lg leading-none">
       <span className="text-yellow-500">{'★'.repeat(level)}</span>
-      <span className="text-gray-400">{'☆'.repeat(3 - level)}</span>
+      <span className="text-gray-400">{'☆'.repeat(Math.max(0, STAR_MAX - level))}</span>
     </span>
   );
+
+  // Devolución detallada (resumen/fortalezas/brechas/skills) — usada en el ranking y en comparar.
+  const renderAssessmentDetail = (a: IPinnedCandidate['assessment']) => {
+    const hasDetail = a.summary || (a.strengths?.length ?? 0) > 0 || (a.gaps?.length ?? 0) > 0 || a.matchingSkills?.length > 0 || a.missingSkills?.length > 0;
+    return (
+      <div className="space-y-3">
+        {a.summary && <p className="text-sm theme-text-primary">{a.summary}</p>}
+        {(a.strengths?.length ?? 0) > 0 && (
+          <div>
+            <p className="text-xs theme-text-muted mb-1">Fortalezas</p>
+            <ul className="text-sm theme-text-secondary list-disc pl-5 space-y-0.5">{a.strengths!.map((s, i) => <li key={i}>{s}</li>)}</ul>
+          </div>
+        )}
+        {(a.gaps?.length ?? 0) > 0 && (
+          <div>
+            <p className="text-xs theme-text-muted mb-1">Brechas / a tener en cuenta</p>
+            <ul className="text-sm theme-text-secondary list-disc pl-5 space-y-0.5">{a.gaps!.map((g, i) => <li key={i}>{g}</li>)}</ul>
+          </div>
+        )}
+        {a.matchingSkills?.length > 0 && (
+          <div>
+            <p className="text-xs theme-text-muted mb-1">Skills coincidentes</p>
+            <div className="flex flex-wrap gap-1.5">{a.matchingSkills.map((s) => <span key={s} className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">{s}</span>)}</div>
+          </div>
+        )}
+        {a.missingSkills?.length > 0 && (
+          <div>
+            <p className="text-xs theme-text-muted mb-1">Skills que pide la oferta y faltan</p>
+            <div className="flex flex-wrap gap-1.5">{a.missingSkills.map((s) => <span key={s} className="text-xs px-2 py-0.5 rounded-full theme-bg-secondary theme-text-muted">{s}</span>)}</div>
+          </div>
+        )}
+        {!hasDetail && <p className="text-xs theme-text-muted">Sin detalle adicional.</p>}
+      </div>
+    );
+  };
+
+  // Clave para agrupar evaluaciones de la misma persona (email o teléfono normalizado).
+  const personKey = (p: IPinnedCandidate): string | null =>
+    p.candidate.email ? p.candidate.email.trim().toLowerCase()
+      : p.candidate.phone ? p.candidate.phone.replace(/\D/g, '')
+      : null;
 
   if (loading || loadingJobs) {
     return (
@@ -863,6 +981,11 @@ export default function EmployerJobsPage() {
                         {job.schedule && `🕐 ${job.schedule}`}
                       </p>
                     )}
+                    {(job.aiUsage?.cvCount ?? 0) > 0 && (
+                      <p className="text-xs theme-text-muted mt-1" title="Gasto estimado de IA (aprox)">
+                        💸 U$D {formatUsd(job.aiUsage!.costUsd)} · {formatTokens(job.aiUsage!.inputTokens + job.aiUsage!.outputTokens)} tokens · {job.aiUsage!.cvCount} CV{job.aiUsage!.cvCount !== 1 ? 's' : ''}
+                      </p>
+                    )}
                   </div>
                   {/* Time remaining */}
                   {job.expiresAt && !job.isExpired && job.active && (
@@ -922,28 +1045,46 @@ export default function EmployerJobsPage() {
                     </div>
                   )}
 
-                  {/* Pinned candidates */}
+                  {/* Ranking de CVs cargados */}
                   {(job.stats.pinned ?? 0) > 0 && (
                     <button
                       onClick={() => openPinnedModal(job)}
                       className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[#7C3AED] bg-[#7C3AED]/10 active:scale-95 transition-transform cursor-pointer"
                     >
-                      <Pin className="h-4 w-4" />
-                      <span className="font-medium">{job.stats.pinned}</span>
+                      <Trophy className="h-4 w-4" />
+                      <span className="font-medium">Ranking ({job.stats.pinned})</span>
+                    </button>
+                  )}
+
+                  {/* Switch IA por oferta (solo si el módulo de IA está activo) */}
+                  {aiOn && (
+                    <button
+                      type="button"
+                      onClick={() => toggleJobAi(job.id, job.aiAssessEnabled !== false)}
+                      role="switch"
+                      aria-checked={job.aiAssessEnabled !== false}
+                      title={job.aiAssessEnabled !== false ? 'Evaluación con IA activada' : 'Evaluación con IA desactivada'}
+                      className="ml-auto inline-flex items-center gap-1.5 px-1 py-1 rounded-lg active:scale-95 transition cursor-pointer"
+                    >
+                      <Sparkles className={`h-3.5 w-3.5 ${job.aiAssessEnabled !== false ? 'text-[#7C3AED]' : 'theme-text-muted'}`} />
+                      <span className={`text-xs font-medium ${job.aiAssessEnabled !== false ? 'text-[#7C3AED]' : 'theme-text-muted'}`}>IA</span>
+                      <span className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${job.aiAssessEnabled !== false ? 'bg-[#7C3AED]' : 'theme-bg-secondary'}`}>
+                        <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${job.aiAssessEnabled !== false ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                      </span>
                     </button>
                   )}
 
                   {/* Evaluar CV (delicado, alineado a la derecha) */}
                   <button
                     onClick={() => openAssessModal(job)}
-                    className={`ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition active:scale-95 cursor-pointer ${
-                      aiOn
+                    className={`${aiOn ? '' : 'ml-auto'} inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition active:scale-95 cursor-pointer ${
+                      aiOn && job.aiAssessEnabled !== false
                         ? 'bg-[#7C3AED]/10 text-[#7C3AED] hover:bg-[#7C3AED]/15'
                         : 'theme-bg-secondary theme-text-secondary hover:opacity-80'
                     }`}
                   >
-                    {aiOn ? <Sparkles className="h-3.5 w-3.5" /> : <FileSearch className="h-3.5 w-3.5" />}
-                    {aiOn ? 'Evaluar CV ✨' : 'Evaluar CV'}
+                    {aiOn && job.aiAssessEnabled !== false ? <Sparkles className="h-3.5 w-3.5" /> : <FileSearch className="h-3.5 w-3.5" />}
+                    {aiOn && job.aiAssessEnabled !== false ? 'Evaluar CV ✨' : 'Evaluar CV'}
                   </button>
                 </div>
               </div>
@@ -988,8 +1129,8 @@ export default function EmployerJobsPage() {
             <div className="flex items-center justify-between p-4 border-b theme-border">
               <div>
                 <h3 className="font-semibold theme-text-primary flex items-center gap-2">
-                  {aiOn ? <Sparkles className="h-5 w-5 text-[#7C3AED]" /> : <FileSearch className="h-5 w-5 text-[#7C3AED]" />}
-                  {aiOn ? 'Evaluar CV con IA' : 'Evaluar CV'}
+                  {aiOn && assessModal.job.aiAssessEnabled !== false ? <Sparkles className="h-5 w-5 text-[#7C3AED]" /> : <FileSearch className="h-5 w-5 text-[#7C3AED]" />}
+                  {aiOn && assessModal.job.aiAssessEnabled !== false ? 'Evaluar CV con IA' : 'Evaluar CV'}
                 </h3>
                 <p className="text-sm theme-text-muted">{assessModal.job.puesto}</p>
               </div>
@@ -1020,15 +1161,20 @@ export default function EmployerJobsPage() {
                 </div>
               </label>
 
-              {/* Items list */}
+              {/* Items list (compacto: el detalle se ve en el Ranking) */}
               {assessItems.map((item) => (
-                <div key={item.id} className="border theme-border rounded-xl p-3 space-y-2">
+                <div key={item.id} className="border theme-border rounded-xl p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium theme-text-primary truncate">{item.file.name}</p>
                     <div className="flex items-center gap-2 shrink-0">
                       {item.status === 'running' && <Loader2 className="h-4 w-4 animate-spin text-[#7C3AED]" />}
                       {item.status === 'pending' && <span className="text-xs theme-text-muted">Pendiente</span>}
-                      {item.status === 'done' && <Check className="h-4 w-4 text-green-600" />}
+                      {item.status === 'done' && item.result && (
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-sm">{renderStars(matchStars(item.result))}</span>
+                          <span className="text-xs theme-text-muted">{item.result.assessment.score}{item.result.mode === 'ai' ? '%' : ' pts'}</span>
+                        </span>
+                      )}
                       {item.status === 'error' && <span className="text-xs text-[#E10600]">Error</span>}
                       {!assessRunning && item.status !== 'running' && (
                         <button onClick={() => removeAssessItem(item.id)} className="p-1 active:theme-bg-secondary rounded-lg cursor-pointer" title="Quitar">
@@ -1039,95 +1185,21 @@ export default function EmployerJobsPage() {
                   </div>
 
                   {item.status === 'error' && (
-                    <p className="text-xs text-[#E10600]">{item.error}</p>
+                    <p className="text-xs text-[#E10600] mt-1">{item.error}</p>
                   )}
 
                   {item.status === 'done' && item.result && (
-                    <div className="space-y-3 pt-1">
-                      {/* Score + verdict */}
-                      <div className="flex items-center gap-4 p-3 rounded-xl theme-bg-secondary">
-                        <div className="flex flex-col">
-                          <div className="text-2xl font-bold theme-text-primary leading-none">
-                            {item.result.assessment.score}
-                            <span className="text-sm theme-text-muted">{item.result.mode === 'ai' ? '%' : ' pts'}</span>
-                          </div>
-                          <div className="mt-1">{renderStars(matchStars(item.result))}</div>
-                        </div>
-                        {item.result.mode === 'ai' && item.result.assessment.recommendation ? (
-                          <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${RECOMMENDATION[item.result.assessment.recommendation]?.cls || ''}`}>
-                            {RECOMMENDATION[item.result.assessment.recommendation]?.label}
-                          </span>
-                        ) : (
-                          <Badge variant="secondary" className="text-xs">
-                            {item.result.assessment.matchType ? MATCH_LABELS[item.result.assessment.matchType] : 'Sin coincidencia'}
-                          </Badge>
-                        )}
-                      </div>
-
-                      {/* Candidate summary */}
-                      <div className="text-sm theme-text-secondary space-y-1">
-                        <p><span className="theme-text-muted">Candidato:</span> {[item.result.candidate.firstName, item.result.candidate.lastName].filter(Boolean).join(' ') || '—'}</p>
-                        {item.result.candidate.email && <p><span className="theme-text-muted">Email:</span> {item.result.candidate.email}</p>}
-                        {item.result.candidate.phone && <p><span className="theme-text-muted">Teléfono:</span> {item.result.candidate.phone}</p>}
-                      </div>
-
-                      {/* AI verdict */}
-                      {item.result.mode === 'ai' && item.result.assessment.summary && (
-                        <p className="text-sm theme-text-primary">{item.result.assessment.summary}</p>
+                    <p className="text-xs mt-1">
+                      {item.result.duplicate === 'file' ? (
+                        <span className="text-amber-600">Ya cargado (CV duplicado)</span>
+                      ) : item.result.duplicate === 'person' ? (
+                        <button onClick={() => openPinnedModal(assessModal.job)} className="text-amber-600 underline cursor-pointer">
+                          Perfil ya en el ranking — comparar
+                        </button>
+                      ) : (
+                        <span className="text-green-600">Agregado al ranking</span>
                       )}
-                      {item.result.mode === 'ai' && (item.result.assessment.strengths?.length ?? 0) > 0 && (
-                        <div>
-                          <p className="text-xs theme-text-muted mb-1">Fortalezas</p>
-                          <ul className="text-sm theme-text-secondary list-disc pl-5 space-y-0.5">
-                            {item.result.assessment.strengths!.map((s, i) => <li key={i}>{s}</li>)}
-                          </ul>
-                        </div>
-                      )}
-                      {item.result.mode === 'ai' && (item.result.assessment.gaps?.length ?? 0) > 0 && (
-                        <div>
-                          <p className="text-xs theme-text-muted mb-1">Brechas / a tener en cuenta</p>
-                          <ul className="text-sm theme-text-secondary list-disc pl-5 space-y-0.5">
-                            {item.result.assessment.gaps!.map((g, i) => <li key={i}>{g}</li>)}
-                          </ul>
-                        </div>
-                      )}
-
-                      {/* Skills */}
-                      {item.result.assessment.matchingSkills.length > 0 && (
-                        <div>
-                          <p className="text-xs theme-text-muted mb-1">Skills coincidentes</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {item.result.assessment.matchingSkills.map((s) => (
-                              <span key={s} className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">{s}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {item.result.assessment.missingSkills.length > 0 && (
-                        <div>
-                          <p className="text-xs theme-text-muted mb-1">Skills que pide la oferta y faltan</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {item.result.assessment.missingSkills.map((s) => (
-                              <span key={s} className="text-xs px-2 py-0.5 rounded-full theme-bg-secondary theme-text-muted">{s}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Fijar */}
-                      <button
-                        onClick={() => pinItem(item)}
-                        disabled={item.pinning || item.pinned}
-                        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition cursor-pointer disabled:opacity-70 ${
-                          item.pinned
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                            : 'bg-[#7C3AED] text-white hover:opacity-90 active:scale-[0.99]'
-                        }`}
-                      >
-                        {item.pinned ? <Check className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-                        {item.pinning ? 'Fijando...' : item.pinned ? 'Fijado a la oferta' : '📌 Fijar a esta oferta'}
-                      </button>
-                    </div>
+                    </p>
                   )}
                 </div>
               ))}
@@ -1135,6 +1207,8 @@ export default function EmployerJobsPage() {
               {/* Evaluar */}
               {(() => {
                 const pendingCount = assessItems.filter((i) => i.status === 'pending' || i.status === 'error').length;
+                const total = assessItems.length;
+                const doneCount = assessItems.filter((i) => i.status === 'done' || i.status === 'error').length;
                 return (
                   <button
                     onClick={runAssessment}
@@ -1144,7 +1218,7 @@ export default function EmployerJobsPage() {
                     {assessRunning ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Analizando...
+                        Analizando {Math.min(doneCount + 1, total)} de {total}…
                       </>
                     ) : (
                       `Evaluar${pendingCount > 0 ? ` (${pendingCount})` : ''}`
@@ -1157,7 +1231,7 @@ export default function EmployerJobsPage() {
         </div>
       )}
 
-      {/* Modal de Candidatos fijados */}
+      {/* Modal Ranking de CVs */}
       {pinnedModal && (
         <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
           <div className="theme-bg-card w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
@@ -1165,8 +1239,8 @@ export default function EmployerJobsPage() {
             <div className="flex items-center justify-between p-4 border-b theme-border">
               <div>
                 <h3 className="font-semibold theme-text-primary flex items-center gap-2">
-                  <Pin className="h-5 w-5 text-[#7C3AED]" />
-                  Candidatos fijados
+                  <Trophy className="h-5 w-5 text-[#7C3AED]" />
+                  Ranking de CVs
                 </h3>
                 <p className="text-sm theme-text-muted">{pinnedModal.job.puesto}</p>
               </div>
@@ -1175,48 +1249,163 @@ export default function EmployerJobsPage() {
               </button>
             </div>
 
+            {/* Filtros: estrellas + seleccionados */}
+            {!loadingPinned && pinnedModal.items.length > 0 && (
+              <div className="flex items-center gap-1.5 px-4 py-2 border-b theme-border overflow-x-auto">
+                {STAR_FILTERS.map((f) => (
+                  <button
+                    key={f.value}
+                    onClick={() => setPinnedMinStars(f.value)}
+                    className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium transition active:scale-95 cursor-pointer ${
+                      pinnedMinStars === f.value
+                        ? 'bg-[#7C3AED] text-white'
+                        : 'theme-bg-secondary theme-text-secondary hover:opacity-80'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setPinnedOnlySelected((v) => !v)}
+                  className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium transition active:scale-95 cursor-pointer flex items-center gap-1 ${
+                    pinnedOnlySelected ? 'bg-amber-500 text-white' : 'theme-bg-secondary theme-text-secondary hover:opacity-80'
+                  }`}
+                >
+                  <Star className="h-3 w-3" /> Seleccionados
+                </button>
+              </div>
+            )}
+
             {/* Body */}
             <div className="p-4 overflow-y-auto flex-1 space-y-3">
               {loadingPinned ? (
                 <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-[#7C3AED]" /></div>
               ) : pinnedModal.items.length === 0 ? (
-                <p className="text-sm theme-text-muted text-center py-8">Todavía no fijaste candidatos a esta oferta.</p>
-              ) : (
-                pinnedModal.items.map((p) => (
-                  <div key={p.id} className="border theme-border rounded-xl p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium theme-text-primary truncate">
-                          {[p.candidate.firstName, p.candidate.lastName].filter(Boolean).join(' ') || 'Sin nombre'}
-                        </p>
-                        {p.candidate.email && <p className="text-xs theme-text-muted truncate">{p.candidate.email}</p>}
-                        {p.candidate.phone && <p className="text-xs theme-text-muted">{p.candidate.phone}</p>}
+                <p className="text-sm theme-text-muted text-center py-8">Todavía no cargaste CVs para esta oferta.</p>
+              ) : (() => {
+                const groups = new Map<string, IPinnedCandidate[]>();
+                pinnedModal.items.forEach((p) => {
+                  const k = personKey(p);
+                  if (k) { const arr = groups.get(k) || []; arr.push(p); groups.set(k, arr); }
+                });
+                const list = pinnedModal.items
+                  .filter((p) => (p.assessment.stars ?? scoreToStars(p.assessment.score)) >= pinnedMinStars)
+                  .filter((p) => !pinnedOnlySelected || p.selected)
+                  .sort((a, b) =>
+                    Number(b.selected) - Number(a.selected)
+                    || (b.assessment.stars ?? scoreToStars(b.assessment.score)) - (a.assessment.stars ?? scoreToStars(a.assessment.score))
+                    || b.assessment.score - a.assessment.score
+                  );
+                if (list.length === 0) {
+                  return <p className="text-sm theme-text-muted text-center py-8">No hay CVs que cumplan el filtro.</p>;
+                }
+                return list.map((p) => {
+                  const k = personKey(p);
+                  const group = k ? groups.get(k) : null;
+                  const isDup = !!group && group.length > 1;
+                  const expanded = expandedRank === p.id;
+                  return (
+                    <div key={p.id} className={`border rounded-xl p-3 ${p.selected ? 'border-amber-400 bg-amber-50/40 dark:bg-amber-900/10' : 'theme-border'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium theme-text-primary truncate flex items-center gap-2">
+                            {[p.candidate.firstName, p.candidate.lastName].filter(Boolean).join(' ') || 'Sin nombre'}
+                            {isDup && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">Duplicado</span>}
+                          </p>
+                          {p.candidate.email && <p className="text-xs theme-text-muted truncate">{p.candidate.email}</p>}
+                          {p.candidate.phone && <p className="text-xs theme-text-muted">{p.candidate.phone}</p>}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => toggleSelected(p)} title={p.selected ? 'Quitar de seleccionados' : 'Marcar como mejor'} className="p-2 rounded-lg cursor-pointer active:scale-95">
+                            <Star className={`h-4 w-4 ${p.selected ? 'text-amber-500 fill-amber-500' : 'theme-text-muted'}`} />
+                          </button>
+                          <button onClick={() => removePin(p.id)} className="p-2 text-[#E10600] hover:bg-[#E10600]/10 rounded-lg transition-colors cursor-pointer" title="Quitar">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => removePin(p.id)}
-                        className="p-2 text-[#E10600] hover:bg-[#E10600]/10 rounded-lg transition-colors cursor-pointer shrink-0"
-                        title="Quitar"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="text-sm font-bold theme-text-primary">
-                        {p.assessment.score}{p.assessment.mode === 'ai' ? '%' : ' pts'}
-                      </span>
-                      {renderStars(p.assessment.stars ?? 0)}
-                      {p.assessment.mode === 'ai' && p.assessment.recommendation && (
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${RECOMMENDATION[p.assessment.recommendation]?.cls || ''}`}>
-                          {RECOMMENDATION[p.assessment.recommendation]?.label}
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        <span className="text-sm font-bold theme-text-primary">
+                          {p.assessment.score}{p.assessment.mode === 'ai' ? '%' : ' pts'}
                         </span>
-                      )}
-                      {p.assessment.mode === 'basic' && p.assessment.matchType && (
-                        <Badge variant="secondary" className="text-xs">{MATCH_LABELS[p.assessment.matchType]}</Badge>
-                      )}
+                        {renderStars(p.assessment.stars ?? scoreToStars(p.assessment.score))}
+                        {p.assessment.mode === 'ai' && p.assessment.recommendation && (
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${RECOMMENDATION[p.assessment.recommendation]?.cls || ''}`}>
+                            {RECOMMENDATION[p.assessment.recommendation]?.label}
+                          </span>
+                        )}
+                        {p.assessment.mode === 'basic' && p.assessment.matchType && (
+                          <Badge variant="secondary" className="text-xs">{MATCH_LABELS[p.assessment.matchType]}</Badge>
+                        )}
+                        {isDup && (
+                          <button onClick={() => setCompareGroup(group)} className="text-xs text-amber-600 flex items-center gap-1 cursor-pointer">
+                            <Columns2 className="h-3 w-3" /> Comparar
+                          </button>
+                        )}
+                        <button onClick={() => setExpandedRank(expanded ? null : p.id)} className="ml-auto text-xs theme-text-secondary flex items-center gap-1 cursor-pointer">
+                          {expanded ? <>Ocultar <ChevronUp className="h-3 w-3" /></> : <>Ver detalle <ChevronDown className="h-3 w-3" /></>}
+                        </button>
+                      </div>
+                      {expanded && <div className="mt-3 pt-3 border-t theme-border">{renderAssessmentDetail(p.assessment)}</div>}
                     </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Comparar (mismo perfil) */}
+      {compareGroup && (
+        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-[60]">
+          <div className="theme-bg-card w-full sm:max-w-2xl sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b theme-border">
+              <div>
+                <h3 className="font-semibold theme-text-primary flex items-center gap-2">
+                  <Columns2 className="h-5 w-5 text-[#7C3AED]" /> Comparar CVs del mismo perfil
+                </h3>
+                <p className="text-sm theme-text-muted">
+                  {[compareGroup[0].candidate.firstName, compareGroup[0].candidate.lastName].filter(Boolean).join(' ') || 'Sin nombre'}
+                </p>
+              </div>
+              <button onClick={() => setCompareGroup(null)} className="p-1 active:theme-bg-secondary rounded-lg cursor-pointer">
+                <X className="h-5 w-5 theme-text-secondary" />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {compareGroup.map((p) => (
+                <div key={p.id} className="border theme-border rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs theme-text-muted">
+                      {p.assessment.mode === 'ai' ? 'IA' : 'Básico'}{p.createdAt ? ` · ${new Date(p.createdAt).toLocaleDateString()}` : ''}
+                    </span>
+                    <button
+                      onClick={() => {
+                        removePin(p.id);
+                        setCompareGroup((g) => {
+                          const ng = (g || []).filter((x) => x.id !== p.id);
+                          return ng.length > 1 ? ng : null;
+                        });
+                      }}
+                      className="p-1.5 text-[#E10600] hover:bg-[#E10600]/10 rounded-lg cursor-pointer"
+                      title="Quitar"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
-                ))
-              )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold theme-text-primary">{p.assessment.score}{p.assessment.mode === 'ai' ? '%' : ' pts'}</span>
+                    {renderStars(p.assessment.stars ?? scoreToStars(p.assessment.score))}
+                  </div>
+                  {p.assessment.mode === 'ai' && p.assessment.recommendation && (
+                    <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full ${RECOMMENDATION[p.assessment.recommendation]?.cls || ''}`}>
+                      {RECOMMENDATION[p.assessment.recommendation]?.label}
+                    </span>
+                  )}
+                  {renderAssessmentDetail(p.assessment)}
+                </div>
+              ))}
             </div>
           </div>
         </div>

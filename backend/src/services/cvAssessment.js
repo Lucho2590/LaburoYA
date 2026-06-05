@@ -177,6 +177,7 @@ async function assessBasic(buffer, mimeType, fileName, offer) {
     },
     assessment: {
       score: result.score,
+      stars: result.stars,
       matchType: result.matchType,
       rubroMatch: result.details.rubroMatch,
       puestoMatch: result.details.puestoMatch,

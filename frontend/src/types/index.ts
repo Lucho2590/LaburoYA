@@ -81,6 +81,7 @@ export interface IJobOffer {
   expiresAt?: string;
   createdAt?: string;
   updatedAt?: string;
+  aiAssessEnabled?: boolean; // Per-offer toggle: use AI for CV assessment (default true)
 }
 
 export interface IJobCategory {
@@ -186,6 +187,7 @@ export interface IRelevanceDetails {
 
 export interface IRelevance {
   score: number;
+  stars?: number; // 1-5 derived from score (backend is the source of truth)
   matchType: TMatchType | null;
   details: IRelevanceDetails;
 }
@@ -199,6 +201,7 @@ export interface IRelevantOffer extends IJobOffer {
 export interface IRelevantWorker extends IWorkerProfile {
   relevance: IRelevance;
   bestScore?: number;
+  bestStars?: number;
   bestMatchType?: TMatchType;
   bestOffer?: IJobOffer;
   hasRequested?: boolean;
@@ -341,6 +344,9 @@ export interface ICvCandidate {
 export interface IAssessCvResponse {
   mode: 'basic' | 'ai';
   source?: 'text' | 'ocr'; // ai mode only
+  id?: string; // ranking entry id (persisted automatically)
+  duplicate?: 'file' | 'person'; // 'file' = mismo archivo; 'person' = misma persona
+  existingId?: string; // id de la entrada ya existente (para comparar/avisar)
   candidate: Partial<ICvCandidate> & {
     firstName: string | null;
     lastName: string | null;
@@ -349,6 +355,7 @@ export interface IAssessCvResponse {
   };
   assessment: {
     score: number;
+    stars?: number; // 1-5 derived from score (backend)
     matchingSkills: string[];
     missingSkills: string[];
     // ai mode (recruiter verdict)
@@ -366,6 +373,8 @@ export interface IAssessCvResponse {
 
 export interface IPinnedCandidate {
   id: string;
+  selected?: boolean;
+  fileHash?: string;
   candidate: {
     firstName: string | null;
     lastName: string | null;
@@ -377,11 +386,14 @@ export interface IPinnedCandidate {
   };
   assessment: {
     mode: 'basic' | 'ai';
+    source?: 'text' | 'ocr';
     score: number;
     stars: number;
     matchType?: 'full_match' | 'partial_match' | 'skills_match' | null;
     recommendation?: 'yes' | 'maybe' | 'no';
     summary?: string | null;
+    strengths?: string[];
+    gaps?: string[];
     matchingSkills: string[];
     missingSkills: string[];
   };

@@ -246,6 +246,8 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
         zona: data.zona,
         businessName: data.businessName || null,
         availability: data.availability || null,
+        aiAssessEnabled: data.aiAssessEnabled !== false,
+        aiUsage: data.aiUsage || null,
         requiredSkills: data.requiredSkills || [],
         active: data.active !== false,
         isExpired,
