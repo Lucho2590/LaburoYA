@@ -8,9 +8,10 @@ import { api } from '@/services/api';
 import { JOB_CATEGORIES, TRubro, getSuggestedSkills } from '@/config/constants';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate } from '@/types';
+import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate, IGeoLocation } from '@/types';
 import { scoreToStars, STAR_MAX, STAR_FILTERS } from '@/lib/stars';
-import { Check, Plus, X, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2 } from 'lucide-react';
+import { getBrowserLocation } from '@/lib/geo';
+import { Check, Plus, X, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, MapPin } from 'lucide-react';
 
 interface InterestedWorker extends IWorkerProfile {
   firstName?: string;
@@ -112,6 +113,8 @@ export default function EmployerJobsPage() {
   });
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [customSkill, setCustomSkill] = useState('');
+  const [location, setLocation] = useState<IGeoLocation | null>(null);
+  const [locating, setLocating] = useState(false);
 
   const effectiveRole = getEffectiveAppRole();
   const aiOn = !!userData?.aiCvEnabled;
@@ -120,9 +123,23 @@ export default function EmployerJobsPage() {
     setFormData({ rubro: '', customRubro: '', puesto: '', customPuesto: '', description: '', salary: '', schedule: '', businessName: '', zona: '', availability: '' });
     setSelectedSkills([]);
     setCustomSkill('');
+    setLocation(null);
     setEditingJob(null);
     setShowForm(false);
   }, []);
+
+  const handleUseOfferLocation = async () => {
+    setLocating(true);
+    try {
+      const coords = await getBrowserLocation();
+      setLocation(coords);
+      toast.success('Ubicación del lugar de trabajo capturada.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo obtener la ubicación');
+    } finally {
+      setLocating(false);
+    }
+  };
 
   // Set page config based on current view
   useEffect(() => {
@@ -258,6 +275,7 @@ export default function EmployerJobsPage() {
       availability: ((job as DashboardOffer & { availability?: string }).availability || '') as '' | 'part-time' | 'full-time',
     });
     setSelectedSkills(job.requiredSkills || []);
+    setLocation((job as DashboardOffer & { location?: IGeoLocation | null }).location || null);
     setShowForm(true);
   };
 
@@ -282,6 +300,7 @@ export default function EmployerJobsPage() {
         businessName: formData.businessName || undefined,
         zona: formData.zona || undefined,
         availability: formData.availability || undefined,
+        location,
       };
 
       if (editingJob) {
@@ -845,6 +864,37 @@ export default function EmployerJobsPage() {
             placeholder="Ej: Centro, Güemes, Puerto..."
             className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
           />
+
+          {/* Ubicación del lugar de trabajo (para ordenar por cercanía) */}
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleUseOfferLocation}
+              disabled={locating}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 theme-border theme-bg-card theme-text-primary hover:border-[#E10600] disabled:opacity-50"
+            >
+              <MapPin className="w-4 h-4" />
+              {locating ? 'Obteniendo ubicación...' : location ? 'Actualizar ubicación' : 'Usar ubicación actual'}
+            </button>
+            {location ? (
+              <span className="text-sm text-[#12B76A] flex items-center gap-1">
+                <Check className="w-4 h-4" /> Ubicación del trabajo activada
+              </span>
+            ) : (
+              <span className="text-sm theme-text-muted">
+                Marcá la ubicación del trabajo para priorizar candidatos cercanos.
+              </span>
+            )}
+          </div>
+          {location && (
+            <button
+              type="button"
+              onClick={() => setLocation(null)}
+              className="mt-2 text-xs theme-text-muted underline"
+            >
+              Quitar ubicación
+            </button>
+          )}
         </div>
 
         {/* Availability */}

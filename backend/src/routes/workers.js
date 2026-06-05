@@ -30,7 +30,7 @@ router.get('/skills/:rubro', (req, res) => {
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { rubro, puesto, zona, localidad, photoUrl, videoUrl, description, experience, skills } = req.body;
+    const { rubro, puesto, zona, localidad, photoUrl, videoUrl, description, experience, skills, location } = req.body;
 
     if (!rubro || !puesto) {
       return res.status(400).json({ error: 'rubro and puesto are required' });
@@ -64,6 +64,13 @@ router.post('/', authMiddleware, async (req, res, next) => {
       active: true,
       updatedAt: new Date()
     };
+
+    // Only touch location when the client sends it, so a regular profile save
+    // doesn't wipe a previously captured location.
+    if (location !== undefined) {
+      const sanitized = matchingService.sanitizeLocation(location);
+      workerData.location = sanitized ? { ...sanitized, updatedAt: new Date() } : null;
+    }
 
     // Check if profile exists
     const existingProfile = await db.collection('workers').doc(uid).get();

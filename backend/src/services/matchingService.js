@@ -19,6 +19,45 @@ const SCORES = {
   EXPERIENCE_BONUS: 3
 };
 
+// Proximity (geolocation-based) tuning, on Mar del Plata scale.
+const PROXIMITY = {
+  MAX_KM: 18,   // at/above this distance proximity contributes 0 points
+  NEAR_KM: 3    // at/below this distance counts as a "same area" match (FULL_MATCH badge)
+};
+
+// Great-circle distance in km between two { lat, lng } points.
+function haversineKm(a, b) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const R = 6371; // Earth radius km
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+// Returns a valid { lat, lng } from a location-like object, or null.
+function validCoords(loc) {
+  if (!loc) return null;
+  const lat = Number(loc.lat);
+  const lng = Number(loc.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
+}
+
+// Sanitize a location payload before persisting: validate and round to ~3
+// decimals (~100 m) for privacy. Returns { lat, lng } or null if invalid.
+function sanitizeLocation(loc) {
+  const coords = validCoords(loc);
+  if (!coords) return null;
+  return {
+    lat: Math.round(coords.lat * 1000) / 1000,
+    lng: Math.round(coords.lng * 1000) / 1000
+  };
+}
+
 // Map a 0-100 relevance/fit score to a 1-5 star rating (single source of truth).
 function scoreToStars(score) {
   const s = Number(score) || 0;
@@ -44,6 +83,7 @@ class MatchingService {
       rubroMatch: false,
       puestoMatch: false,
       zonaMatch: false,
+      distanceKm: null,
       matchingSkills: [],
       bonuses: []
     };
@@ -56,11 +96,21 @@ class MatchingService {
     if (rubroMatch) score += SCORES.RUBRO_MATCH;
     if (puestoMatch) score += SCORES.PUESTO_MATCH;
 
-    // --- Zona (only meaningful when both sides declare a zona) ---
-    const zonaApplicable = !!worker.zona && !!offer.zona;
-    const zonaMatch = zonaApplicable && worker.zona === offer.zona;
+    // --- Proximity (geolocation): scored only when BOTH sides have coordinates.
+    // Closer = more points, decaying linearly to 0 at PROXIMITY.MAX_KM. If either
+    // side lacks coords we add nothing (no fallback to exact-zona scoring).
+    const workerCoords = validCoords(worker.location);
+    const offerCoords = validCoords(offer.location);
+    let zonaMatch = false;
+    if (workerCoords && offerCoords) {
+      const distanceKm = haversineKm(workerCoords, offerCoords);
+      details.distanceKm = Math.round(distanceKm * 10) / 10;
+      const decay = Math.max(0, 1 - distanceKm / PROXIMITY.MAX_KM);
+      score += Math.round(decay * SCORES.ZONA_MATCH);
+      // "Same area" when close enough — drives the FULL_MATCH badge below.
+      zonaMatch = distanceKm <= PROXIMITY.NEAR_KM;
+    }
     details.zonaMatch = zonaMatch;
-    if (zonaMatch) score += SCORES.ZONA_MATCH;
 
     // --- Skills: proportional to required-skills coverage ---
     const workerSkills = worker.skills || [];
@@ -495,3 +545,4 @@ module.exports = matchingServiceInstance;
 module.exports.MATCH_TYPES = MATCH_TYPES;
 module.exports.SCORES = SCORES;
 module.exports.scoreToStars = scoreToStars;
+module.exports.sanitizeLocation = sanitizeLocation;

@@ -362,6 +362,11 @@ function OfferCard({
                 {offer.zona}
               </span>
             )}
+            {typeof offer.relevance?.details?.distanceKm === 'number' && (
+              <span className="flex items-center gap-0.5 text-[#E10600] font-medium">
+                a {offer.relevance.details.distanceKm} km
+              </span>
+            )}
             {offer.salary && (
               <span className="text-green-600 font-medium">{offer.salary}</span>
             )}
@@ -446,6 +451,11 @@ function WorkerCard({
               <span className="flex items-center gap-0.5">
                 <MapPin className="h-3 w-3" />
                 {worker.zona}
+              </span>
+            )}
+            {typeof worker.relevance?.details?.distanceKm === 'number' && (
+              <span className="flex items-center gap-0.5 text-[#E10600] font-medium">
+                a {worker.relevance.details.distanceKm} km
               </span>
             )}
           </div>
