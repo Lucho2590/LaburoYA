@@ -52,12 +52,16 @@ function validCoords(loc) {
 }
 
 // Resuelve coordenadas usables para una entidad (worker u oferta):
-// prefiere GPS preciso; si falta, cae al centroide de la zona normalizada.
-// Devuelve { lat, lng, source: 'gps'|'zona' } o null.
+// prefiere GPS preciso; si falta, cae al centro de su CIUDAD; y como último
+// recurso, al centroide de la zona (legacy, sólo zonas de Mar del Plata).
+// Devuelve { lat, lng, source: 'gps'|'city'|'zona' } o null.
 function resolveCoords(entity) {
   if (!entity) return null;
   const gps = validCoords(entity.location);
   if (gps) return { ...gps, source: 'gps' };
+  const cityDoc = entity.city ? citiesService.findCitySync(entity.city) : null;
+  const cityCenter = cityDoc && validCoords(cityDoc.center);
+  if (cityCenter) return { ...cityCenter, source: 'city' };
   const centroid = zonaCentroid(entity.zona);
   if (centroid) return { ...centroid, source: 'zona' };
   return null;
@@ -154,12 +158,19 @@ class MatchingService {
     // --- Proximity: coords resueltas (GPS preciso, con fallback al centroide de
     // la zona). El radio del match lo define la ciudad de la oferta. Dentro del
     // radio ⇒ "en zona" (puntaje pleno); entre radio y 2x radio ⇒ decae.
+    // Filtro por ciudad (blando): si ambos tienen ciudad y son distintas, no hay
+    // puntaje de zona (la zona "Centro" de una ciudad no equivale a la de otra).
+    // Si el worker no tiene ciudad, se cae a proximidad por GPS/zona como antes.
+    const offerCityDoc = offer.city ? citiesService.findCitySync(offer.city) : null;
+    const workerCityDoc = worker.city ? citiesService.findCitySync(worker.city) : null;
+    const differentCity = !!(offerCityDoc && workerCityDoc && offerCityDoc.id !== workerCityDoc.id);
+
     const wRes = resolveCoords(worker);
     const oRes = resolveCoords(offer);
     const radiusKm = citiesService.radiusForOfferSync(offer);
     let zonaMatch = false;
     details.approximate = false;
-    if (wRes && oRes) {
+    if (!differentCity && wRes && oRes) {
       const distanceKm = haversineKm(wRes, oRes);
       details.distanceKm = Math.round(distanceKm * 10) / 10;
       // Aproximado si algún lado provino de un centroide de zona (no GPS).

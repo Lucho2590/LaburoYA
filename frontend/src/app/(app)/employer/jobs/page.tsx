@@ -58,7 +58,7 @@ interface AssessItem {
 }
 
 const MAX_CVS = 20;
-const AI_PACING_MS = 3000; // espaciado entre llamadas de IA para no gatillar el rate-limit
+const AI_PACING_MS = 1200; // espaciado entre llamadas de IA para no gatillar el rate-limit
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -137,7 +137,11 @@ export default function EmployerJobsPage() {
   // Carga las ciudades donde opera la app (centro/radio para el mapa).
   useEffect(() => {
     api.getCities()
-      .then(({ cities }) => setCities(cities))
+      .then(({ cities }) => {
+        setCities(cities);
+        // La oferta debe tener ciudad: preseleccionamos la primera si no hay una elegida.
+        setCityName((prev) => prev || cities[0]?.nombre || '');
+      })
       .catch(() => {});
   }, []);
 
@@ -306,6 +310,12 @@ export default function EmployerJobsPage() {
       return;
     }
 
+    const finalCity = cityName || selectedCity?.nombre || '';
+    if (!finalCity) {
+      toast.error('Seleccioná la ciudad de la oferta');
+      return;
+    }
+
     setSaving(true);
     try {
       const offerData = {
@@ -317,7 +327,7 @@ export default function EmployerJobsPage() {
         requiredSkills: selectedSkills.length > 0 ? selectedSkills : undefined,
         businessName: formData.businessName || undefined,
         zona: formData.zona || undefined,
-        city: cityName || selectedCity?.nombre || undefined,
+        city: finalCity,
         radiusKm: offerRadius ?? undefined,
         availability: formData.availability || undefined,
         location,
@@ -926,11 +936,11 @@ export default function EmployerJobsPage() {
           />
         </div>
 
-        {/* Ciudad */}
-        {cities.length > 1 && (
+        {/* Ciudad (obligatoria) */}
+        {cities.length > 0 && (
           <div>
             <label className="block text-sm font-medium theme-text-muted mb-2">
-              Ciudad
+              Ciudad <span className="text-[#E10600]">*</span>
             </label>
             <select
               value={cityName}
