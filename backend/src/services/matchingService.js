@@ -1,4 +1,6 @@
 const { getDb } = require('../config/firebase');
+const { zonaCentroid, normalizeZona } = require('../utils/constants');
+const citiesService = require('./citiesService');
 
 // Match type constants
 const MATCH_TYPES = {
@@ -19,10 +21,12 @@ const SCORES = {
   EXPERIENCE_BONUS: 3
 };
 
-// Proximity (geolocation-based) tuning, on Mar del Plata scale.
+// Proximity (geolocation-based) tuning.
+// El "radio" de match lo define la ciudad de la oferta (citiesService). Si una
+// entidad no tiene GPS, se cae al centroide de su zona (aprox). Dentro del radio
+// cuenta como "en zona" (puntaje pleno); entre radio y 2x radio decae linealmente.
 const PROXIMITY = {
-  MAX_KM: 18,   // at/above this distance proximity contributes 0 points
-  NEAR_KM: 3    // at/below this distance counts as a "same area" match (FULL_MATCH badge)
+  ZONA_APPROX_CAP: 12 // tope de puntos cuando algún lado usa centroide de zona (aprox)
 };
 
 // Great-circle distance in km between two { lat, lng } points.
@@ -45,6 +49,18 @@ function validCoords(loc) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
   return { lat, lng };
+}
+
+// Resuelve coordenadas usables para una entidad (worker u oferta):
+// prefiere GPS preciso; si falta, cae al centroide de la zona normalizada.
+// Devuelve { lat, lng, source: 'gps'|'zona' } o null.
+function resolveCoords(entity) {
+  if (!entity) return null;
+  const gps = validCoords(entity.location);
+  if (gps) return { ...gps, source: 'gps' };
+  const centroid = zonaCentroid(entity.zona);
+  if (centroid) return { ...centroid, source: 'zona' };
+  return null;
 }
 
 // Sanitize a location payload before persisting: validate and round to ~3
@@ -96,19 +112,33 @@ class MatchingService {
     if (rubroMatch) score += SCORES.RUBRO_MATCH;
     if (puestoMatch) score += SCORES.PUESTO_MATCH;
 
-    // --- Proximity (geolocation): scored only when BOTH sides have coordinates.
-    // Closer = more points, decaying linearly to 0 at PROXIMITY.MAX_KM. If either
-    // side lacks coords we add nothing (no fallback to exact-zona scoring).
-    const workerCoords = validCoords(worker.location);
-    const offerCoords = validCoords(offer.location);
+    // --- Proximity: coords resueltas (GPS preciso, con fallback al centroide de
+    // la zona). El radio del match lo define la ciudad de la oferta. Dentro del
+    // radio ⇒ "en zona" (puntaje pleno); entre radio y 2x radio ⇒ decae.
+    const wRes = resolveCoords(worker);
+    const oRes = resolveCoords(offer);
+    const radiusKm = citiesService.radiusForOfferSync(offer);
     let zonaMatch = false;
-    if (workerCoords && offerCoords) {
-      const distanceKm = haversineKm(workerCoords, offerCoords);
+    details.approximate = false;
+    if (wRes && oRes) {
+      const distanceKm = haversineKm(wRes, oRes);
       details.distanceKm = Math.round(distanceKm * 10) / 10;
-      const decay = Math.max(0, 1 - distanceKm / PROXIMITY.MAX_KM);
-      score += Math.round(decay * SCORES.ZONA_MATCH);
-      // "Same area" when close enough — drives the FULL_MATCH badge below.
-      zonaMatch = distanceKm <= PROXIMITY.NEAR_KM;
+      // Aproximado si algún lado provino de un centroide de zona (no GPS).
+      const approximate = wRes.source === 'zona' || oRes.source === 'zona';
+      details.approximate = approximate;
+      if (distanceKm <= radiusKm) {
+        // Dentro del catchment de la ciudad ⇒ "en zona", puntaje pleno.
+        zonaMatch = true;
+        let pts = SCORES.ZONA_MATCH;
+        if (approximate) pts = Math.min(pts, PROXIMITY.ZONA_APPROX_CAP);
+        score += pts;
+      } else if (distanceKm <= radiusKm * 2) {
+        // Buffer: decaimiento lineal para zonas/ciudades vecinas.
+        const decay = Math.max(0, 1 - (distanceKm - radiusKm) / radiusKm);
+        let pts = Math.round(decay * SCORES.ZONA_MATCH);
+        if (approximate) pts = Math.min(pts, PROXIMITY.ZONA_APPROX_CAP);
+        score += pts;
+      }
     }
     details.zonaMatch = zonaMatch;
 
@@ -163,6 +193,7 @@ class MatchingService {
    */
   async getRelevantOffersForWorker(workerId) {
     const db = getDb();
+    await citiesService.ensureLoaded();
 
     // Get worker profile
     const workerDoc = await db.collection('workers').doc(workerId).get();
@@ -233,6 +264,7 @@ class MatchingService {
    */
   async getRelevantWorkersForOffer(offerId, employerId) {
     const db = getDb();
+    await citiesService.ensureLoaded();
 
     // Get job offer
     const offerDoc = await db.collection('jobOffers').doc(offerId).get();
@@ -286,6 +318,7 @@ class MatchingService {
    */
   async getAllRelevantWorkersForEmployer(employerId) {
     const db = getDb();
+    await citiesService.ensureLoaded();
 
     // Get all employer's active offers
     const offersSnapshot = await db.collection('jobOffers')
@@ -546,3 +579,5 @@ module.exports.MATCH_TYPES = MATCH_TYPES;
 module.exports.SCORES = SCORES;
 module.exports.scoreToStars = scoreToStars;
 module.exports.sanitizeLocation = sanitizeLocation;
+module.exports.resolveCoords = resolveCoords;
+module.exports.haversineKm = haversineKm;

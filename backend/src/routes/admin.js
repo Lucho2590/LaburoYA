@@ -7,6 +7,9 @@ const { sendInvitationEmail } = require('../services/emailService');
 const adminSecurity = require('../services/adminSecurity');
 const aiProvider = require('../services/aiProvider');
 const pdfParser = require('../services/pdfParser');
+const citiesService = require('../services/citiesService');
+const locationService = require('../services/locationService');
+const { normalizeZona } = require('../utils/constants');
 
 const router = express.Router();
 
@@ -118,12 +121,24 @@ router.post('/users', async (req, res, next) => {
     // 2b. Si role=worker y vienen datos de worker profile, crear el perfil
     let workerProfileCreated = false;
     if (role === 'worker' && workerProfile && workerProfile.rubro && workerProfile.puesto) {
+      const canonicalZona = normalizeZona(workerProfile.zona) || workerProfile.zona || null;
+      // Geocodifica zona/localidad -> coords + city para que el perfil cargado
+      // desde CV participe del matching por proximidad.
+      const { location, city } = await locationService.enrichLocation({
+        location: workerProfile.location,
+        city: workerProfile.city,
+        zona: canonicalZona,
+        localidad: workerProfile.localidad,
+        address: workerProfile.address
+      });
       const profileData = {
         uid: userRecord.uid,
         rubro: workerProfile.rubro,
         puesto: workerProfile.puesto,
-        zona: workerProfile.zona || null,
+        zona: canonicalZona,
         localidad: workerProfile.localidad || null,
+        city: city || null,
+        location: location ? { ...location, updatedAt: new Date() } : null,
         description: workerProfile.description || null,
         experience: workerProfile.experience || null,
         skills: Array.isArray(workerProfile.skills) ? workerProfile.skills : [],
@@ -1218,6 +1233,196 @@ router.delete('/rubros/:rubroId', async (req, res, next) => {
 });
 
 // ============================================
+// CITIES CRUD (Ciudades donde opera la app)
+// ============================================
+
+// Valida y normaliza un center { lat, lng }. Devuelve null si es inválido.
+function parseCenter(center) {
+  if (!center || typeof center !== 'object') return null;
+  const lat = Number(center.lat);
+  const lng = Number(center.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
+}
+
+function parseZonas(zonas) {
+  if (!Array.isArray(zonas)) return [];
+  return [...new Set(zonas.map(z => String(z || '').trim()).filter(Boolean))];
+}
+
+function serializeCity(doc) {
+  const data = doc.data();
+  return {
+    id: doc.id,
+    ...data,
+    createdAt: data.createdAt?.toDate?.() || data.createdAt,
+    updatedAt: data.updatedAt?.toDate?.() || data.updatedAt
+  };
+}
+
+// GET /api/admin/cities - List all cities (including inactive)
+router.get('/cities', async (req, res, next) => {
+  try {
+    const db = getDb();
+    let snapshot;
+    try {
+      snapshot = await db.collection('cities').orderBy('orden', 'asc').get();
+    } catch (error) {
+      if (error.code === 9) {
+        snapshot = await db.collection('cities').get();
+      } else {
+        throw error;
+      }
+    }
+    const cities = snapshot.docs.map(serializeCity);
+    cities.sort((a, b) => (a.orden || 0) - (b.orden || 0));
+    res.json({ cities });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/admin/cities - Create city
+router.post('/cities', async (req, res, next) => {
+  try {
+    const { nombre, center, radiusKm, zonas, activo = true, orden = 0 } = req.body;
+
+    if (!nombre || nombre.trim() === '') {
+      return res.status(400).json({ error: 'El nombre es requerido' });
+    }
+    const parsedCenter = parseCenter(center);
+    if (!parsedCenter) {
+      return res.status(400).json({ error: 'El centro (lat/lng) es inválido' });
+    }
+    const radius = Number(radiusKm);
+    if (!Number.isFinite(radius) || radius <= 0) {
+      return res.status(400).json({ error: 'El radio (radiusKm) debe ser mayor a 0' });
+    }
+
+    const db = getDb();
+    const existing = await db.collection('cities')
+      .where('nombre', '==', nombre.trim())
+      .limit(1)
+      .get();
+    if (!existing.empty) {
+      return res.status(400).json({ error: 'Ya existe una ciudad con ese nombre' });
+    }
+
+    const cityData = {
+      nombre: nombre.trim(),
+      center: parsedCenter,
+      radiusKm: radius,
+      zonas: parseZonas(zonas),
+      activo: Boolean(activo),
+      orden: Number(orden) || 0,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const cityRef = await db.collection('cities').add(cityData);
+    citiesService.ensureLoaded(true).catch(() => {});
+
+    res.status(201).json({ id: cityRef.id, ...cityData });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/admin/cities/:cityId - Update city
+router.patch('/cities/:cityId', async (req, res, next) => {
+  try {
+    const { cityId } = req.params;
+    const db = getDb();
+
+    const cityRef = db.collection('cities').doc(cityId);
+    const cityDoc = await cityRef.get();
+    if (!cityDoc.exists) {
+      return res.status(404).json({ error: 'Ciudad no encontrada' });
+    }
+
+    const updates = { updatedAt: new Date() };
+
+    if (req.body.nombre !== undefined) {
+      if (String(req.body.nombre).trim() === '') {
+        return res.status(400).json({ error: 'El nombre no puede estar vacío' });
+      }
+      updates.nombre = String(req.body.nombre).trim();
+    }
+    if (req.body.center !== undefined) {
+      const parsedCenter = parseCenter(req.body.center);
+      if (!parsedCenter) {
+        return res.status(400).json({ error: 'El centro (lat/lng) es inválido' });
+      }
+      updates.center = parsedCenter;
+    }
+    if (req.body.radiusKm !== undefined) {
+      const radius = Number(req.body.radiusKm);
+      if (!Number.isFinite(radius) || radius <= 0) {
+        return res.status(400).json({ error: 'El radio (radiusKm) debe ser mayor a 0' });
+      }
+      updates.radiusKm = radius;
+    }
+    if (req.body.zonas !== undefined) {
+      updates.zonas = parseZonas(req.body.zonas);
+    }
+    if (req.body.activo !== undefined) {
+      updates.activo = Boolean(req.body.activo);
+    }
+    if (req.body.orden !== undefined) {
+      updates.orden = Number(req.body.orden) || 0;
+    }
+
+    await cityRef.update(updates);
+    citiesService.ensureLoaded(true).catch(() => {});
+
+    const updatedDoc = await cityRef.get();
+    res.json(serializeCity(updatedDoc));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/admin/cities/:cityId - Delete city
+router.delete('/cities/:cityId', async (req, res, next) => {
+  try {
+    const { cityId } = req.params;
+    const db = getDb();
+
+    const cityRef = db.collection('cities').doc(cityId);
+    const cityDoc = await cityRef.get();
+    if (!cityDoc.exists) {
+      return res.status(404).json({ error: 'Ciudad no encontrada' });
+    }
+    const cityName = cityDoc.data().nombre;
+
+    // No permitir borrar si hay ofertas o workers usando la ciudad (por id o nombre).
+    for (const value of [cityId, cityName]) {
+      if (!value) continue;
+      const offers = await db.collection('jobOffers').where('city', '==', value).limit(1).get();
+      if (!offers.empty) {
+        return res.status(400).json({
+          error: 'No se puede eliminar. Hay ofertas usando esta ciudad. Desactivala en su lugar.'
+        });
+      }
+      const workers = await db.collection('workers').where('city', '==', value).limit(1).get();
+      if (!workers.empty) {
+        return res.status(400).json({
+          error: 'No se puede eliminar. Hay perfiles usando esta ciudad. Desactivala en su lugar.'
+        });
+      }
+    }
+
+    await cityRef.delete();
+    citiesService.ensureLoaded(true).catch(() => {});
+
+    res.json({ message: 'Ciudad eliminada correctamente' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
 // LEADS CRUD (Waitlist)
 // ============================================
 
@@ -1674,7 +1879,7 @@ router.post('/parse-cv', pdfUpload.single('pdf'), async (req, res, next) => {
       phone: aiFields.phone || heuristic.fields.phone,
       rubro: aiFields.rubro || null,
       puesto: aiFields.puesto || null,
-      zona: aiFields.zona || null,
+      zona: normalizeZona(aiFields.zona) || aiFields.zona || null,
       description: aiFields.description || null,
       experience: aiFields.experience || null,
       skills: Array.isArray(aiFields.skills) ? aiFields.skills : []

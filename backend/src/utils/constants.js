@@ -137,11 +137,93 @@ const ZONAS_MDP = [
   'Otras'
 ];
 
+// Centro aproximado de Mar del Plata (usado como default de seed de ciudad).
+const MDP_CENTER = { lat: -38.0023, lng: -57.5575 };
+
+// Centroides aproximados de los barrios de Mar del Plata. Solo se usan como
+// fallback cuando una entidad no tiene coordenadas precisas (GPS/geocoding):
+// permiten estimar proximidad a partir de la zona categórica. 'Otras' = sin
+// centroide (se trata como sin ubicación).
+const ZONA_CENTROIDS = {
+  'Centro': { lat: -38.0028, lng: -57.5426 },
+  'La Perla': { lat: -37.9866, lng: -57.5430 },
+  'Güemes': { lat: -38.0090, lng: -57.5460 },
+  'Los Troncos': { lat: -38.0145, lng: -57.5480 },
+  'San Juan': { lat: -38.0210, lng: -57.5760 },
+  'Constitución': { lat: -37.9560, lng: -57.5560 },
+  'Puerto': { lat: -38.0360, lng: -57.5310 },
+  'Punta Mogotes': { lat: -38.0720, lng: -57.5430 },
+  'Otras': null
+};
+
+/** Lowercase + strip accents/diacritics for tolerant matching. */
+function normalizeStr(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim();
+}
+
+// Variantes de texto libre frecuentes -> etiqueta canónica de ZONAS_MDP.
+// Las claves ya están normalizadas (sin acentos, minúsculas).
+const ZONA_SYNONYMS = {
+  'centro': 'Centro', 'microcentro': 'Centro', 'centro de mar del plata': 'Centro',
+  'la perla': 'La Perla', 'perla': 'La Perla', 'playa la perla': 'La Perla',
+  'guemes': 'Güemes', 'barrio guemes': 'Güemes', 'zona guemes': 'Güemes',
+  'punta mogotes': 'Punta Mogotes', 'mogotes': 'Punta Mogotes', 'faro': 'Punta Mogotes',
+  'puerto': 'Puerto', 'zona puerto': 'Puerto',
+  'constitucion': 'Constitución', 'playa grande': 'Constitución',
+  'san juan': 'San Juan',
+  'los troncos': 'Los Troncos', 'troncos': 'Los Troncos',
+  'otras': 'Otras', 'otra': 'Otras'
+};
+
+/**
+ * Normaliza texto libre de zona a una etiqueta canónica de ZONAS_MDP.
+ * @param {string} input - texto de zona (puede venir de un CV, dropdown, etc.)
+ * @returns {string|null} etiqueta canónica o null si no se reconoce.
+ */
+function normalizeZona(input) {
+  const n = normalizeStr(input);
+  if (!n) return null;
+  if (ZONA_SYNONYMS[n]) return ZONA_SYNONYMS[n];
+  // match canónico exacto (insensible a acentos)
+  for (const z of ZONAS_MDP) {
+    if (normalizeStr(z) === n) return z;
+  }
+  // substring: el texto libre contiene un token canónico (ej. "vivo en san juan, mdp")
+  for (const z of ZONAS_MDP) {
+    const zn = normalizeStr(z);
+    if (zn !== 'otras' && (n.includes(zn) || zn.includes(n))) return z;
+  }
+  // substring por sinónimo
+  for (const [syn, canonical] of Object.entries(ZONA_SYNONYMS)) {
+    if (canonical !== 'Otras' && n.includes(syn)) return canonical;
+  }
+  return null;
+}
+
+/**
+ * Devuelve el centroide aproximado { lat, lng } de una zona, o null.
+ * @param {string} zonaLabel - etiqueta de zona (libre o canónica).
+ */
+function zonaCentroid(zonaLabel) {
+  const canonical = normalizeZona(zonaLabel);
+  if (!canonical) return null;
+  return ZONA_CENTROIDS[canonical] || null;
+}
+
 module.exports = {
   JOB_CATEGORIES,
   ZONAS_MDP,
+  MDP_CENTER,
+  ZONA_CENTROIDS,
   SKILLS_BY_RUBRO,
   getSuggestedSkills,
   getAllSkillsForRubro,
-  getAllSkills
+  getAllSkills,
+  normalizeStr,
+  normalizeZona,
+  zonaCentroid
 };

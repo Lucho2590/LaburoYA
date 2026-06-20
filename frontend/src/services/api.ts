@@ -22,6 +22,10 @@ import {
   IRubro,
   ICreateRubroData,
   IUpdateRubroData,
+  ICity,
+  ICreateCityData,
+  IUpdateCityData,
+  IGeocodeResult,
   ILead,
   ICreateLeadData,
   ILeadStats,
@@ -597,6 +601,25 @@ class ApiService {
   }
 
   // ============================================
+  // Cities (Public) + Geocoding
+  // ============================================
+
+  async getCities() {
+    return this.request<{ cities: ICity[] }>('/cities', { requireAuth: false });
+  }
+
+  async geocodeAddress(q: string, city?: string, limit = 5) {
+    const params = new URLSearchParams({ q, limit: String(limit) });
+    if (city) params.set('city', city);
+    return this.request<{ results: IGeocodeResult[] }>(`/geocode?${params.toString()}`);
+  }
+
+  async reverseGeocode(lat: number, lng: number) {
+    const params = new URLSearchParams({ lat: String(lat), lng: String(lng) });
+    return this.request<{ result: IGeocodeResult | null }>(`/geocode/reverse?${params.toString()}`);
+  }
+
+  // ============================================
   // Leads (Public - for waitlist)
   // ============================================
 
@@ -632,6 +655,34 @@ class ApiService {
 
   async deleteAdminRubro(rubroId: string) {
     return this.request<{ message: string }>(`/admin/rubros/${rubroId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ============================================
+  // Admin - Cities
+  // ============================================
+
+  async getAdminCities() {
+    return this.request<{ cities: ICity[] }>('/admin/cities');
+  }
+
+  async createAdminCity(data: ICreateCityData) {
+    return this.request<ICity>('/admin/cities', {
+      method: 'POST',
+      body: data,
+    });
+  }
+
+  async updateAdminCity(cityId: string, data: IUpdateCityData) {
+    return this.request<ICity>(`/admin/cities/${cityId}`, {
+      method: 'PATCH',
+      body: data,
+    });
+  }
+
+  async deleteAdminCity(cityId: string) {
+    return this.request<{ message: string }>(`/admin/cities/${cityId}`, {
       method: 'DELETE',
     });
   }

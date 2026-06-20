@@ -11,9 +11,10 @@ import { storage } from '@/config/firebase';
 import { VideoRecorder } from '@/components/VideoRecorder';
 import { CameraCapture } from '@/components/CameraCapture';
 import { toast } from 'sonner';
-import { IWorkerProfile, IGeoLocation } from '@/types';
-import { getBrowserLocation } from '@/lib/geo';
-import { Check, Plus, MapPin } from 'lucide-react';
+import { IWorkerProfile, IGeoLocation, ICity } from '@/types';
+import LocationPicker from '@/components/LocationPicker';
+import { haversineKm } from '@/lib/geo';
+import { Check, Plus, AlertTriangle } from 'lucide-react';
 
 export default function WorkerProfilePage() {
   const router = useRouter();
@@ -34,7 +35,8 @@ export default function WorkerProfilePage() {
   const [videoUrl, setVideoUrl] = useState('');
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
   const [location, setLocation] = useState<IGeoLocation | null>(null);
-  const [locating, setLocating] = useState(false);
+  const [cities, setCities] = useState<ICity[]>([]);
+  const [cityName, setCityName] = useState('');
   const [saving, setSaving] = useState(false);
 
   const effectiveRole = getEffectiveAppRole();
@@ -69,25 +71,35 @@ export default function WorkerProfilePage() {
       setPhotoUrl(profile.photoUrl || '');
       setVideoUrl(profile.videoUrl || '');
       setLocation(profile.location || null);
+      setCityName(profile.city || '');
     }
   }, [userData]);
 
-  const handleUseMyLocation = async () => {
-    setLocating(true);
-    try {
-      const coords = await getBrowserLocation();
-      setLocation(coords);
-      toast.success('Ubicación activada. Guardá el perfil para aplicarla.');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo obtener tu ubicación');
-    } finally {
-      setLocating(false);
-    }
-  };
+  // Carga las ciudades donde opera la app (centro/radio para el mapa).
+  useEffect(() => {
+    api.getCities()
+      .then(({ cities }) => setCities(cities))
+      .catch(() => {});
+  }, []);
+
+  // Al mover el pin, auto-selecciona la ciudad cubierta donde cae.
+  useEffect(() => {
+    if (!location || cities.length === 0) return;
+    const match = cities.find((c) => haversineKm(location, c.center) <= c.radiusKm);
+    if (match) setCityName((prev) => (prev === match.nombre ? prev : match.nombre));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location, cities]);
 
   const availablePuestos = formData.rubro
     ? JOB_CATEGORIES[formData.rubro as TRubro]?.puestos || []
     : [];
+
+  // Ciudad seleccionada (para el centro/radio del mapa y las zonas disponibles).
+  const selectedCity = cities.find((c) => c.nombre === cityName) || cities[0] || null;
+  const zonaOptions = selectedCity?.zonas?.length ? selectedCity.zonas : (ZONAS_MDP as readonly string[]);
+  // ¿La ubicación elegida cae en alguna ciudad donde opera la app?
+  const locationCovered =
+    !location || cities.some((c) => haversineKm(location, c.center) <= c.radiusKm);
 
   // Calculate profile completion percentage
   const calculateProfileCompletion = (): { percentage: number; completed: string[]; missing: string[] } => {
@@ -211,6 +223,7 @@ export default function WorkerProfilePage() {
         photoUrl: finalPhotoUrl,
         videoUrl: finalVideoUrl,
         location,
+        city: cityName || selectedCity?.nombre || null,
       });
 
       await refreshUserData();
@@ -414,6 +427,24 @@ export default function WorkerProfilePage() {
         </div>
       )}
 
+      {/* Ciudad */}
+      {cities.length > 1 && (
+        <div>
+          <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+            ¿En qué ciudad trabajás?
+          </label>
+          <select
+            value={cityName}
+            onChange={(e) => setCityName(e.target.value)}
+            className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary focus:border-[#E10600] focus:outline-none"
+          >
+            {cities.map((c) => (
+              <option key={c.id} value={c.nombre}>{c.nombre}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Zona */}
       <div>
         <label className="block text-sm font-medium text-[#98A2B3] mb-2">
@@ -425,41 +456,32 @@ export default function WorkerProfilePage() {
           className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary focus:border-[#E10600] focus:outline-none"
         >
           <option value="">Cualquier zona</option>
-          {ZONAS_MDP.map((zona) => (
+          {zonaOptions.map((zona) => (
             <option key={zona} value={zona}>{zona}</option>
           ))}
         </select>
 
-        {/* Ubicación para cercanía */}
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={handleUseMyLocation}
-            disabled={locating}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 theme-border theme-bg-card theme-text-primary hover:border-[#E10600] disabled:opacity-50"
-          >
-            <MapPin className="w-4 h-4" />
-            {locating ? 'Obteniendo ubicación...' : location ? 'Actualizar mi ubicación' : 'Usar mi ubicación actual'}
-          </button>
-          {location ? (
-            <span className="text-sm text-[#12B76A] flex items-center gap-1">
-              <Check className="w-4 h-4" /> Ubicación activada
-            </span>
-          ) : (
-            <span className="text-sm theme-text-muted">
-              Compartí tu ubicación para ver primero las búsquedas más cercanas.
-            </span>
+        {/* Ubicación en el mapa (para ver primero las búsquedas más cercanas) */}
+        <div className="mt-3">
+          <p className="text-sm theme-text-muted mb-2">
+            Marcá tu ubicación en el mapa, buscá tu dirección o usá tu GPS. Te mostramos primero las búsquedas más cercanas.
+          </p>
+          <LocationPicker
+            value={location}
+            onChange={setLocation}
+            center={selectedCity?.center}
+            radiusKm={selectedCity?.radiusKm}
+            cityName={selectedCity?.nombre}
+          />
+          {!locationCovered && (
+            <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span>
+                Todavía no operamos en esta ciudad. Podés guardar tu perfil igual, pero por ahora puede que no veas búsquedas cercanas.
+              </span>
+            </div>
           )}
         </div>
-        {location && (
-          <button
-            type="button"
-            onClick={() => setLocation(null)}
-            className="mt-2 text-xs theme-text-muted underline"
-          >
-            Quitar ubicación
-          </button>
-        )}
       </div>
 
       {/* Localidad */}

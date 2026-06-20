@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePageTitle } from '@/contexts/PageTitleContext';
 import { api } from '@/services/api';
-import { JOB_CATEGORIES, TRubro, getSuggestedSkills } from '@/config/constants';
+import { JOB_CATEGORIES, ZONAS_MDP, TRubro, getSuggestedSkills } from '@/config/constants';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate, IGeoLocation } from '@/types';
+import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate, IGeoLocation, ICity } from '@/types';
 import { scoreToStars, STAR_MAX, STAR_FILTERS } from '@/lib/stars';
-import { getBrowserLocation } from '@/lib/geo';
-import { Check, Plus, X, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, MapPin } from 'lucide-react';
+import { haversineKm } from '@/lib/geo';
+import LocationPicker from '@/components/LocationPicker';
+import { Check, Plus, X, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, AlertTriangle } from 'lucide-react';
 
 interface InterestedWorker extends IWorkerProfile {
   firstName?: string;
@@ -114,7 +115,10 @@ export default function EmployerJobsPage() {
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [customSkill, setCustomSkill] = useState('');
   const [location, setLocation] = useState<IGeoLocation | null>(null);
-  const [locating, setLocating] = useState(false);
+  const [cities, setCities] = useState<ICity[]>([]);
+  const [cityName, setCityName] = useState('');
+  // Radio de búsqueda propio de la oferta (null = usar el radio de la ciudad).
+  const [offerRadius, setOfferRadius] = useState<number | null>(null);
 
   const effectiveRole = getEffectiveAppRole();
   const aiOn = !!userData?.aiCvEnabled;
@@ -124,22 +128,26 @@ export default function EmployerJobsPage() {
     setSelectedSkills([]);
     setCustomSkill('');
     setLocation(null);
+    setCityName('');
+    setOfferRadius(null);
     setEditingJob(null);
     setShowForm(false);
   }, []);
 
-  const handleUseOfferLocation = async () => {
-    setLocating(true);
-    try {
-      const coords = await getBrowserLocation();
-      setLocation(coords);
-      toast.success('Ubicación del lugar de trabajo capturada.');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo obtener la ubicación');
-    } finally {
-      setLocating(false);
-    }
-  };
+  // Carga las ciudades donde opera la app (centro/radio para el mapa).
+  useEffect(() => {
+    api.getCities()
+      .then(({ cities }) => setCities(cities))
+      .catch(() => {});
+  }, []);
+
+  // Al mover el pin, auto-selecciona la ciudad cubierta donde cae.
+  useEffect(() => {
+    if (!location || cities.length === 0) return;
+    const match = cities.find((c) => haversineKm(location, c.center) <= c.radiusKm);
+    if (match) setCityName((prev) => (prev === match.nombre ? prev : match.nombre));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location, cities]);
 
   // Set page config based on current view
   useEffect(() => {
@@ -236,6 +244,14 @@ export default function EmployerJobsPage() {
     fetchJobs();
   }, [fetchJobs]);
 
+  const selectedCity = cities.find((c) => c.nombre === cityName) || cities[0] || null;
+  const zonaOptions = selectedCity?.zonas?.length ? selectedCity.zonas : (ZONAS_MDP as readonly string[]);
+  // Radio efectivo del círculo/slider: el propio de la oferta o el de la ciudad.
+  const effectiveRadius = offerRadius ?? selectedCity?.radiusKm ?? 15;
+  // ¿La ubicación elegida cae en alguna ciudad donde opera la app?
+  const locationCovered =
+    !location || cities.some((c) => haversineKm(location, c.center) <= c.radiusKm);
+
   const availablePuestos = formData.rubro && formData.rubro !== 'otro'
     ? JOB_CATEGORIES[formData.rubro as TRubro]?.puestos || []
     : [];
@@ -276,6 +292,8 @@ export default function EmployerJobsPage() {
     });
     setSelectedSkills(job.requiredSkills || []);
     setLocation((job as DashboardOffer & { location?: IGeoLocation | null }).location || null);
+    setCityName((job as DashboardOffer & { city?: string }).city || '');
+    setOfferRadius((job as DashboardOffer & { radiusKm?: number | null }).radiusKm ?? null);
     setShowForm(true);
   };
 
@@ -299,6 +317,8 @@ export default function EmployerJobsPage() {
         requiredSkills: selectedSkills.length > 0 ? selectedSkills : undefined,
         businessName: formData.businessName || undefined,
         zona: formData.zona || undefined,
+        city: cityName || selectedCity?.nombre || undefined,
+        radiusKm: offerRadius ?? undefined,
         availability: formData.availability || undefined,
         location,
       };
@@ -852,49 +872,62 @@ export default function EmployerJobsPage() {
           />
         </div>
 
+        {/* Ciudad */}
+        {cities.length > 1 && (
+          <div>
+            <label className="block text-sm font-medium theme-text-muted mb-2">
+              Ciudad
+            </label>
+            <select
+              value={cityName}
+              onChange={(e) => setCityName(e.target.value)}
+              className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary focus:border-[#E10600] focus:outline-none"
+            >
+              {cities.map((c) => (
+                <option key={c.id} value={c.nombre}>{c.nombre}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Zona / Barrio */}
         <div>
           <label className="block text-sm font-medium theme-text-muted mb-2">
             Barrio / Zona (opcional)
           </label>
-          <input
-            type="text"
+          <select
             value={formData.zona}
             onChange={(e) => setFormData({ ...formData, zona: e.target.value })}
-            placeholder="Ej: Centro, Güemes, Puerto..."
-            className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
-          />
+            className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary focus:border-[#E10600] focus:outline-none"
+          >
+            <option value="">Sin especificar</option>
+            {zonaOptions.map((zona) => (
+              <option key={zona} value={zona}>{zona}</option>
+            ))}
+          </select>
 
           {/* Ubicación del lugar de trabajo (para ordenar por cercanía) */}
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handleUseOfferLocation}
-              disabled={locating}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 theme-border theme-bg-card theme-text-primary hover:border-[#E10600] disabled:opacity-50"
-            >
-              <MapPin className="w-4 h-4" />
-              {locating ? 'Obteniendo ubicación...' : location ? 'Actualizar ubicación' : 'Usar ubicación actual'}
-            </button>
-            {location ? (
-              <span className="text-sm text-[#12B76A] flex items-center gap-1">
-                <Check className="w-4 h-4" /> Ubicación del trabajo activada
-              </span>
-            ) : (
-              <span className="text-sm theme-text-muted">
-                Marcá la ubicación del trabajo para priorizar candidatos cercanos.
-              </span>
+          <div className="mt-3">
+            <p className="text-sm theme-text-muted mb-2">
+              Marcá la ubicación del trabajo en el mapa, buscá la dirección o usá tu GPS. Ajustá el radio para definir qué tan lejos buscamos candidatos.
+            </p>
+            <LocationPicker
+              value={location}
+              onChange={setLocation}
+              center={selectedCity?.center}
+              radiusKm={effectiveRadius}
+              onRadiusChange={setOfferRadius}
+              cityName={selectedCity?.nombre}
+            />
+            {!locationCovered && (
+              <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>
+                  Todavía no operamos en esta ciudad. Podés publicar la oferta igual, pero por ahora puede no recibir candidatos cercanos.
+                </span>
+              </div>
             )}
           </div>
-          {location && (
-            <button
-              type="button"
-              onClick={() => setLocation(null)}
-              className="mt-2 text-xs theme-text-muted underline"
-            >
-              Quitar ubicación
-            </button>
-          )}
         </div>
 
         {/* Availability */}
