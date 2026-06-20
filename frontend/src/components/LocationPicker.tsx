@@ -12,7 +12,7 @@ import type { IGeoLocation, IGeocodeResult } from '@/types';
 const LocationMapInner = dynamic(() => import('./LocationMapInner'), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full w-full items-center justify-center bg-gray-100 text-sm text-gray-500">
+    <div className="flex h-full w-full items-center justify-center theme-bg-secondary text-sm theme-text-muted">
       Cargando mapa…
     </div>
   )
@@ -27,6 +27,7 @@ interface Props {
   minRadiusKm?: number;
   maxRadiusKm?: number;
   cityName?: string; // hint para el geocoding
+  isLocationServed?: (loc: IGeoLocation) => boolean; // si se pasa, avisa cuando la dirección cae fuera del área de servicio
   recenterSignal?: number; // al cambiar, recentra el mapa sobre `value` (recentrado externo)
   allowClear?: boolean; // muestra el botón "Quitar" (default true)
   heightClass?: string;
@@ -41,6 +42,7 @@ export default function LocationPicker({
   minRadiusKm = 1,
   maxRadiusKm = 50,
   cityName,
+  isLocationServed,
   recenterSignal,
   allowClear = true,
   heightClass = 'h-64'
@@ -78,7 +80,11 @@ export default function LocationPicker({
     try {
       const { results: found } = await api.geocodeAddress(q, cityName);
       setResults(found);
-      if (found.length === 0) toast.info('No encontramos esa dirección. Probá con otra.');
+      if (found.length === 0) {
+        toast.info('No encontramos esa dirección. Probá con otra.');
+      } else if (isLocationServed && found.every((r) => !isLocationServed({ lat: r.lat, lng: r.lng }))) {
+        toast.info('Esa dirección está fuera de las ciudades donde operamos por ahora.');
+      }
     } catch {
       toast.error('No se pudo buscar la dirección.');
     } finally {
@@ -99,7 +105,7 @@ export default function LocationPicker({
       {/* Buscador de direcciones (sin <form> para poder anidarlo en otros formularios) */}
       <div className="flex gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 theme-text-muted" />
           <input
             type="text"
             value={query}
@@ -111,7 +117,7 @@ export default function LocationPicker({
               }
             }}
             placeholder="Buscar dirección (calle y número, barrio…)"
-            className="w-full rounded-lg border border-gray-300 py-2 pl-8 pr-3 text-sm focus:border-[#E10600] focus:outline-none"
+            className="w-full rounded-lg border theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted py-2 pl-8 pr-3 text-sm focus:border-[#E10600] focus:outline-none"
           />
         </div>
         <button
@@ -128,7 +134,7 @@ export default function LocationPicker({
           onClick={handleGps}
           disabled={locating}
           title="Usar mi ubicación"
-          className="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 disabled:opacity-50 active:scale-95"
+          className="flex items-center gap-1 rounded-lg border theme-border theme-text-secondary px-3 py-2 text-sm font-medium disabled:opacity-50 active:scale-95"
         >
           {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
           GPS
@@ -137,13 +143,13 @@ export default function LocationPicker({
 
       {/* Resultados de la búsqueda */}
       {results.length > 0 && (
-        <ul className="max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white text-sm shadow-sm">
+        <ul className="max-h-40 overflow-y-auto rounded-lg border theme-border theme-bg-card theme-text-primary text-sm shadow-sm">
           {results.map((r, i) => (
             <li key={`${r.lat},${r.lng},${i}`}>
               <button
                 type="button"
                 onClick={() => pickResult(r)}
-                className="block w-full px-3 py-2 text-left hover:bg-gray-50"
+                className="block w-full px-3 py-2 text-left hover:opacity-80"
               >
                 {r.displayName || `${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}`}
               </button>
@@ -153,7 +159,7 @@ export default function LocationPicker({
       )}
 
       {/* Mapa */}
-      <div className={`${heightClass} w-full overflow-hidden rounded-lg border border-gray-200`}>
+      <div className={`${heightClass} w-full overflow-hidden rounded-lg border theme-border`}>
         <LocationMapInner
           value={value}
           onChange={onChange}
@@ -165,8 +171,8 @@ export default function LocationPicker({
 
       {/* Slider de radio */}
       {onRadiusChange && typeof radiusKm === 'number' && (
-        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2">
-          <div className="mb-1 flex items-center justify-between text-xs font-medium text-gray-600">
+        <div className="rounded-lg border theme-border theme-bg-card px-3 py-2">
+          <div className="mb-1 flex items-center justify-between text-xs font-medium theme-text-secondary">
             <span>Radio de búsqueda</span>
             <span className="text-[#E10600]">{radiusKm} km</span>
           </div>
@@ -177,16 +183,16 @@ export default function LocationPicker({
             step={1}
             value={radiusKm}
             onChange={(e) => onRadiusChange(Number(e.target.value))}
-            className="w-full accent-[#E10600]"
+            className="theme-range w-full accent-[#E10600]"
           />
-          <div className="flex justify-between text-[10px] text-gray-400">
+          <div className="flex justify-between text-[10px] theme-text-muted">
             <span>{minRadiusKm} km</span>
             <span>{maxRadiusKm} km</span>
           </div>
         </div>
       )}
 
-      <div className="flex items-center justify-between text-xs text-gray-500">
+      <div className="flex items-center justify-between text-xs theme-text-muted">
         <span>
           {value
             ? `Ubicación: ${value.lat.toFixed(4)}, ${value.lng.toFixed(4)}`
@@ -196,7 +202,7 @@ export default function LocationPicker({
           <button
             type="button"
             onClick={() => onChange(null)}
-            className="flex items-center gap-1 text-gray-500 hover:text-[#E10600]"
+            className="flex items-center gap-1 theme-text-muted hover:text-[#E10600]"
           >
             <X className="h-3 w-3" /> Quitar
           </button>

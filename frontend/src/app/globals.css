@@ -242,3 +242,40 @@ html {
 .theme-border {
   border-color: var(--laburo-border);
 }
+
+/* Slider de rango con track acorde al tema (evita el track blanco en dark mode).
+   Slider 100% custom: track gris según tema + thumb rojo de marca (#E10600). */
+.theme-range {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 1.25rem;
+  background: transparent;
+  cursor: pointer;
+}
+.theme-range::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--laburo-border);
+}
+.theme-range::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--laburo-border);
+}
+.theme-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -5px; /* centra el thumb (16px) sobre el track (6px) */
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background: #E10600;
+  border: none;
+}
+.theme-range::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background: #E10600;
+  border: none;
+}

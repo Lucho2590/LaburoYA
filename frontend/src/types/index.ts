@@ -349,6 +349,8 @@ export interface IAdminUser {
   };
 }
 
+export type TLocationStatus = 'in_zone' | 'out_of_zone' | 'unknown';
+
 export interface ICvCandidate {
   firstName: string | null;
   lastName: string | null;
@@ -357,6 +359,7 @@ export interface ICvCandidate {
   rubro: string | null;
   puesto: string | null;
   zona: string | null;
+  city: string | null;
   description: string | null;
   experience: string | null;
   skills: string[];
@@ -389,6 +392,9 @@ export interface IAssessCvResponse {
     rubroMatch?: boolean;
     puestoMatch?: boolean;
     zonaMatch?: boolean;
+    // ubicación del candidato respecto a la oferta
+    locationStatus?: TLocationStatus;
+    distanceKm?: number | null;
   };
 }
 
@@ -403,6 +409,7 @@ export interface IPinnedCandidate {
     phone: string | null;
     puesto?: string | null;
     zona?: string | null;
+    city?: string | null;
     skills?: string[];
   };
   assessment: {
@@ -417,6 +424,8 @@ export interface IPinnedCandidate {
     gaps?: string[];
     matchingSkills: string[];
     missingSkills: string[];
+    locationStatus?: TLocationStatus;
+    distanceKm?: number | null;
   };
   createdAt?: string;
 }
@@ -603,4 +612,25 @@ export interface IWhatsAppTemplate {
   template: string;
   updatedAt?: string;
   updatedBy?: string;
+}
+
+// ============================================
+// AI Error Log Types
+// ============================================
+
+export interface IAiError {
+  id: string;
+  employerId?: string | null;
+  employerEmail?: string | null;
+  offerId?: string | null;
+  fileName?: string | null;
+  mimeType?: string | null;
+  fileSize?: number | null;
+  type?: string | null;
+  status?: number | null;
+  rateLimited?: boolean;
+  rateScope?: string | null;
+  message?: string | null;
+  cause?: string | null;
+  createdAt?: string;
 }

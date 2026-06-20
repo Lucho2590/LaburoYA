@@ -135,8 +135,9 @@ async function searchAddresses(query, opts = {}) {
     addressdetails: '0'
   });
   if (viewbox) {
+    // Sólo sesgo (sin bounded=1): prioriza la ciudad pero igual devuelve
+    // resultados de otras ciudades, para poder avisar "fuera del área de servicio".
     params.set('viewbox', viewbox);
-    params.set('bounded', '1');
   }
 
   let results = [];

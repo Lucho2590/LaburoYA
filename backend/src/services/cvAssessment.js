@@ -178,8 +178,10 @@ async function assessBasic(buffer, mimeType, fileName, offer) {
       phone: fields.phone,
       puesto: profile.puesto,
       zona: profile.zona,
-      city: enriched.city,
-      location: enriched.location,
+      // La ciudad/coords propias las resuelve buildCandidateDoc desde la zona detectada;
+      // no usamos la ciudad de la oferta acá para no falsear "en zona".
+      city: null,
+      location: null,
       skills: profile.skills
     },
     assessment: {

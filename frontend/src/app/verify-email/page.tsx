@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthLayout } from "@/components/AuthLayout";
+import { isSuperuserEmail } from "@/config/constants";
 import { toast } from "sonner";
 import { Mail, RefreshCw, CheckCircle, ArrowLeft } from "lucide-react";
 
@@ -18,7 +19,7 @@ export default function VerifyEmailPage() {
   useEffect(() => {
     if (!user) {
       router.push("/login");
-    } else if (user.email?.endsWith("@laburoya.com")) {
+    } else if (isSuperuserEmail(user.email)) {
       router.push("/home");
     } else if (user.emailVerified) {
       router.push("/onboarding");

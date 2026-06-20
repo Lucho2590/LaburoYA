@@ -6,10 +6,23 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { PinModal } from '@/components/PinModal';
 import { api } from '@/services/api';
 import { toast } from 'sonner';
-import { Bot, Eye, Copy, Pencil, AlertCircle, RotateCcw } from 'lucide-react';
+import { Bot, Eye, Copy, Pencil, AlertCircle, RotateCcw, Trash2, RefreshCw } from 'lucide-react';
+import type { IAiError } from '@/types';
 
 type Provider = 'claude' | 'openai' | 'gemini';
-type Tab = 'config' | 'prompt';
+type Tab = 'config' | 'prompt' | 'errors';
+
+const ERROR_TYPE_LABELS: Record<string, string> = {
+  ai_not_configured: 'IA no configurada',
+  api_key_invalid: 'API key inválida',
+  model_not_found: 'Modelo no disponible',
+  rate_limited: 'Límite de IA',
+  ocr_not_supported: 'OCR no soportado',
+  parse_error: 'Respuesta inválida',
+  unreadable_file: 'CV ilegible',
+  generic_ai_error: 'Error de IA',
+  unknown_error: 'Desconocido',
+};
 
 const PROVIDER_LABELS: Record<Provider, string> = {
   claude: 'Anthropic Claude',
@@ -60,6 +73,42 @@ export default function AiSettingsPage() {
   const [prompts, setPrompts] = useState<AiPrompts | null>(null);
   const [editingPrompt, setEditingPrompt] = useState<PromptKey | null>(null);
   const [promptDraft, setPromptDraft] = useState('');
+
+  // Errors tab state
+  const [aiErrors, setAiErrors] = useState<IAiError[]>([]);
+  const [errorsLoading, setErrorsLoading] = useState(false);
+
+  const loadErrors = async () => {
+    setErrorsLoading(true);
+    try {
+      const { errors } = await api.getAdminAiErrors();
+      setAiErrors(errors);
+    } catch (error) {
+      toast.error((error as Error).message || 'Error al cargar los errores');
+    } finally {
+      setErrorsLoading(false);
+    }
+  };
+
+  const handleDeleteError = async (id: string) => {
+    try {
+      await api.deleteAdminAiError(id);
+      setAiErrors((prev) => prev.filter((e) => e.id !== id));
+    } catch (error) {
+      toast.error((error as Error).message || 'No se pudo eliminar');
+    }
+  };
+
+  const handleClearErrors = async () => {
+    if (!confirm('¿Eliminar todos los errores registrados?')) return;
+    try {
+      await api.clearAdminAiErrors();
+      setAiErrors([]);
+      toast.success('Errores eliminados');
+    } catch (error) {
+      toast.error((error as Error).message || 'No se pudieron eliminar');
+    }
+  };
 
   const [pinModal, setPinModal] = useState<{
     open: boolean;
@@ -237,7 +286,7 @@ export default function AiSettingsPage() {
 
   return (
     <AdminLayout title="Configuración de IA">
-      <div className={`${tab === 'prompt' ? 'w-full' : 'max-w-2xl'} space-y-6`}>
+      <div className={`${tab === 'config' ? 'max-w-2xl' : 'w-full'} space-y-6`}>
         <div className="theme-bg-card rounded-xl p-6 border theme-border">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-gradient-to-br from-[#E10600] to-[#FF6A00] rounded-xl flex items-center justify-center">
@@ -285,6 +334,14 @@ export default function AiSettingsPage() {
             }`}
           >
             Prompt
+          </button>
+          <button
+            onClick={() => { setTab('errors'); loadErrors(); }}
+            className={`flex-1 py-2.5 rounded-lg font-medium text-sm transition-all cursor-pointer ${
+              tab === 'errors' ? 'theme-bg-card theme-text-primary shadow-sm' : 'theme-text-secondary'
+            }`}
+          >
+            Errores
           </button>
         </div>
 
@@ -390,7 +447,7 @@ export default function AiSettingsPage() {
               )}
             </div>
           </>
-        ) : (
+        ) : tab === 'prompt' ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             {prompts && (['parse', 'assess'] as PromptKey[]).map((key) => {
               const meta = PROMPT_META[key];
@@ -470,6 +527,74 @@ export default function AiSettingsPage() {
                 </div>
               );
             })}
+          </div>
+        ) : (
+          <div className="theme-bg-card rounded-xl p-6 border theme-border">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold theme-text-primary">Errores de evaluación de CV</h2>
+                <p className="text-sm theme-text-secondary">
+                  Fallos al analizar CVs (IA mal configurada, límites, archivos ilegibles, etc.).
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={loadErrors}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg border theme-border theme-text-secondary hover:theme-text-primary cursor-pointer text-sm"
+                >
+                  <RefreshCw className="w-4 h-4" /> Actualizar
+                </button>
+                {aiErrors.length > 0 && (
+                  <button
+                    onClick={handleClearErrors}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[#E10600]/40 text-[#E10600] hover:bg-[#E10600]/10 cursor-pointer text-sm"
+                  >
+                    <Trash2 className="w-4 h-4" /> Limpiar todo
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {errorsLoading ? (
+              <p className="theme-text-secondary text-sm py-8 text-center">Cargando…</p>
+            ) : aiErrors.length === 0 ? (
+              <p className="theme-text-secondary text-sm py-8 text-center">No hay errores registrados. 🎉</p>
+            ) : (
+              <div className="space-y-3">
+                {aiErrors.map((e) => (
+                  <div key={e.id} className="border theme-border rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[#E10600]/10 text-[#E10600]">
+                            {ERROR_TYPE_LABELS[e.type || 'unknown_error'] || e.type}
+                          </span>
+                          <span className="text-xs theme-text-muted">
+                            {e.createdAt ? new Date(e.createdAt).toLocaleString('es-AR') : ''}
+                          </span>
+                        </div>
+                        <p className="text-sm theme-text-primary mt-2 break-words">{e.message || e.cause || 'Sin mensaje'}</p>
+                        {e.cause && e.cause !== e.message && (
+                          <p className="text-xs theme-text-muted mt-1 break-words">Causa: {e.cause}</p>
+                        )}
+                        <div className="text-xs theme-text-muted mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                          {e.employerEmail && <span>Empleador: {e.employerEmail}</span>}
+                          {e.fileName && <span>Archivo: {e.fileName}</span>}
+                          {e.offerId && <span>Oferta: {e.offerId}</span>}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteError(e.id)}
+                        className="p-2 text-[#E10600] hover:bg-[#E10600]/10 rounded-lg cursor-pointer shrink-0"
+                        title="Eliminar"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

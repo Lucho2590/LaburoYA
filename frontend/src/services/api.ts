@@ -31,7 +31,8 @@ import {
   ILeadStats,
   ITermsAndConditions,
   IAssessCvResponse,
-  IPinnedCandidate
+  IPinnedCandidate,
+  IAiError
 } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -903,6 +904,22 @@ class ApiService {
       body: data,
       extraHeaders: { 'X-Pin-Token': pinToken },
     });
+  }
+
+  // ============================================
+  // Admin - Errores de IA
+  // ============================================
+
+  async getAdminAiErrors(limit = 100) {
+    return this.request<{ errors: IAiError[] }>(`/admin/ai-errors?limit=${limit}`);
+  }
+
+  async deleteAdminAiError(id: string) {
+    return this.request<{ message: string }>(`/admin/ai-errors/${id}`, { method: 'DELETE' });
+  }
+
+  async clearAdminAiErrors() {
+    return this.request<{ message: string; deleted: number }>('/admin/ai-errors', { method: 'DELETE' });
   }
 
   // ============================================

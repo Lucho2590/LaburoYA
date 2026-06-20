@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useAuth } from "@/contexts/AuthContext";
 import { JOB_CATEGORIES } from "@/config/constants";
-import { WaitlistModal } from "@/components/WaitlistModal";
 import { api } from "@/services/api";
 import {
   MessageCircle,
@@ -22,10 +21,10 @@ import {
   X,
   FileText,
   Loader2,
+  LogIn,
 } from "lucide-react";
 
 export default function LandingPage() {
-  const [showWaitlistModal, setShowWaitlistModal] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [termsContent, setTermsContent] = useState("");
   const [loadingTerms, setLoadingTerms] = useState(false);
@@ -45,18 +44,6 @@ export default function LandingPage() {
     }
   };
 
-  // Show modal on first visit
-  useEffect(() => {
-    const hasSeenModal = localStorage.getItem("waitlistModalShown");
-    if (!hasSeenModal) {
-      // Small delay to let the page load first
-      const timer = setTimeout(() => {
-        setShowWaitlistModal(true);
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, []);
-
   const rubrosEmojis: Record<string, string> = {
     gastronomia: "🍳",
     comercio: "🏪",
@@ -68,12 +55,6 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-white overflow-x-hidden">
-      {/* Waitlist Modal */}
-      <WaitlistModal
-        isOpen={showWaitlistModal}
-        onClose={() => setShowWaitlistModal(false)}
-      />
-
       {/* Terms Modal */}
       {showTermsModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -143,13 +124,20 @@ export default function LandingPage() {
                   </button>
                 </Link>
               ) : (
-                <button
-                  onClick={() => setShowWaitlistModal(true)}
-                  className="px-4 py-2 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
-                >
-                  <Bell className="h-4 w-4" />
-                  Avisame
-                </button>
+                <>
+                  <Link href="/login">
+                    <button className="px-4 py-2 text-gray-700 rounded-lg font-medium hover:bg-gray-100 transition-colors flex items-center gap-2">
+                      <LogIn className="h-4 w-4" />
+                      Ingresar
+                    </button>
+                  </Link>
+                  <Link href="/register">
+                    <button className="px-4 py-2 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2">
+                      Crear cuenta
+                      <ArrowRight className="h-4 w-4" />
+                    </button>
+                  </Link>
+                </>
               )}
             </div>
           </div>
@@ -180,18 +168,17 @@ export default function LandingPage() {
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                <button
-                  onClick={() => setShowWaitlistModal(true)}
-                  className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold text-lg hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
-                >
-                  <Bell className="h-5 w-5" />
-                  Avisame cuando esté listo
-                </button>
-                {user && (
-                  <Link href="/home">
+                <Link href={user ? "/home" : "/register?role=worker"}>
+                  <button className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold text-lg hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2">
+                    {user ? "Ir a la app" : "Crear cuenta gratis"}
+                    <ArrowRight className="h-5 w-5" />
+                  </button>
+                </Link>
+                {!user && (
+                  <Link href="/login">
                     <button className="w-full sm:w-auto px-8 py-4 bg-gray-100 text-gray-700 rounded-xl font-semibold text-lg hover:bg-gray-200 transition-all flex items-center justify-center gap-2">
-                      Ir a la app
-                      <ArrowRight className="h-5 w-5" />
+                      <LogIn className="h-5 w-5" />
+                      Ya tengo cuenta
                     </button>
                   </Link>
                 )}
@@ -428,13 +415,12 @@ export default function LandingPage() {
                 </li>
               </ul>
 
-              <button
-                onClick={() => setShowWaitlistModal(true)}
-                className="w-full py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-              >
-                <Bell className="h-5 w-5" />
-                Avisame cuando esté listo
-              </button>
+              <Link href={user ? "/home" : "/register?role=worker"}>
+                <button className="w-full py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+                  {user ? "Ir a la app" : "Crear mi perfil"}
+                  <ArrowRight className="h-5 w-5" />
+                </button>
+              </Link>
             </div>
 
             {/* Employers */}
@@ -650,15 +636,17 @@ export default function LandingPage() {
                 Descargá la app
               </h2>
               <p className="text-lg text-white/80 mb-8 max-w-lg mx-auto lg:mx-0">
-                Llevá LaburoYA en tu bolsillo. Recibí notificaciones push y
-                accedé rápidamente desde tu celular.
+                Usá LaburoYA desde tu navegador, en la compu o el celular.
+                Pronto también como app con notificaciones push.
               </p>
 
               <div className="flex justify-center lg:justify-start mb-8">
-                <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur text-white px-5 py-3 rounded-xl text-sm font-medium">
-                  <Bell className="h-5 w-5" />
-                  Muy pronto en App Store y Google Play
-                </div>
+                <Link href={user ? "/home" : "/register?role=worker"}>
+                  <button className="inline-flex items-center gap-2 bg-white text-[#E10600] px-6 py-3 rounded-xl text-base font-semibold hover:bg-white/90 transition-colors">
+                    {user ? "Ir a la app" : "Empezar ahora"}
+                    <ArrowRight className="h-5 w-5" />
+                  </button>
+                </Link>
               </div>
 
               <div className="flex items-center justify-center lg:justify-start gap-6 text-white/80 text-sm">
@@ -680,8 +668,8 @@ export default function LandingPage() {
                   <div className="w-full h-full bg-white rounded-[2.5rem] flex items-center justify-center">
                     <div className="text-center">
                       <Download className="h-16 w-16 text-[#E10600] mx-auto mb-4" />
-                      <p className="text-gray-600 font-medium">Disponible muy pronto</p>
-                      <p className="text-gray-400 text-sm">en tu celular</p>
+                      <p className="text-gray-600 font-medium">Disponible en la web</p>
+                      <p className="text-gray-400 text-sm">y pronto en tu celular</p>
                     </div>
                   </div>
                 </div>
@@ -698,15 +686,14 @@ export default function LandingPage() {
             ¿Buscás trabajo?
           </h2>
           <p className="text-lg text-gray-600 mb-8">
-            Dejanos tus datos y te avisamos cuando tengamos ofertas para vos
+            Creá tu cuenta gratis y empezá a recibir ofertas que coinciden con tu perfil
           </p>
-          <button
-            onClick={() => setShowWaitlistModal(true)}
-            className="px-12 py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold text-lg hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98] inline-flex items-center gap-2"
-          >
-            <Bell className="h-5 w-5" />
-            Avisame
-          </button>
+          <Link href={user ? "/home" : "/register?role=worker"}>
+            <button className="px-12 py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold text-lg hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98] inline-flex items-center gap-2">
+              {user ? "Ir a la app" : "Crear cuenta gratis"}
+              <ArrowRight className="h-5 w-5" />
+            </button>
+          </Link>
         </div>
       </section>
 
@@ -730,12 +717,20 @@ export default function LandingPage() {
               <h4 className="font-semibold mb-4">Plataforma</h4>
               <ul className="space-y-2 text-gray-400 text-sm">
                 <li>
-                  <button
-                    onClick={() => setShowWaitlistModal(true)}
+                  <Link
+                    href="/register"
                     className="hover:text-white transition-colors"
                   >
-                    Avisame cuando esté listo
-                  </button>
+                    Crear cuenta
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    href="/login"
+                    className="hover:text-white transition-colors"
+                  >
+                    Ingresar
+                  </Link>
                 </li>
                 <li>
                   <a href="#" className="hover:text-white transition-colors">

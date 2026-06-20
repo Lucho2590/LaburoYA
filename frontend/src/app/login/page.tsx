@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthLayout } from "@/components/AuthLayout";
+import { isSuperuserEmail } from "@/config/constants";
 import { toast } from "sonner";
 import { CheckCircle } from "lucide-react";
 
@@ -36,7 +37,7 @@ function LoginContent() {
 
     try {
       const { emailVerified } = await signIn(email, password);
-      if (emailVerified || email.endsWith("@laburoya.com")) {
+      if (emailVerified || isSuperuserEmail(email)) {
         router.push("/home");
       } else {
         router.push("/verify-email");

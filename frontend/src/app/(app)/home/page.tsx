@@ -86,7 +86,8 @@ export default function DashboardPage() {
       router.push("/onboarding");
     }
     // Si tiene rol pero no completó onboarding, ir al form de datos básicos
-    if (!loading && user && userData?.role && !userData?.onboardingCompleted) {
+    // (los superusers no completan onboarding; se encaminan a /sudo más abajo)
+    if (!loading && user && userData?.role && !userData?.onboardingCompleted && !isSuperuser) {
       router.push("/onboarding/basic-info");
     }
     // Superuser without secondaryRole should go to admin panel to set it

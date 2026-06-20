@@ -33,6 +33,13 @@ export default function OnboardingPage() {
       return;
     }
 
+    // Los superusers no eligen rol ni completan perfil: a /sudo (o /home si ya
+    // tienen secondaryRole) en vez del onboarding.
+    if (userData?.role === "superuser") {
+      router.push(userData?.secondaryRole ? "/home" : "/sudo");
+      return;
+    }
+
     // Si tiene rol pero no completó onboarding, ir al form de datos básicos
     if (userData?.role && !userData?.onboardingCompleted) {
       router.push("/onboarding/basic-info");
