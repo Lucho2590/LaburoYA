@@ -371,6 +371,27 @@ function OfferCard({
               <span className="text-green-600 font-medium">{offer.salary}</span>
             )}
           </div>
+
+          {/* Por qué hace match (razones) */}
+          {(() => {
+            const d = offer.relevance?.details;
+            if (!d) return null;
+            const reasons: string[] = [];
+            if (d.puestoMatch) reasons.push('Mismo puesto');
+            else if (d.rubroMatch) reasons.push('Mismo rubro');
+            if (d.zonaMatch) reasons.push('En tu zona');
+            if (d.matchingSkills?.length) reasons.push(`${d.matchingSkills.length} skill${d.matchingSkills.length > 1 ? 's' : ''} en común`);
+            if (reasons.length === 0) return null;
+            return (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {reasons.map((r) => (
+                  <span key={r} className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#E10600]/10 text-[#E10600] font-medium">
+                    {r}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Status indicator */}

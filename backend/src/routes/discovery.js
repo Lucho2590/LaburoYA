@@ -6,6 +6,16 @@ const { MATCH_TYPES } = require('../services/matchingService');
 
 const router = express.Router();
 
+// Una solicitud de contacto cuenta como "ya solicitada" sólo si sigue activa:
+// pendiente vigente o ya matcheada. Las rechazadas/vencidas permiten re-postularse.
+function isActiveRequest(data) {
+  if (!data) return false;
+  if (data.status === 'matched') return true;
+  if (data.status !== 'pending') return false;
+  const expiry = data.expiresAt?.toDate ? data.expiresAt.toDate() : (data.expiresAt ? new Date(data.expiresAt) : null);
+  return expiry ? expiry.getTime() >= Date.now() : true;
+}
+
 /**
  * GET /offers
  * Worker discovers relevant job offers sorted by relevance
@@ -60,7 +70,8 @@ router.get('/offers', authMiddleware, async (req, res, next) => {
 
     const requestedOfferIds = new Set();
     sentRequestsSnapshot.docs.forEach(doc => {
-      requestedOfferIds.add(doc.data().offerId);
+      const data = doc.data();
+      if (isActiveRequest(data)) requestedOfferIds.add(data.offerId);
     });
 
     // Mark offers that have been requested
@@ -114,7 +125,7 @@ router.get('/workers', authMiddleware, async (req, res, next) => {
     const requestedWorkerOfferPairs = new Set();
     sentRequestsSnapshot.docs.forEach(doc => {
       const data = doc.data();
-      requestedWorkerOfferPairs.add(`${data.workerId}:${data.offerId}`);
+      if (isActiveRequest(data)) requestedWorkerOfferPairs.add(`${data.workerId}:${data.offerId}`);
     });
 
     // Mark workers that have been requested for their best offer
@@ -173,7 +184,8 @@ router.get('/workers/for-offer/:offerId', authMiddleware, async (req, res, next)
 
     const requestedWorkerIds = new Set();
     sentRequestsSnapshot.docs.forEach(doc => {
-      requestedWorkerIds.add(doc.data().workerId);
+      const data = doc.data();
+      if (isActiveRequest(data)) requestedWorkerIds.add(data.workerId);
     });
 
     // Mark workers that have been requested

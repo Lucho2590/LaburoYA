@@ -1,5 +1,8 @@
 const { getDb } = require('../config/firebase');
 const admin = require('firebase-admin');
+const emailService = require('./emailService');
+
+const APP_URL = process.env.APP_URL || process.env.FRONTEND_URL || null;
 
 // Notification types
 const NOTIFICATION_TYPES = {
@@ -285,6 +288,36 @@ class NotificationService {
   }
 
   /**
+   * Envía un email best-effort a un usuario (fallback además del push/in-app).
+   * No lanza nunca: si no hay RESEND key, ni email, o falla, sólo loguea.
+   */
+  async emailUser(uid, { subject, heading, message, ctaText, ctaPath }) {
+    try {
+      if (!process.env.RESEND_API_KEY) return;
+      let email = null;
+      try {
+        const userRecord = await admin.auth().getUser(uid);
+        email = userRecord.email || null;
+      } catch {
+        // Fallback al doc de usuario si Auth no lo trae.
+        const userDoc = await getDb().collection('users').doc(uid).get();
+        email = userDoc.exists ? (userDoc.data().email || null) : null;
+      }
+      if (!email) return;
+      await emailService.sendNotificationEmail({
+        to: email,
+        subject,
+        heading,
+        message,
+        ctaText: APP_URL ? ctaText : undefined,
+        ctaLink: APP_URL && ctaPath ? `${APP_URL}${ctaPath}` : undefined
+      });
+    } catch (err) {
+      console.error('[NotificationService] email fallback error:', err.message);
+    }
+  }
+
+  /**
    * Send notification for contact request received
    */
   async notifyContactRequestReceived({ recipientId, senderName, offerTitle, requestId, senderType }) {
@@ -310,6 +343,15 @@ class NotificationService {
       title,
       body,
       data: { type: 'contact_request', requestId }
+    });
+
+    // Email fallback (best-effort)
+    await this.emailUser(recipientId, {
+      subject: title,
+      heading: title,
+      message: body,
+      ctaText: 'Ver en LaburoYA',
+      ctaPath: '/home'
     });
   }
 
@@ -347,6 +389,22 @@ class NotificationService {
       title: '🎉 ¡Nuevo match!',
       body: `Match con ${workerName}. Ya podés iniciar el chat.`,
       data: { type: 'match', matchId }
+    });
+
+    // Email fallback (best-effort) a ambas partes
+    await this.emailUser(workerId, {
+      subject: '🎉 ¡Nuevo match en LaburoYA!',
+      heading: '¡Nuevo match!',
+      message: `${employerName} quiere contactarte para "${offerTitle}". Te va a escribir pronto.`,
+      ctaText: 'Ver mis matches',
+      ctaPath: '/matches'
+    });
+    await this.emailUser(employerId, {
+      subject: '🎉 ¡Nuevo match en LaburoYA!',
+      heading: '¡Nuevo match!',
+      message: `Hiciste match con ${workerName} para "${offerTitle}". Ya podés iniciar el chat.`,
+      ctaText: 'Ver mis matches',
+      ctaPath: '/matches'
     });
   }
 
