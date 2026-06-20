@@ -1,4 +1,4 @@
-const { JOB_CATEGORIES, getAllSkillsForRubro } = require('../utils/constants');
+const { JOB_CATEGORIES, getAllSkillsForRubro, ZONAS_MDP, normalizeZona } = require('../utils/constants');
 
 /** Lowercase + strip accents/diacritics for tolerant matching. */
 function normalize(str) {
@@ -67,7 +67,18 @@ function buildProfileFromText(text, offer) {
   const rubroDetected = puestoDetected || (!!rubroLabel && n.includes(rubroLabel)) || rubroSkillHits >= 2;
 
   // --- zona ---
-  const zonaDetected = offer.zona ? n.includes(normalize(offer.zona)) : false;
+  // Detecta la zona PROPIA del candidato mencionada en el CV (cualquier zona
+  // canónica), no solo la de la oferta. Permite puntuar proximidad aunque el
+  // candidato y la oferta estén en zonas distintas. Prioriza la de la oferta.
+  let zona = null;
+  const offerZona = normalizeZona(offer.zona);
+  if (offerZona && n.includes(normalize(offerZona))) {
+    zona = offerZona;
+  } else {
+    for (const z of ZONAS_MDP) {
+      if (z !== 'Otras' && n.includes(normalize(z))) { zona = z; break; }
+    }
+  }
 
   // --- skills (only the offer's required skills matter for the score) ---
   const required = Array.isArray(offer.requiredSkills) ? offer.requiredSkills : [];
@@ -76,7 +87,7 @@ function buildProfileFromText(text, offer) {
   return {
     rubro: rubroDetected ? offer.rubro : null,
     puesto: puestoDetected ? offer.puesto : null,
-    zona: zonaDetected ? offer.zona : null,
+    zona,
     skills
   };
 }

@@ -7,6 +7,8 @@ const { authMiddleware } = require('../middleware/auth');
 const matchingService = require('../services/matchingService');
 const cvAssessment = require('../services/cvAssessment');
 const aiProvider = require('../services/aiProvider');
+const locationService = require('../services/locationService');
+const { normalizeZona } = require('../utils/constants');
 const FieldValue = admin.firestore.FieldValue;
 
 const router = express.Router();
@@ -40,7 +42,7 @@ const pdfUpload = multer({
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { rubro, puesto, description, requirements, salary, schedule, requiredSkills, zona, durationDays, businessName, availability, location } = req.body;
+    const { rubro, puesto, description, requirements, salary, schedule, requiredSkills, zona, durationDays, businessName, availability, location, city, radiusKm } = req.body;
 
     if (!rubro || !puesto) {
       return res.status(400).json({ error: 'rubro and puesto are required' });
@@ -65,6 +67,10 @@ router.post('/', authMiddleware, async (req, res, next) => {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + duration * 24 * 60 * 60 * 1000);
 
+    const canonicalZona = normalizeZona(zona) || zona || null;
+    // Resuelve ubicación + ciudad (GPS del form, o geocoding de zona/ciudad).
+    const enriched = await locationService.enrichLocation({ location, city, zona: canonicalZona });
+
     const jobOfferData = {
       employerId: uid,
       rubro,
@@ -74,8 +80,10 @@ router.post('/', authMiddleware, async (req, res, next) => {
       salary: salary || null,
       schedule: schedule || null,
       requiredSkills: Array.isArray(requiredSkills) ? requiredSkills : [],
-      zona: zona || null,
-      location: matchingService.sanitizeLocation(location),
+      zona: canonicalZona,
+      city: enriched.city,
+      radiusKm: Number(radiusKm) > 0 ? Number(radiusKm) : null,
+      location: enriched.location,
       businessName: businessName || null,
       availability: availability || null,
       active: true,
@@ -153,7 +161,7 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
     }
 
     // Filter allowed updates
-    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona', 'active', 'durationDays', 'expiresAt', 'businessName', 'availability', 'aiAssessEnabled', 'location'];
+    const allowedFields = ['rubro', 'puesto', 'description', 'requirements', 'salary', 'schedule', 'requiredSkills', 'zona', 'city', 'radiusKm', 'active', 'durationDays', 'expiresAt', 'businessName', 'availability', 'aiAssessEnabled', 'location'];
     const filteredUpdates = {};
 
     for (const field of allowedFields) {
@@ -165,9 +173,24 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
           filteredUpdates[field] = Boolean(updates[field]);
         } else if (field === 'location') {
           filteredUpdates[field] = matchingService.sanitizeLocation(updates[field]);
+        } else if (field === 'zona') {
+          filteredUpdates[field] = normalizeZona(updates[field]) || updates[field] || null;
+        } else if (field === 'radiusKm') {
+          filteredUpdates[field] = Number(updates[field]) > 0 ? Number(updates[field]) : null;
         } else {
           filteredUpdates[field] = updates[field];
         }
+      }
+    }
+
+    // Si cambió zona o ciudad y no se mandó GPS, re-geocodificar para mantener
+    // el match por proximidad (sin pisar un GPS existente válido).
+    if ((filteredUpdates.zona !== undefined || filteredUpdates.city !== undefined) && updates.location === undefined) {
+      const merged = { ...jobDoc.data(), ...filteredUpdates };
+      if (!matchingService.sanitizeLocation(merged.location)) {
+        const enriched = await locationService.enrichLocation({ location: null, city: merged.city, zona: merged.zona });
+        filteredUpdates.location = enriched.location;
+        filteredUpdates.city = enriched.city;
       }
     }
 
@@ -457,7 +480,7 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
     });
 
     // d) Persist the new ranking entry.
-    const docData = buildCandidateDoc(uid, offerId, fileHash, result);
+    const docData = await buildCandidateDoc(uid, offerId, fileHash, result, offer);
     const ref = await db.collection('pinnedCandidates').add(docData);
 
     // e) Accumulate AI spend on the offer (only when a real AI call happened).
@@ -516,9 +539,17 @@ async function loadOwnedOffer(db, offerId, uid) {
 }
 
 // Builds the Firestore doc for a ranking entry from a normalized assessment result.
-function buildCandidateDoc(uid, offerId, fileHash, result) {
+async function buildCandidateDoc(uid, offerId, fileHash, result, offer = {}) {
   const candidate = result.candidate || {};
   const assessment = result.assessment || {};
+  const canonicalZona = normalizeZona(candidate.zona) || candidate.zona || null;
+  // Geocodifica el candidato (zona/ciudad de la oferta) si todavía no trae coords,
+  // para que aparezca con proximidad en el ranking. Reutiliza coords ya resueltas.
+  const enriched = await locationService.enrichLocation({
+    location: candidate.location,
+    city: candidate.city || offer.city,
+    zona: canonicalZona
+  });
   return {
     offerId,
     employerId: uid,
@@ -530,7 +561,9 @@ function buildCandidateDoc(uid, offerId, fileHash, result) {
       email: candidate.email || null,
       phone: candidate.phone || null,
       puesto: candidate.puesto || null,
-      zona: candidate.zona || null,
+      zona: canonicalZona,
+      city: enriched.city,
+      location: enriched.location,
       skills: Array.isArray(candidate.skills) ? candidate.skills : []
     },
     assessment: {

@@ -16,9 +16,15 @@ const notificationRoutes = require('./routes/notifications');
 const leadsRoutes = require('./routes/leads');
 const rubrosRoutes = require('./routes/rubros');
 const settingsRoutes = require('./routes/settings');
+const citiesRoutes = require('./routes/cities');
+const geocodeRoutes = require('./routes/geocode');
+const { seedCities } = require('./scripts/seedCities');
 
 // Initialize Firebase Admin
 initializeFirebase();
+
+// Seed idempotente de ciudades (crea Mar del Plata si no existe).
+seedCities().catch((err) => console.warn('Seed de ciudades falló:', err.message));
 
 const app = express();
 
@@ -45,6 +51,8 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/leads', leadsRoutes);
 app.use('/api/rubros', rubrosRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/cities', citiesRoutes);
+app.use('/api/geocode', geocodeRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

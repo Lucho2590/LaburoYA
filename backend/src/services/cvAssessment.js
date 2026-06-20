@@ -5,6 +5,7 @@ const aiProvider = require('./aiProvider');
 const ocr = require('./ocr');
 const cvProfileBuilder = require('./cvProfileBuilder');
 const matchingService = require('./matchingService');
+const locationService = require('./locationService');
 
 // Minimum chars of extracted text to trust the text layer (else treat as scanned → OCR)
 const MIN_TEXT_CHARS = 200;
@@ -162,7 +163,11 @@ async function parseBasic(buffer, mimeType, fileName) {
 async function assessBasic(buffer, mimeType, fileName, offer) {
   const { text, fields } = await parseBasic(buffer, mimeType, fileName);
   const profile = cvProfileBuilder.buildProfileFromText(text, offer);
-  const result = matchingService.calculateRelevanceScore(profile, offer);
+  // Geocodifica la zona del candidato -> location/city para puntuar proximidad
+  // (el perfil del CV no tiene GPS; sin esto la cercanía siempre daba 0).
+  const enriched = await locationService.enrichLocation({ zona: profile.zona, city: offer.city });
+  const scored = { ...profile, location: enriched.location, city: enriched.city };
+  const result = matchingService.calculateRelevanceScore(scored, offer);
   const missingSkills = (offer.requiredSkills || []).filter(s => !result.details.matchingSkills.includes(s));
 
   return {
@@ -173,6 +178,8 @@ async function assessBasic(buffer, mimeType, fileName, offer) {
       phone: fields.phone,
       puesto: profile.puesto,
       zona: profile.zona,
+      city: enriched.city,
+      location: enriched.location,
       skills: profile.skills
     },
     assessment: {
@@ -182,6 +189,7 @@ async function assessBasic(buffer, mimeType, fileName, offer) {
       rubroMatch: result.details.rubroMatch,
       puestoMatch: result.details.puestoMatch,
       zonaMatch: result.details.zonaMatch,
+      distanceKm: result.details.distanceKm,
       matchingSkills: result.details.matchingSkills,
       missingSkills
     }

@@ -47,6 +47,7 @@ export interface IWorkerProfile {
   puesto: string;
   zona: string;
   localidad?: string;
+  city?: string | null;
   photoUrl?: string;
   videoUrl?: string;
   description?: string;
@@ -86,6 +87,8 @@ export interface IJobOffer {
   schedule?: string;
   requiredSkills?: string[];
   zona?: string;
+  city?: string | null;
+  radiusKm?: number | null;
   location?: IGeoLocation | null;
   active: boolean;
   durationDays?: number;
@@ -193,6 +196,7 @@ export interface IRelevanceDetails {
   puestoMatch: boolean;
   zonaMatch: boolean;
   distanceKm?: number | null;
+  approximate?: boolean; // distancia estimada vía centroide de zona (no GPS preciso)
   matchingSkills: string[];
   bonuses: string[];
 }
@@ -275,6 +279,7 @@ export interface ICreateWorkerProfileData {
   puesto: string;
   zona?: string;
   localidad?: string;
+  city?: string | null;
   description?: string;
   experience?: string;
   photoUrl?: string;
@@ -301,6 +306,8 @@ export interface ICreateJobOfferData {
   schedule?: string;
   requiredSkills?: string[];
   zona?: string;
+  city?: string | null;
+  radiusKm?: number | null;
   businessName?: string;
   availability?: 'part-time' | 'full-time';
   location?: IGeoLocation | null;
@@ -518,6 +525,40 @@ export interface ICreateRubroData {
 }
 
 export interface IUpdateRubroData extends Partial<ICreateRubroData> {}
+
+// ============================================
+// City Types (Ciudades donde opera la app)
+// ============================================
+
+export interface ICity {
+  id: string;
+  nombre: string;
+  center: IGeoLocation;
+  radiusKm: number;
+  zonas: string[];
+  activo: boolean;
+  orden: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ICreateCityData {
+  nombre: string;
+  center: IGeoLocation;
+  radiusKm: number;
+  zonas?: string[];
+  activo?: boolean;
+  orden?: number;
+}
+
+export interface IUpdateCityData extends Partial<ICreateCityData> {}
+
+export interface IGeocodeResult {
+  lat: number;
+  lng: number;
+  displayName: string | null;
+  city?: string | null;
+}
 
 // ============================================
 // Lead Types (Waitlist)

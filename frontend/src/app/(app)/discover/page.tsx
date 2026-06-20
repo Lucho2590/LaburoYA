@@ -364,7 +364,7 @@ function OfferCard({
             )}
             {typeof offer.relevance?.details?.distanceKm === 'number' && (
               <span className="flex items-center gap-0.5 text-[#E10600] font-medium">
-                a {offer.relevance.details.distanceKm} km
+                a {offer.relevance.details.approximate ? '~' : ''}{offer.relevance.details.distanceKm} km
               </span>
             )}
             {offer.salary && (
@@ -455,7 +455,7 @@ function WorkerCard({
             )}
             {typeof worker.relevance?.details?.distanceKm === 'number' && (
               <span className="flex items-center gap-0.5 text-[#E10600] font-medium">
-                a {worker.relevance.details.distanceKm} km
+                a {worker.relevance.details.approximate ? '~' : ''}{worker.relevance.details.distanceKm} km
               </span>
             )}
           </div>

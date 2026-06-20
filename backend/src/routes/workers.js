@@ -2,7 +2,8 @@ const express = require('express');
 const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const matchingService = require('../services/matchingService');
-const { getSuggestedSkills, getAllSkillsForRubro } = require('../utils/constants');
+const locationService = require('../services/locationService');
+const { getSuggestedSkills, getAllSkillsForRubro, normalizeZona } = require('../utils/constants');
 
 const router = express.Router();
 
@@ -30,7 +31,7 @@ router.get('/skills/:rubro', (req, res) => {
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { rubro, puesto, zona, localidad, photoUrl, videoUrl, description, experience, skills, location } = req.body;
+    const { rubro, puesto, zona, localidad, photoUrl, videoUrl, description, experience, skills, location, city, address } = req.body;
 
     if (!rubro || !puesto) {
       return res.status(400).json({ error: 'rubro and puesto are required' });
@@ -50,11 +51,13 @@ router.post('/', authMiddleware, async (req, res, next) => {
       return res.status(403).json({ error: 'User must be registered as worker' });
     }
 
+    const canonicalZona = normalizeZona(zona) || zona || null;
+
     const workerData = {
       uid,
       rubro,
       puesto,
-      zona: zona || null,
+      zona: canonicalZona,
       localidad: localidad || null,
       photoUrl: photoUrl || null,
       videoUrl: videoUrl || null,
@@ -65,11 +68,23 @@ router.post('/', authMiddleware, async (req, res, next) => {
       updatedAt: new Date()
     };
 
+    if (city !== undefined) {
+      workerData.city = city || null;
+    }
+
     // Only touch location when the client sends it, so a regular profile save
     // doesn't wipe a previously captured location.
     if (location !== undefined) {
       const sanitized = matchingService.sanitizeLocation(location);
-      workerData.location = sanitized ? { ...sanitized, updatedAt: new Date() } : null;
+      if (sanitized) {
+        workerData.location = { ...sanitized, updatedAt: new Date() };
+      } else {
+        // Sin coords explícitas: geocodificar por dirección/zona/ciudad para no
+        // perder el match por proximidad.
+        const enriched = await locationService.enrichLocation({ city, zona: canonicalZona, localidad, address });
+        workerData.location = enriched.location ? { ...enriched.location, updatedAt: new Date() } : null;
+        if (enriched.city && city === undefined) workerData.city = enriched.city;
+      }
     }
 
     // Check if profile exists
