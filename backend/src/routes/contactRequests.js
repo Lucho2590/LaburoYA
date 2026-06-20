@@ -27,6 +27,27 @@ async function findReverseRequest(db, fromUid, toUid, offerId) {
 }
 
 /**
+ * Helper: evalúa una solicitud propia ya existente (misma persona → misma oferta).
+ * - Bloquea si sigue activa: pendiente vigente o ya matcheada.
+ * - Permite reintentar si está rechazada o vencida (devuelve staleId para borrarla).
+ */
+function evaluateExistingOwnRequest(snapshot) {
+  if (snapshot.empty) return { block: false, staleId: null };
+  const doc = snapshot.docs[0];
+  const data = doc.data();
+  if (data.status === 'matched') {
+    return { block: true, error: 'Ya tenés un match para esta oferta' };
+  }
+  const expiry = data.expiresAt?.toDate ? data.expiresAt.toDate() : (data.expiresAt ? new Date(data.expiresAt) : null);
+  const expired = expiry ? expiry.getTime() < Date.now() : false;
+  if (data.status === 'pending' && !expired) {
+    return { block: true, error: 'Ya enviaste la solicitud para esta oferta' };
+  }
+  // rechazada o pendiente-vencida → se puede reintentar
+  return { block: false, staleId: doc.id };
+}
+
+/**
  * Helper: Create a match when both parties express interest
  */
 async function createMutualMatch(db, workerId, employerId, offerId, jobOfferData) {
@@ -101,15 +122,20 @@ router.post('/worker-to-offer', authMiddleware, async (req, res, next) => {
     const jobOfferData = jobOfferDoc.data();
     const employerId = jobOfferData.employerId;
 
-    // Check if request already exists
+    // Solicitud propia previa: bloquea si está activa; si fue rechazada o venció,
+    // la borramos para permitir volver a postularse.
     const existingRequest = await db.collection('contactRequests')
       .where('fromUid', '==', uid)
       .where('offerId', '==', offerId)
       .limit(1)
       .get();
 
-    if (!existingRequest.empty) {
-      return res.status(400).json({ error: 'Request already sent for this offer' });
+    const ownEval = evaluateExistingOwnRequest(existingRequest);
+    if (ownEval.block) {
+      return res.status(400).json({ error: ownEval.error });
+    }
+    if (ownEval.staleId) {
+      await db.collection('contactRequests').doc(ownEval.staleId).delete();
     }
 
     // Check if employer already requested this worker for this offer (mutual interest)
@@ -287,7 +313,8 @@ router.post('/employer-to-worker', authMiddleware, async (req, res, next) => {
       return res.status(404).json({ error: 'Worker not found' });
     }
 
-    // Check if request already exists
+    // Solicitud propia previa: bloquea si está activa; si fue rechazada o venció,
+    // la borramos para permitir volver a contactar al candidato.
     const existingRequest = await db.collection('contactRequests')
       .where('fromUid', '==', uid)
       .where('toUid', '==', workerId)
@@ -295,8 +322,12 @@ router.post('/employer-to-worker', authMiddleware, async (req, res, next) => {
       .limit(1)
       .get();
 
-    if (!existingRequest.empty) {
-      return res.status(400).json({ error: 'Request already sent for this worker and offer' });
+    const ownEval = evaluateExistingOwnRequest(existingRequest);
+    if (ownEval.block) {
+      return res.status(400).json({ error: ownEval.error });
+    }
+    if (ownEval.staleId) {
+      await db.collection('contactRequests').doc(ownEval.staleId).delete();
     }
 
     // Check if worker already requested this offer (mutual interest)

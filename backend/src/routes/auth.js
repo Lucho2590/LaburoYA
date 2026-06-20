@@ -1,6 +1,7 @@
 const express = require('express');
 const { getDb, getAuth } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
+const { isSuperuserEmail } = require('../utils/superuser');
 
 const router = express.Router();
 
@@ -44,16 +45,29 @@ router.post('/register', authMiddleware, async (req, res, next) => {
 // Get current user info
 router.get('/me', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { uid, email } = req.user;
     const db = getDb();
 
     const userDoc = await db.collection('users').doc(uid).get();
 
-    if (!userDoc.exists) {
+    let userData;
+    if (userDoc.exists) {
+      userData = userDoc.data();
+    } else if (isSuperuserEmail(email)) {
+      // Las cuentas @laburoya.com son superusers y no completan onboarding.
+      // Autoaprovisionamos un doc mínimo (sin perfil) para que el resto del
+      // backend (role-based) funcione sin tratamiento especial por endpoint.
+      userData = {
+        uid,
+        role: 'superuser',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      await db.collection('users').doc(uid).set(userData, { merge: true });
+    } else {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const userData = userDoc.data();
     let profileData = null;
 
     // Get profile based on role (or secondaryRole for superusers)

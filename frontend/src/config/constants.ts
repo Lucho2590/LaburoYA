@@ -133,3 +133,11 @@ export function getAllSkills(): string[] {
 
 export type TRubro = keyof typeof JOB_CATEGORIES;
 export type TZona = typeof ZONAS_MDP[number];
+
+// Detección de cuentas superuser por dominio de email.
+// IMPORTANTE: único punto del frontend acoplado al dominio @laburoya.com (login y
+// verify-email saltean la verificación de email para estas cuentas). Para migrar a
+// detección por `role === 'superuser'`, se ajusta solo este helper.
+export function isSuperuserEmail(email?: string | null): boolean {
+  return !!email && email.endsWith("@laburoya.com");
+}

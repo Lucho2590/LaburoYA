@@ -1896,4 +1896,56 @@ router.post('/parse-cv', pdfUpload.single('pdf'), async (req, res, next) => {
   }
 });
 
+// ----- Errores de IA (evaluación de CV) -----
+
+// List recent AI errors (newest first)
+router.get('/ai-errors', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    let snapshot;
+    try {
+      snapshot = await db.collection('aiErrors').orderBy('createdAt', 'desc').limit(limit).get();
+    } catch (err) {
+      // Fallback si falta el índice: traer y ordenar en memoria.
+      snapshot = await db.collection('aiErrors').get();
+    }
+    let errors = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt
+    }));
+    errors.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    errors = errors.slice(0, limit);
+    res.json({ errors });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Clear all AI errors
+router.delete('/ai-errors', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const snapshot = await db.collection('aiErrors').get();
+    const batch = db.batch();
+    snapshot.docs.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+    res.json({ message: 'Errores eliminados', deleted: snapshot.size });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Delete a single AI error
+router.delete('/ai-errors/:id', async (req, res, next) => {
+  try {
+    const db = getDb();
+    await db.collection('aiErrors').doc(req.params.id).delete();
+    res.json({ message: 'Error eliminado' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

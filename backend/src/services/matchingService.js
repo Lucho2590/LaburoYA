@@ -85,6 +85,45 @@ function scoreToStars(score) {
   return 0;
 }
 
+// True si la oferta ya venció (expiresAt en el pasado). Tolera Timestamp/Date/string
+// y ofertas sin expiresAt (legacy → no se consideran vencidas).
+function isOfferExpired(offer) {
+  const raw = offer && offer.expiresAt;
+  if (!raw) return false;
+  const d = raw.toDate ? raw.toDate() : new Date(raw);
+  return d instanceof Date && !isNaN(d) && d.getTime() < Date.now();
+}
+
+// Caché en memoria (TTL corto) para las lecturas de colección completa más caras
+// del matching: ofertas activas y workers activos. Reduce lecturas repetidas a
+// Firestore en cada carga de discovery sin cambiar resultados. Mismo patrón que
+// citiesService. Tolera staleness de hasta ACTIVE_TTL_MS (una oferta/worker nuevo
+// puede tardar ese tiempo en aparecer).
+const ACTIVE_TTL_MS = 60_000;
+const _activeCache = { offers: null, workers: null };
+
+async function getActiveOffers(db) {
+  const now = Date.now();
+  if (_activeCache.offers && now - _activeCache.offers.ts < ACTIVE_TTL_MS) {
+    return _activeCache.offers.data;
+  }
+  const snap = await db.collection('jobOffers').where('active', '==', true).get();
+  const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  _activeCache.offers = { data, ts: now };
+  return data;
+}
+
+async function getActiveWorkers(db) {
+  const now = Date.now();
+  if (_activeCache.workers && now - _activeCache.workers.ts < ACTIVE_TTL_MS) {
+    return _activeCache.workers.data;
+  }
+  const snap = await db.collection('workers').where('active', '==', true).get();
+  const data = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+  _activeCache.workers = { data, ts: now };
+  return data;
+}
+
 class MatchingService {
   /**
    * Calculate relevance score between a worker and a job offer
@@ -202,20 +241,21 @@ class MatchingService {
     }
     const worker = workerDoc.data();
 
-    // Get all active job offers
-    const offersSnapshot = await db.collection('jobOffers')
-      .where('active', '==', true)
-      .get();
+    // Get all active job offers (cacheado, TTL corto)
+    const activeOffers = await getActiveOffers(db);
 
     // First pass: calculate relevance and collect employer IDs
     const relevantOffersTemp = [];
     const employerIds = new Set();
 
-    for (const doc of offersSnapshot.docs) {
-      const offer = { id: doc.id, ...doc.data() };
+    for (const offer of activeOffers) {
+      // No mostrar ofertas vencidas.
+      if (isOfferExpired(offer)) continue;
       const relevance = this.calculateRelevanceScore(worker, offer);
 
-      if (relevance.score > 0) {
+      // Sólo matches reales (mismo rubro+puesto o skills en común); descarta
+      // falsos positivos por bonus de perfil / coincidencia floja.
+      if (relevance.matchType) {
         relevantOffersTemp.push({ offer, relevance });
         employerIds.add(offer.employerId);
       }
@@ -277,19 +317,16 @@ class MatchingService {
       throw new Error('Unauthorized');
     }
 
-    // Get all active workers
-    const workersSnapshot = await db.collection('workers')
-      .where('active', '==', true)
-      .get();
+    // Get all active workers (cacheado, TTL corto)
+    const activeWorkers = await getActiveWorkers(db);
 
     const relevantWorkers = [];
 
-    for (const doc of workersSnapshot.docs) {
-      const worker = { uid: doc.id, ...doc.data() };
+    for (const worker of activeWorkers) {
       const relevance = this.calculateRelevanceScore(worker, offer);
 
-      // Only include workers with some relevance
-      if (relevance.score > 0) {
+      // Sólo candidatos con match real (rubro+puesto o skills en común).
+      if (relevance.matchType) {
         relevantWorkers.push({
           ...worker,
           relevance,
@@ -330,21 +367,20 @@ class MatchingService {
       return { fullMatch: [], partialMatch: [], skillsMatch: [] };
     }
 
-    // Get all active workers
-    const workersSnapshot = await db.collection('workers')
-      .where('active', '==', true)
-      .get();
+    // Get all active workers (cacheado, TTL corto)
+    const activeWorkers = await getActiveWorkers(db);
 
     const workerScores = new Map(); // uid -> { worker, bestScore, bestMatchType, bestOffer }
 
     for (const offerDoc of offersSnapshot.docs) {
       const offer = { id: offerDoc.id, ...offerDoc.data() };
+      // Ignorar ofertas vencidas al armar el listado de candidatos.
+      if (isOfferExpired(offer)) continue;
 
-      for (const workerDoc of workersSnapshot.docs) {
-        const worker = { uid: workerDoc.id, ...workerDoc.data() };
+      for (const worker of activeWorkers) {
         const relevance = this.calculateRelevanceScore(worker, offer);
 
-        if (relevance.score > 0) {
+        if (relevance.matchType) {
           const existing = workerScores.get(worker.uid);
           if (!existing || relevance.score > existing.bestScore) {
             workerScores.set(worker.uid, {

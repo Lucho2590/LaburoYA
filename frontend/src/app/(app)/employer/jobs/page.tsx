@@ -12,7 +12,7 @@ import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate, IGeoLoc
 import { scoreToStars, STAR_MAX, STAR_FILTERS } from '@/lib/stars';
 import { haversineKm } from '@/lib/geo';
 import LocationPicker from '@/components/LocationPicker';
-import { Check, Plus, X, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, AlertTriangle } from 'lucide-react';
+import { Check, Plus, X, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, AlertTriangle, RotateCcw, MapPin } from 'lucide-react';
 
 interface InterestedWorker extends IWorkerProfile {
   firstName?: string;
@@ -426,13 +426,19 @@ export default function EmployerJobsPage() {
     setAssessItems((prev) => {
       const seen = new Set(prev.map((it) => it.hash).filter(Boolean) as string[]);
       const fresh: { file: File; hash: string }[] = [];
-      let dupes = 0;
+      const dupeNames: string[] = [];
       for (const h of hashed) {
-        if (seen.has(h.hash)) { dupes++; continue; }
+        if (seen.has(h.hash)) { dupeNames.push(h.file.name); continue; }
         seen.add(h.hash);
         fresh.push(h);
       }
-      if (dupes > 0) toast.error(dupes === 1 ? 'Ese archivo ya lo agregaste' : `${dupes} archivos repetidos se omitieron`);
+      if (dupeNames.length > 0) {
+        toast.error(
+          dupeNames.length === 1
+            ? `Ese archivo ya lo agregaste: ${dupeNames[0]}`
+            : `${dupeNames.length} archivos repetidos se omitieron: ${dupeNames.join(', ')}`
+        );
+      }
 
       const room = MAX_CVS - prev.length;
       if (room <= 0) {
@@ -460,6 +466,27 @@ export default function EmployerJobsPage() {
     setAssessItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
   };
 
+  // Evalúa un único CV. Devuelve el resultado para que el llamador (lote o reintento)
+  // decida cómo seguir. El detalle técnico del error queda en el log de admin.
+  const assessOne = async (item: AssessItem): Promise<{ outcome: 'done' | 'error' | 'rate_limited'; rateScope?: string }> => {
+    if (!assessModal) return { outcome: 'error' };
+    updateItem(item.id, { status: 'running', error: undefined });
+    try {
+      const result = await api.assessOfferCv(assessModal.job.id, item.file);
+      updateItem(item.id, { status: 'done', result });
+      return { outcome: 'done' };
+    } catch (error) {
+      const e = error as { rateLimited?: boolean; rateScope?: string; message?: string };
+      if (e?.rateLimited) {
+        // Límite de IA: dejamos el item pendiente para reintentar luego.
+        updateItem(item.id, { status: 'pending', error: undefined });
+        return { outcome: 'rate_limited', rateScope: e.rateScope };
+      }
+      updateItem(item.id, { status: 'error', error: e?.message || 'Error al evaluar el CV' });
+      return { outcome: 'error' };
+    }
+  };
+
   const runAssessment = async () => {
     if (!assessModal) return;
     setAssessRunning(true);
@@ -468,39 +495,41 @@ export default function EmployerJobsPage() {
     // AI mode bursts hit provider rate limits → space the calls a bit.
     const willUseAi = aiOn && assessModal.job.aiAssessEnabled !== false;
     let done = 0;
-    let stopped = false;
     for (let i = 0; i < pending.length; i++) {
-      const item = pending[i];
-      updateItem(item.id, { status: 'running', error: undefined });
-      try {
-        const result = await api.assessOfferCv(assessModal.job.id, item.file);
-        updateItem(item.id, { status: 'done', result });
-        done++;
-      } catch (error) {
-        const e = error as { rateLimited?: boolean; rateScope?: string; message?: string };
-        if (e?.rateLimited) {
-          // Hit the AI limit: stop the queue, keep what was analyzed, let the user retry.
-          updateItem(item.id, { status: 'pending', error: undefined });
-          stopped = true;
-          const remaining = pending.length - done;
-          toast.error(
-            (e.rateScope === 'day'
-              ? 'Límite diario de la IA alcanzado. '
-              : 'Límite por minuto de la IA alcanzado. ') +
-            `Se analizaron ${done}; quedaron ${remaining} sin analizar. Reintentá más tarde con "Evaluar".`
-          );
-          break;
-        }
-        updateItem(item.id, { status: 'error', error: e?.message || 'Error al evaluar el CV' });
-        done++;
+      const r = await assessOne(pending[i]);
+      if (r.outcome === 'rate_limited') {
+        const remaining = pending.length - done;
+        toast.error(
+          (r.rateScope === 'day'
+            ? 'Límite diario de la IA alcanzado. '
+            : 'Límite por minuto de la IA alcanzado. ') +
+          `Se analizaron ${done}; quedaron ${remaining} sin analizar. Reintentá más tarde con "Evaluar".`
+        );
+        break;
       }
-      // Pacing between AI calls (skip after the last one and when stopping).
-      if (willUseAi && !stopped && i < pending.length - 1) {
+      done++;
+      // Pacing between AI calls (skip after the last one).
+      if (willUseAi && i < pending.length - 1) {
         await sleep(AI_PACING_MS);
       }
     }
     setAssessRunning(false);
     refreshJobsSilent(); // update ranking count + AI spend without the full-page spinner
+  };
+
+  // Reintenta la evaluación de un único CV (botón "Reintentar" del item).
+  const retryAssessItem = async (item: AssessItem) => {
+    setAssessRunning(true);
+    const r = await assessOne(item);
+    if (r.outcome === 'rate_limited') {
+      toast.error(
+        (r.rateScope === 'day'
+          ? 'Límite diario de la IA alcanzado. '
+          : 'Límite por minuto de la IA alcanzado. ') + 'Reintentá en unos minutos.'
+      );
+    }
+    setAssessRunning(false);
+    refreshJobsSilent();
   };
 
   const openPinnedModal = async (job: DashboardOffer) => {
@@ -572,6 +601,31 @@ export default function EmployerJobsPage() {
       <span className="text-gray-400">{'☆'.repeat(Math.max(0, STAR_MAX - level))}</span>
     </span>
   );
+
+  // Badge de ubicación del candidato respecto a la oferta (fuera de zona / no detectada).
+  const renderLocationBadge = (
+    a: { locationStatus?: string | null; distanceKm?: number | null },
+    candidate?: { city?: string | null }
+  ) => {
+    const status = a.locationStatus || 'in_zone';
+    if (status === 'out_of_zone') {
+      const city = candidate?.city ? ` · ${candidate.city}` : '';
+      const km = a.distanceKm != null ? ` · ${a.distanceKm} km` : '';
+      return (
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 flex items-center gap-1">
+          <MapPin className="h-3 w-3" /> Fuera de zona{city}{km}
+        </span>
+      );
+    }
+    if (status === 'unknown') {
+      return (
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full theme-bg-secondary theme-text-muted flex items-center gap-1">
+          <MapPin className="h-3 w-3" /> Ubicación no detectada
+        </span>
+      );
+    }
+    return null;
+  };
 
   // Devolución detallada (resumen/fortalezas/brechas/skills) — usada en el ranking y en comparar.
   const renderAssessmentDetail = (a: IPinnedCandidate['assessment']) => {
@@ -918,12 +972,15 @@ export default function EmployerJobsPage() {
               radiusKm={effectiveRadius}
               onRadiusChange={setOfferRadius}
               cityName={selectedCity?.nombre}
+              isLocationServed={(loc) => cities.some((c) => haversineKm(loc, c.center) <= c.radiusKm)}
             />
             {!locationCovered && (
               <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <span>
-                  Todavía no operamos en esta ciudad. Podés publicar la oferta igual, pero por ahora puede no recibir candidatos cercanos.
+                  No operamos en esta ciudad todavía.
+                  {cities.length > 0 && ` Por ahora trabajamos en ${cities.map((c) => c.nombre).join(', ')}.`}
+                  {' '}Podés publicar la oferta igual, pero quizás no recibas candidatos cercanos.
                 </span>
               </div>
             )}
@@ -1268,21 +1325,34 @@ export default function EmployerJobsPage() {
                   </div>
 
                   {item.status === 'error' && (
-                    <p className="text-xs text-[#E10600] mt-1">{item.error}</p>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <p className="text-xs text-[#E10600]">No se pudo leer el CV</p>
+                      {!assessRunning && (
+                        <button
+                          onClick={() => retryAssessItem(item)}
+                          className="text-xs flex items-center gap-1 text-[#7C3AED] font-medium cursor-pointer shrink-0"
+                        >
+                          <RotateCcw className="h-3 w-3" /> Reintentar
+                        </button>
+                      )}
+                    </div>
                   )}
 
                   {item.status === 'done' && item.result && (
-                    <p className="text-xs mt-1">
-                      {item.result.duplicate === 'file' ? (
-                        <span className="text-amber-600">Ya cargado (CV duplicado)</span>
-                      ) : item.result.duplicate === 'person' ? (
-                        <button onClick={() => openPinnedModal(assessModal.job)} className="text-amber-600 underline cursor-pointer">
-                          Perfil ya en el ranking — comparar
-                        </button>
-                      ) : (
-                        <span className="text-green-600">Agregado al ranking</span>
-                      )}
-                    </p>
+                    <div className="mt-1 flex items-center gap-2 flex-wrap">
+                      <p className="text-xs">
+                        {item.result.duplicate === 'file' ? (
+                          <span className="text-amber-600">Ya cargado (CV duplicado)</span>
+                        ) : item.result.duplicate === 'person' ? (
+                          <button onClick={() => openPinnedModal(assessModal.job)} className="text-amber-600 underline cursor-pointer">
+                            Perfil ya en el ranking — comparar
+                          </button>
+                        ) : (
+                          <span className="text-green-600">Agregado al ranking</span>
+                        )}
+                      </p>
+                      {renderLocationBadge(item.result.assessment, item.result.candidate)}
+                    </div>
                   )}
                 </div>
               ))}
@@ -1382,7 +1452,7 @@ export default function EmployerJobsPage() {
                 if (list.length === 0) {
                   return <p className="text-sm theme-text-muted text-center py-8">No hay CVs que cumplan el filtro.</p>;
                 }
-                return list.map((p) => {
+                const renderCard = (p: IPinnedCandidate) => {
                   const k = personKey(p);
                   const group = k ? groups.get(k) : null;
                   const isDup = !!group && group.length > 1;
@@ -1420,6 +1490,7 @@ export default function EmployerJobsPage() {
                         {p.assessment.mode === 'basic' && p.assessment.matchType && (
                           <Badge variant="secondary" className="text-xs">{MATCH_LABELS[p.assessment.matchType]}</Badge>
                         )}
+                        {renderLocationBadge(p.assessment, p.candidate)}
                         {isDup && (
                           <button onClick={() => setCompareGroup(group)} className="text-xs text-amber-600 flex items-center gap-1 cursor-pointer">
                             <Columns2 className="h-3 w-3" /> Comparar
@@ -1432,7 +1503,34 @@ export default function EmployerJobsPage() {
                       {expanded && <div className="mt-3 pt-3 border-t theme-border">{renderAssessmentDetail(p.assessment)}</div>}
                     </div>
                   );
-                });
+                };
+                const statusOf = (p: IPinnedCandidate) => p.assessment.locationStatus || 'in_zone';
+                const inZone = list.filter((p) => statusOf(p) === 'in_zone');
+                const outZone = list.filter((p) => statusOf(p) === 'out_of_zone');
+                const unknown = list.filter((p) => statusOf(p) === 'unknown');
+                const sectionHeader = (label: string, count: number) => (
+                  <div key={label} className="flex items-center gap-2 pt-3 text-xs font-semibold theme-text-muted">
+                    <span>{label}</span>
+                    <span className="theme-bg-secondary rounded-full px-1.5 py-0.5">{count}</span>
+                  </div>
+                );
+                return (
+                  <>
+                    {inZone.map(renderCard)}
+                    {outZone.length > 0 && (
+                      <>
+                        {sectionHeader('Fuera de zona', outZone.length)}
+                        {outZone.map(renderCard)}
+                      </>
+                    )}
+                    {unknown.length > 0 && (
+                      <>
+                        {sectionHeader('Ubicación no detectada', unknown.length)}
+                        {unknown.map(renderCard)}
+                      </>
+                    )}
+                  </>
+                );
               })()}
             </div>
           </div>

@@ -8,6 +8,8 @@ const matchingService = require('../services/matchingService');
 const cvAssessment = require('../services/cvAssessment');
 const aiProvider = require('../services/aiProvider');
 const locationService = require('../services/locationService');
+const citiesService = require('../services/citiesService');
+const { logAiError } = require('../services/aiErrorLog');
 const { normalizeZona } = require('../utils/constants');
 const FieldValue = admin.firestore.FieldValue;
 
@@ -449,7 +451,10 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
           firstName: a.firstName || null,
           lastName: a.lastName || null,
           email: a.email || null,
-          phone: a.phone || null
+          phone: a.phone || null,
+          city: a.city || null,
+          zona: a.zona || null,
+          localidad: a.localidad || null
         },
         assessment: {
           score: a.fitScore,
@@ -504,10 +509,20 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
       ...(samePerson ? { duplicate: 'person', existingId: samePerson.id } : {}),
       mode: result.mode,
       source: result.source,
-      candidate: result.candidate,
-      assessment: result.assessment,
+      candidate: docData.candidate,
+      assessment: docData.assessment,
     });
   } catch (error) {
+    // Registramos el fallo (best-effort) para diagnóstico en el admin.
+    await logAiError(getDb(), {
+      employerId: req.user?.uid,
+      employerEmail: req.user?.email,
+      offerId: req.params.offerId,
+      fileName: req.file?.originalname,
+      mimeType: req.file?.mimetype,
+      fileSize: req.file?.size,
+      error,
+    });
     if (error.status) {
       return res.status(error.status).json({
         error: error.message,
@@ -538,18 +553,38 @@ async function loadOwnedOffer(db, offerId, uid) {
   return offerDoc;
 }
 
+// Clasifica la ubicación del candidato respecto a la oferta usando SOLO datos propios
+// del candidato (ciudad/zona del CV). Devuelve { locationStatus, distanceKm, location, city }.
+//  - 'unknown'     → el CV no menciona ciudad ni zona.
+//  - 'in_zone'     → dentro del radio de la oferta.
+//  - 'out_of_zone' → fuera del radio.
+async function classifyCandidateLocation(own, offer = {}) {
+  const zona = own.zona && String(own.zona).trim() ? String(own.zona).trim() : null;
+  const city = own.city && String(own.city).trim() ? String(own.city).trim() : null;
+  if (!zona && !city) {
+    return { locationStatus: 'unknown', distanceKm: null, location: null, city: null };
+  }
+  // Geocodifica con la ciudad propia; si sólo dio zona, usamos la de la oferta como pista
+  // (asumimos que la zona es local a la búsqueda).
+  const enriched = await locationService.enrichLocation({ city: city || offer.city, zona });
+  const candCoords = matchingService.sanitizeLocation(enriched.location);
+  const offerCoords = matchingService.resolveCoords(offer);
+  if (!candCoords || !offerCoords) {
+    return { locationStatus: 'unknown', distanceKm: null, location: candCoords || null, city: city || null };
+  }
+  const distanceKm = Math.round(matchingService.haversineKm(candCoords, offerCoords) * 10) / 10;
+  const radiusKm = citiesService.radiusForOfferSync(offer);
+  const locationStatus = distanceKm <= radiusKm ? 'in_zone' : 'out_of_zone';
+  return { locationStatus, distanceKm, location: candCoords, city: city || null };
+}
+
 // Builds the Firestore doc for a ranking entry from a normalized assessment result.
 async function buildCandidateDoc(uid, offerId, fileHash, result, offer = {}) {
   const candidate = result.candidate || {};
   const assessment = result.assessment || {};
   const canonicalZona = normalizeZona(candidate.zona) || candidate.zona || null;
-  // Geocodifica el candidato (zona/ciudad de la oferta) si todavía no trae coords,
-  // para que aparezca con proximidad en el ranking. Reutiliza coords ya resueltas.
-  const enriched = await locationService.enrichLocation({
-    location: candidate.location,
-    city: candidate.city || offer.city,
-    zona: canonicalZona
-  });
+  // Clasifica la ubicación del candidato (en zona / fuera de zona / no detectada).
+  const loc = await classifyCandidateLocation({ zona: canonicalZona, city: candidate.city }, offer);
   return {
     offerId,
     employerId: uid,
@@ -562,8 +597,8 @@ async function buildCandidateDoc(uid, offerId, fileHash, result, offer = {}) {
       phone: candidate.phone || null,
       puesto: candidate.puesto || null,
       zona: canonicalZona,
-      city: enriched.city,
-      location: enriched.location,
+      city: loc.city,
+      location: loc.location,
       skills: Array.isArray(candidate.skills) ? candidate.skills : []
     },
     assessment: {
@@ -577,7 +612,9 @@ async function buildCandidateDoc(uid, offerId, fileHash, result, offer = {}) {
       strengths: Array.isArray(assessment.strengths) ? assessment.strengths : [],
       gaps: Array.isArray(assessment.gaps) ? assessment.gaps : [],
       matchingSkills: Array.isArray(assessment.matchingSkills) ? assessment.matchingSkills : [],
-      missingSkills: Array.isArray(assessment.missingSkills) ? assessment.missingSkills : []
+      missingSkills: Array.isArray(assessment.missingSkills) ? assessment.missingSkills : [],
+      locationStatus: loc.locationStatus,
+      distanceKm: loc.distanceKm
     },
     createdAt: new Date()
   };

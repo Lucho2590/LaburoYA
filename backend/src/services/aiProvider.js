@@ -448,7 +448,8 @@ Reglas:
 - "gaps": hasta 5 faltantes o riesgos respecto a lo que pide la oferta.
 - "matchingSkills": habilidades/competencias que el candidato SÍ tiene y la oferta pide (aunque estén redactadas distinto).
 - "missingSkills": habilidades que la oferta pide y NO se evidencian en el CV.
-- "firstName"/"lastName"/"email"/"phone": datos de contacto del candidato (null si no están).`;
+- "firstName"/"lastName"/"email"/"phone": datos de contacto del candidato (null si no están).
+- "city"/"zona"/"localidad": ubicación del candidato SEGÚN EL CV (ciudad, barrio/zona y localidad). null si el CV no la menciona. No la inventes ni uses la de la búsqueda. NO la uses para el fitScore (la cercanía la calcula el sistema aparte).`;
 
 const ASSESS_SCHEMA = {
   type: 'object',
@@ -457,6 +458,9 @@ const ASSESS_SCHEMA = {
     lastName: { type: ['string', 'null'] },
     email: { type: ['string', 'null'] },
     phone: { type: ['string', 'null'] },
+    city: { type: ['string', 'null'], description: 'Ciudad del candidato según el CV (null si no figura)' },
+    zona: { type: ['string', 'null'], description: 'Barrio/zona del candidato según el CV (null si no figura)' },
+    localidad: { type: ['string', 'null'], description: 'Localidad del candidato según el CV (null si no figura)' },
     fitScore: { type: 'integer' },
     recommendation: { type: 'string', enum: ['yes', 'maybe', 'no'] },
     summary: { type: 'string' },
@@ -465,13 +469,14 @@ const ASSESS_SCHEMA = {
     matchingSkills: { type: 'array', items: { type: 'string' } },
     missingSkills: { type: 'array', items: { type: 'string' } }
   },
-  required: ['firstName', 'lastName', 'email', 'phone', 'fitScore', 'recommendation', 'summary', 'strengths', 'gaps', 'matchingSkills', 'missingSkills']
+  required: ['firstName', 'lastName', 'email', 'phone', 'city', 'zona', 'localidad', 'fitScore', 'recommendation', 'summary', 'strengths', 'gaps', 'matchingSkills', 'missingSkills']
 };
 
 function buildAssessUserMessage(offer, cvText) {
   const offerBlock = `Búsqueda laboral:
 - Puesto: ${offer.puesto || '—'}
 - Rubro: ${offer.rubro || '—'}
+- Ciudad: ${offer.city || 'no especificada'}
 - Zona: ${offer.zona || 'no especificada'}
 - Skills requeridas: ${(offer.requiredSkills || []).join(', ') || 'no especificadas'}
 - Descripción: ${offer.description || '—'}${offer.requirements ? `\n- Requisitos: ${offer.requirements}` : ''}`;
