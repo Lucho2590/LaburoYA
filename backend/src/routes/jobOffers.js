@@ -50,6 +50,13 @@ router.post('/', authMiddleware, async (req, res, next) => {
       return res.status(400).json({ error: 'rubro and puesto are required' });
     }
 
+    // La oferta debe tener una ciudad válida (la zona varía según la ciudad).
+    await citiesService.ensureLoaded();
+    const cityDoc = city ? citiesService.findCitySync(city) : null;
+    if (!cityDoc) {
+      return res.status(400).json({ error: 'Debés seleccionar una ciudad válida para la oferta' });
+    }
+
     const db = getDb();
 
     // Verify user is registered as employer (or superuser with employer secondaryRole)
@@ -553,29 +560,41 @@ async function loadOwnedOffer(db, offerId, uid) {
   return offerDoc;
 }
 
-// Clasifica la ubicación del candidato respecto a la oferta usando SOLO datos propios
-// del candidato (ciudad/zona del CV). Devuelve { locationStatus, distanceKm, location, city }.
+// Normaliza un nombre (minúsculas, sin acentos, trim) para comparar ciudades.
+function normalizeName(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+}
+
+// Clasifica la ubicación del candidato respecto a la oferta comparando CIUDAD
+// (texto), sin geocoding. Devuelve { locationStatus, distanceKm, location, city }.
 //  - 'unknown'     → el CV no menciona ciudad ni zona.
-//  - 'in_zone'     → dentro del radio de la oferta.
-//  - 'out_of_zone' → fuera del radio.
-async function classifyCandidateLocation(own, offer = {}) {
+//  - 'in_zone'     → misma ciudad que la oferta (o sólo zona → se asume local).
+//  - 'out_of_zone' → ciudad distinta a la de la oferta.
+function classifyCandidateLocation(own, offer = {}) {
   const zona = own.zona && String(own.zona).trim() ? String(own.zona).trim() : null;
   const city = own.city && String(own.city).trim() ? String(own.city).trim() : null;
   if (!zona && !city) {
     return { locationStatus: 'unknown', distanceKm: null, location: null, city: null };
   }
-  // Geocodifica con la ciudad propia; si sólo dio zona, usamos la de la oferta como pista
-  // (asumimos que la zona es local a la búsqueda).
-  const enriched = await locationService.enrichLocation({ city: city || offer.city, zona });
-  const candCoords = matchingService.sanitizeLocation(enriched.location);
-  const offerCoords = matchingService.resolveCoords(offer);
-  if (!candCoords || !offerCoords) {
-    return { locationStatus: 'unknown', distanceKm: null, location: candCoords || null, city: city || null };
+  if (!city) {
+    // Sólo zona, sin ciudad → asumimos que es local a la oferta.
+    return { locationStatus: 'in_zone', distanceKm: null, location: null, city: null };
   }
-  const distanceKm = Math.round(matchingService.haversineKm(candCoords, offerCoords) * 10) / 10;
-  const radiusKm = citiesService.radiusForOfferSync(offer);
-  const locationStatus = distanceKm <= radiusKm ? 'in_zone' : 'out_of_zone';
-  return { locationStatus, distanceKm, location: candCoords, city: city || null };
+  // Comparación por ciudad: por id de ciudad conocida, o por nombre normalizado.
+  const offerCityDoc = offer.city ? citiesService.findCitySync(offer.city) : null;
+  const candCityDoc = citiesService.findCitySync(city);
+  let same;
+  if (offerCityDoc && candCityDoc) {
+    same = offerCityDoc.id === candCityDoc.id;
+  } else {
+    same = normalizeName(city) === normalizeName(offer.city);
+  }
+  return {
+    locationStatus: same ? 'in_zone' : 'out_of_zone',
+    distanceKm: null,
+    location: null,
+    city
+  };
 }
 
 // Builds the Firestore doc for a ranking entry from a normalized assessment result.
@@ -583,8 +602,9 @@ async function buildCandidateDoc(uid, offerId, fileHash, result, offer = {}) {
   const candidate = result.candidate || {};
   const assessment = result.assessment || {};
   const canonicalZona = normalizeZona(candidate.zona) || candidate.zona || null;
-  // Clasifica la ubicación del candidato (en zona / fuera de zona / no detectada).
-  const loc = await classifyCandidateLocation({ zona: canonicalZona, city: candidate.city }, offer);
+  // Clasifica la ubicación del candidato (en zona / fuera de zona / no detectada) por ciudad.
+  await citiesService.ensureLoaded();
+  const loc = classifyCandidateLocation({ zona: canonicalZona, city: candidate.city }, offer);
   return {
     offerId,
     employerId: uid,
