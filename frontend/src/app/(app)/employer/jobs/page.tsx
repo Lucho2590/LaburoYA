@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate, IGeoLocation, ICity } from '@/types';
 import { scoreToStars, STAR_MAX, STAR_FILTERS } from '@/lib/stars';
-import { haversineKm } from '@/lib/geo';
+import { haversineKm, getBrowserLocation } from '@/lib/geo';
 import LocationPicker from '@/components/LocationPicker';
 import { Check, Plus, X, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, AlertTriangle, RotateCcw, MapPin } from 'lucide-react';
 
@@ -134,6 +134,19 @@ export default function EmployerJobsPage() {
     setShowForm(false);
   }, []);
 
+  // Abre el form de oferta nueva y toma la ubicación del dispositivo como punto
+  // por defecto. El efecto de auto-selección de ciudad (más abajo) se encarga de
+  // fijar la ciudad donde cae. Si el GPS falla/deniega, queda el alta manual.
+  const openNewOfferForm = useCallback(async () => {
+    setShowForm(true);
+    try {
+      const coords = await getBrowserLocation();
+      setLocation(coords);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'No se pudo obtener tu ubicación');
+    }
+  }, []);
+
   // Carga las ciudades donde opera la app (centro/radio para el mapa).
   useEffect(() => {
     api.getCities()
@@ -251,7 +264,7 @@ export default function EmployerJobsPage() {
   const selectedCity = cities.find((c) => c.nombre === cityName) || cities[0] || null;
   const zonaOptions = selectedCity?.zonas?.length ? selectedCity.zonas : (ZONAS_MDP as readonly string[]);
   // Radio efectivo del círculo/slider: el propio de la oferta o el de la ciudad.
-  const effectiveRadius = offerRadius ?? selectedCity?.radiusKm ?? 15;
+  const effectiveRadius = offerRadius ?? Math.min(selectedCity?.radiusKm ?? 15, 20);
   // ¿La ubicación elegida cae en alguna ciudad donde opera la app?
   const locationCovered =
     !location || cities.some((c) => haversineKm(location, c.center) <= c.radiusKm);
@@ -313,6 +326,13 @@ export default function EmployerJobsPage() {
     const finalCity = cityName || selectedCity?.nombre || '';
     if (!finalCity) {
       toast.error('Seleccioná la ciudad de la oferta');
+      return;
+    }
+
+    // Solo se puede publicar dentro de ciudades habilitadas: si el punto marcado
+    // cae fuera de toda ciudad, no dejamos crear/actualizar.
+    if (location && !locationCovered) {
+      toast.error('La ubicación está fuera de las ciudades donde operamos. Movela a una ciudad habilitada para publicar.');
       return;
     }
 
@@ -988,9 +1008,9 @@ export default function EmployerJobsPage() {
               <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <span>
-                  No operamos en esta ciudad todavía.
+                  No operamos en esta ciudad todavía, así que no podés publicar la oferta acá.
                   {cities.length > 0 && ` Por ahora trabajamos en ${cities.map((c) => c.nombre).join(', ')}.`}
-                  {' '}Podés publicar la oferta igual, pero quizás no recibas candidatos cercanos.
+                  {' '}Movés el punto a una ciudad habilitada para poder publicar.
                 </span>
               </div>
             )}
@@ -1059,7 +1079,7 @@ export default function EmployerJobsPage() {
         {/* Submit */}
         <button
           onClick={handleSubmit}
-          disabled={saving || !formData.rubro || (!formData.puesto && formData.rubro !== 'otro') || (formData.rubro === 'otro' && !formData.customRubro) || (formData.puesto === 'otro' && !formData.customPuesto) || (formData.rubro === 'otro' && !formData.customPuesto)}
+          disabled={saving || !formData.rubro || (!formData.puesto && formData.rubro !== 'otro') || (formData.rubro === 'otro' && !formData.customRubro) || (formData.puesto === 'otro' && !formData.customPuesto) || (formData.rubro === 'otro' && !formData.customPuesto) || (!!location && !locationCovered)}
           className="w-full bg-[#E10600] text-white py-4 rounded-xl font-semibold disabled:opacity-50 active:scale-[0.98] transition-transform cursor-pointer"
         >
           {saving
@@ -1086,7 +1106,7 @@ export default function EmployerJobsPage() {
     <div className="px-4 py-4">
       {/* Add Button */}
       <button
-        onClick={() => setShowForm(true)}
+        onClick={openNewOfferForm}
         className="w-full bg-[#E10600] text-white py-4 rounded-xl font-semibold mb-6 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform cursor-pointer"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
