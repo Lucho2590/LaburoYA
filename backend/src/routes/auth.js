@@ -2,6 +2,7 @@ const express = require('express');
 const { getDb, getAuth } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const { isSuperuserEmail } = require('../utils/superuser');
+const { lookupIp } = require('../services/ipGeolocation');
 
 const router = express.Router();
 
@@ -176,20 +177,27 @@ router.patch('/secondary-role', authMiddleware, async (req, res, next) => {
   }
 });
 
-// Update user location (IP-based geolocation)
+// Update user location (IP-based geolocation, resuelta server-side).
+// El lookup se hace en el backend para evitar Mixed Content en el browser
+// (ver services/ipGeolocation.js). No usa el body: la ubicación se deriva de
+// la IP real del cliente (x-forwarded-for cuando estamos detrás del proxy).
 router.patch('/location', authMiddleware, async (req, res, next) => {
   try {
     const { uid } = req.user;
-    const { city, region, country } = req.body;
+
+    const clientIp =
+      (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip;
+    const location = await lookupIp(clientIp);
 
     const db = getDb();
 
-    // Update user document with location info
+    // Update user document with location info (best-effort: si el lookup falló,
+    // location es null y guardamos campos vacíos, pero igual marcamos el login).
     await db.collection('users').doc(uid).update({
       lastLocation: {
-        city: city || null,
-        region: region || null,
-        country: country || null,
+        city: location?.city || null,
+        region: location?.region || null,
+        country: location?.country || null,
         updatedAt: new Date()
       },
       lastLoginAt: new Date(),
