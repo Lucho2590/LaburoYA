@@ -116,6 +116,7 @@ export default function EmployerJobsPage() {
   const [customSkill, setCustomSkill] = useState('');
   const [location, setLocation] = useState<IGeoLocation | null>(null);
   const [cities, setCities] = useState<ICity[]>([]);
+  const [citiesError, setCitiesError] = useState(false);
   const [cityName, setCityName] = useState('');
   // Radio de búsqueda propio de la oferta (null = usar el radio de la ciudad).
   const [offerRadius, setOfferRadius] = useState<number | null>(null);
@@ -151,11 +152,16 @@ export default function EmployerJobsPage() {
   useEffect(() => {
     api.getCities()
       .then(({ cities }) => {
+        setCitiesError(false);
         setCities(cities);
         // La oferta debe tener ciudad: preseleccionamos la primera si no hay una elegida.
         setCityName((prev) => prev || cities[0]?.nombre || '');
       })
-      .catch(() => {});
+      .catch(() => {
+        // No tragamos el error: sin ciudades no se puede publicar (ciudad obligatoria).
+        setCitiesError(true);
+        toast.error('No se pudieron cargar las ciudades. Recargá la página o intentá más tarde.');
+      });
   }, []);
 
   // Al mover el pin, auto-selecciona la ciudad cubierta donde cae.
@@ -971,6 +977,13 @@ export default function EmployerJobsPage() {
                 <option key={c.id} value={c.nombre}>{c.nombre}</option>
               ))}
             </select>
+          </div>
+        )}
+
+        {/* Sin ciudades: el error ya no es silencioso. La ciudad es obligatoria. */}
+        {cities.length === 0 && citiesError && (
+          <div className="rounded-xl border-2 border-[#E10600]/40 bg-[#E10600]/5 p-4 text-sm theme-text-primary">
+            No se pudieron cargar las ciudades. Recargá la página o intentá más tarde.
           </div>
         )}
 

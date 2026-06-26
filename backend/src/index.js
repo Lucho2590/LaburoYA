@@ -28,6 +28,10 @@ seedCities().catch((err) => console.warn('Seed de ciudades falló:', err.message
 
 const app = express();
 
+// Render (y otros PaaS) corren detrás de un proxy: confiar en él para que
+// req.ip y x-forwarded-for reflejen la IP real del cliente (geoloc por IP).
+app.set('trust proxy', true);
+
 // Middleware
 app.use(cors());
 app.use(express.json());
