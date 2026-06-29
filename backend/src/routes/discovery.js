@@ -3,6 +3,8 @@ const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const matchingService = require('../services/matchingService');
 const { MATCH_TYPES } = require('../services/matchingService');
+const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
+const companySubscription = require('../utils/companySubscription');
 
 const router = express.Router();
 
@@ -100,19 +102,16 @@ router.get('/offers', authMiddleware, async (req, res, next) => {
  */
 router.get('/workers', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid, effectiveRole } = await resolveActingContext(req);
     const db = getDb();
 
-    // Verify user is an employer
-    const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    const userData = userDoc.data();
-    const isEmployer = userData.role === 'employer' ||
-      (userData.role === 'superuser' && userData.secondaryRole === 'employer');
-    if (!isEmployer) {
+    // Verify user is an employer/company (o superuser actuando como tal)
+    if (!isEmployerLike(effectiveRole)) {
       return res.status(403).json({ error: 'Only employers can discover workers' });
+    }
+    // Empresa: bloquear ver candidatos si el plan venció.
+    if (effectiveRole === 'company') {
+      await companySubscription.loadActiveCompanyOrThrow(getDb(), uid);
     }
 
     const grouped = await matchingService.getAllRelevantWorkersForEmployer(uid);
@@ -151,20 +150,17 @@ router.get('/workers', authMiddleware, async (req, res, next) => {
  */
 router.get('/workers/for-offer/:offerId', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid, effectiveRole } = await resolveActingContext(req);
     const { offerId } = req.params;
     const db = getDb();
 
-    // Verify user is an employer
-    const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    const userData = userDoc.data();
-    const isEmployer = userData.role === 'employer' ||
-      (userData.role === 'superuser' && userData.secondaryRole === 'employer');
-    if (!isEmployer) {
+    // Verify user is an employer/company (o superuser actuando como tal)
+    if (!isEmployerLike(effectiveRole)) {
       return res.status(403).json({ error: 'Only employers can discover workers' });
+    }
+    // Empresa: bloquear ver candidatos si el plan venció.
+    if (effectiveRole === 'company') {
+      await companySubscription.loadActiveCompanyOrThrow(getDb(), uid);
     }
 
     const relevantWorkers = await matchingService.getRelevantWorkersForOffer(offerId, uid);

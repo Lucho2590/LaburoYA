@@ -30,9 +30,12 @@ export default function DiscoverPage() {
   const isWorker =
     userData?.role === "worker" ||
     (userData?.role === "superuser" && userData?.secondaryRole === "worker");
+  // Empresa y superuser impersonando una empresa usan la vista de empleador.
   const isEmployer =
     userData?.role === "employer" ||
-    (userData?.role === "superuser" && userData?.secondaryRole === "employer");
+    userData?.role === "company" ||
+    (userData?.role === "superuser" &&
+      (userData?.secondaryRole === "employer" || !!userData?.impersonating?.companyId));
 
   const { offers, loading: offersLoading, requestOffer, markNotInterested } = useDiscoveryOffers();
 
@@ -129,6 +132,18 @@ export default function DiscoverPage() {
       setIsRequesting(false);
     }
   };
+
+  // Empresa con plan vencido: no se muestran candidatos.
+  if (isEmployer && userData?.companySubscription?.expired) {
+    return (
+      <div className="theme-bg-card border theme-border rounded-xl p-8 text-center m-4">
+        <p className="theme-text-primary font-medium">Tu plan venció</p>
+        <p className="theme-text-muted text-sm mt-1">
+          La búsqueda de candidatos está deshabilitada. Contactá al administrador para renovar el plan.
+        </p>
+      </div>
+    );
+  }
 
   if (
     loading ||

@@ -11,6 +11,9 @@ const locationService = require('../services/locationService');
 const citiesService = require('../services/citiesService');
 const { logAiError } = require('../services/aiErrorLog');
 const { normalizeZona } = require('../utils/constants');
+const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
+const companySubscription = require('../utils/companySubscription');
+const companyCandidates = require('../services/companyCandidates');
 const FieldValue = admin.firestore.FieldValue;
 
 const router = express.Router();
@@ -43,7 +46,9 @@ const pdfUpload = multer({
 // Create job offer
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    // El dueño efectivo: el propio usuario, o la empresa impersonada por un superuser.
+    const { actingUid, effectiveRole } = await resolveActingContext(req);
+    const uid = actingUid;
     const { rubro, puesto, description, requirements, salary, schedule, requiredSkills, zona, durationDays, businessName, availability, location, city, radiusKm } = req.body;
 
     if (!rubro || !puesto) {
@@ -59,16 +64,14 @@ router.post('/', authMiddleware, async (req, res, next) => {
 
     const db = getDb();
 
-    // Verify user is registered as employer (or superuser with employer secondaryRole)
-    const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists) {
-      return res.status(403).json({ error: 'User not found' });
+    // Verify user is registered as employer/company (or superuser actuando como tal)
+    if (!isEmployerLike(effectiveRole)) {
+      return res.status(403).json({ error: 'User must be registered as employer or company' });
     }
-    const userData = userDoc.data();
-    const isEmployer = userData.role === 'employer' ||
-      (userData.role === 'superuser' && userData.secondaryRole === 'employer');
-    if (!isEmployer) {
-      return res.status(403).json({ error: 'User must be registered as employer' });
+    const isCompany = effectiveRole === 'company';
+    // Empresa: bloquear crear búsquedas si el plan venció.
+    if (isCompany) {
+      await companySubscription.loadActiveCompanyOrThrow(db, uid);
     }
 
     // Calculate expiration date
@@ -82,6 +85,10 @@ router.post('/', authMiddleware, async (req, res, next) => {
 
     const jobOfferData = {
       employerId: uid,
+      // ownerType/organizationId: enrutan el lookup del dueño (employers vs
+      // companies) y agrupan ofertas de una empresa para el futuro multi-miembro.
+      ownerType: isCompany ? 'company' : 'employer',
+      organizationId: isCompany ? uid : null,
       rubro,
       puesto,
       description: description || null,
@@ -123,7 +130,7 @@ router.post('/', authMiddleware, async (req, res, next) => {
 // Get employer's job offers
 router.get('/my-offers', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const db = getDb();
 
     const offersSnapshot = await db.collection('jobOffers')
@@ -152,7 +159,7 @@ router.get('/my-offers', authMiddleware, async (req, res, next) => {
 // Update job offer
 router.patch('/:id', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const { id } = req.params;
     const updates = req.body;
 
@@ -284,7 +291,7 @@ router.post('/:id/not-interested', authMiddleware, async (req, res, next) => {
 // Get interested workers for an offer
 router.get('/:id/interested', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const { id } = req.params;
 
     const db = getDb();
@@ -367,7 +374,7 @@ router.get('/:id/interested', authMiddleware, async (req, res, next) => {
 // Delete job offer
 router.delete('/:id', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const { id } = req.params;
 
     const db = getDb();
@@ -394,7 +401,8 @@ router.delete('/:id', authMiddleware, async (req, res, next) => {
 // Assess a CV (PDF) against a specific job offer
 router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid, effectiveRole } = await resolveActingContext(req);
+    const isCompany = effectiveRole === 'company';
     const { offerId } = req.params;
     const db = getDb();
 
@@ -437,13 +445,28 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
       });
     }
 
-    // The per-employer aiCvEnabled flag decides the evaluation mode:
-    //  - enabled  → AI extraction (reads scanned PDFs too) + structural match
-    //  - disabled → basic text reading + keyword match (no AI)
-    const userDoc = await db.collection('users').doc(uid).get();
-    const userAi = userDoc.exists && userDoc.data().aiCvEnabled === true;
-    // Per-offer toggle: default ON when undefined (backward compatible).
-    const aiEnabled = userAi && offer.aiAssessEnabled !== false;
+    // Decide el modo de evaluación (IA vs básico) y, para empresas, valida el
+    // plan vigente y el cupo de CVs.
+    //  - empresa  → la IA la decide el plan (subscription.aiCvEnabled)
+    //  - employer → flag por-usuario aiCvEnabled (comportamiento previo)
+    let aiEnabled;
+    if (isCompany) {
+      // Bloquear si el plan venció.
+      const company = await companySubscription.loadActiveCompanyOrThrow(db, uid);
+      // Cupo total de CVs del plan (no lo consume el dedup por archivo, ya filtrado arriba).
+      if (!companySubscription.hasCvQuota(company)) {
+        const err = new Error('La empresa alcanzó el cupo de CVs de su plan. Pedí al admin que lo renueve o amplíe.');
+        err.status = 403;
+        err.code = 'cv_limit_reached';
+        throw err;
+      }
+      aiEnabled = company.subscription?.aiCvEnabled === true && offer.aiAssessEnabled !== false;
+    } else {
+      const userDoc = await db.collection('users').doc(uid).get();
+      const userAi = userDoc.exists && userDoc.data().aiCvEnabled === true;
+      // Per-offer toggle: default ON when undefined (backward compatible).
+      aiEnabled = userAi && offer.aiAssessEnabled !== false;
+    }
 
     // b) Evaluate (AI or basic) and normalize into { mode, source, candidate, assessment }.
     let result;
@@ -494,6 +517,31 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
     // d) Persist the new ranking entry.
     const docData = await buildCandidateDoc(uid, offerId, fileHash, result, offer);
     const ref = await db.collection('pinnedCandidates').add(docData);
+
+    // d2) Empresa: guardar/actualizar el candidato en el talent pool de la
+    // organización, para reutilizarlo en futuras búsquedas sin re-subir el CV.
+    // Y consumir 1 del cupo de CVs del plan (este es un análisis nuevo).
+    if (isCompany) {
+      try {
+        await companyCandidates.upsertFromAssessment({
+          db,
+          organizationId: offer.organizationId || uid,
+          offerId,
+          fileHash,
+          candidate: docData.candidate,
+          assessment: docData.assessment,
+        });
+      } catch (e) {
+        console.error('[assess-cv] no se pudo guardar en talent pool:', e.message);
+      }
+      try {
+        await db.collection('companies').doc(uid).update({
+          'subscription.cvAnalysesUsed': FieldValue.increment(1),
+        });
+      } catch (e) {
+        console.error('[assess-cv] no se pudo actualizar el cupo de CVs:', e.message);
+      }
+    }
 
     // e) Accumulate AI spend on the offer (only when a real AI call happened).
     if (aiUsage) {
@@ -643,7 +691,7 @@ async function buildCandidateDoc(uid, offerId, fileHash, result, offer = {}) {
 // List pinned candidates of an offer
 router.get('/:offerId/pinned-candidates', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const { offerId } = req.params;
     const db = getDb();
     await loadOwnedOffer(db, offerId, uid);
@@ -671,7 +719,7 @@ router.get('/:offerId/pinned-candidates', authMiddleware, async (req, res, next)
 // Remove a pinned candidate
 router.delete('/:offerId/pinned-candidates/:pinId', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const { offerId, pinId } = req.params;
     const db = getDb();
     await loadOwnedOffer(db, offerId, uid);
@@ -692,7 +740,7 @@ router.delete('/:offerId/pinned-candidates/:pinId', authMiddleware, async (req, 
 // Mark/unmark a ranked candidate as selected (shortlist)
 router.patch('/:offerId/pinned-candidates/:pinId', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const { offerId, pinId } = req.params;
     const db = getDb();
     await loadOwnedOffer(db, offerId, uid);

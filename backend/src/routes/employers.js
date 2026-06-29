@@ -1,6 +1,7 @@
 const express = require('express');
 const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
+const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
 
 const router = express.Router();
 
@@ -82,18 +83,11 @@ router.get('/me', authMiddleware, async (req, res, next) => {
 // GET /dashboard - Get employer dashboard with stats
 router.get('/dashboard', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid, effectiveRole } = await resolveActingContext(req);
     const db = getDb();
 
-    // Verify user is an employer
-    const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-    const userData = userDoc.data();
-    const isEmployer = userData.role === 'employer' ||
-      (userData.role === 'superuser' && userData.secondaryRole === 'employer');
-    if (!isEmployer) {
+    // Verify user is an employer/company (o superuser actuando como tal)
+    if (!isEmployerLike(effectiveRole)) {
       return res.status(403).json({ error: 'Only employers can access dashboard' });
     }
 

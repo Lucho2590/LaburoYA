@@ -6,6 +6,7 @@ const { initializeFirebase } = require('./config/firebase');
 const authRoutes = require('./routes/auth');
 const workerRoutes = require('./routes/workers');
 const employerRoutes = require('./routes/employers');
+const companyRoutes = require('./routes/companies');
 const jobOfferRoutes = require('./routes/jobOffers');
 const matchRoutes = require('./routes/matches');
 const chatRoutes = require('./routes/chats');
@@ -45,6 +46,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/workers', workerRoutes);
 app.use('/api/employers', employerRoutes);
+app.use('/api/companies', companyRoutes);
 app.use('/api/job-offers', jobOfferRoutes);
 app.use('/api/matches', matchRoutes);
 app.use('/api/chats', chatRoutes);

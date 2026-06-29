@@ -5,6 +5,7 @@
 export enum EUserRole {
   WORKER = 'worker',
   EMPLOYER = 'employer',
+  COMPANY = 'company',
   SUPERUSER = 'superuser',
 }
 
@@ -13,12 +14,23 @@ export enum EAppRole {
   EMPLOYER = 'employer',
 }
 
+// Estado de impersonación: un superuser "entrando" a una empresa concreta.
+export interface IImpersonation {
+  companyId: string;
+  businessName?: string | null;
+}
+
 export interface IUserData {
   uid: string;
   email: string | null;
   role?: EUserRole;
   secondaryRole?: EAppRole; // For superusers: their role in the app
-  profile?: IWorkerProfile | IEmployerProfile;
+  organizationId?: string; // Para cuentas empresa: uid de la organización (dueño)
+  profile?: IWorkerProfile | IEmployerProfile | ICompanyProfile;
+  // Estado de suscripción (solo cuentas empresa)
+  companySubscription?: ICompanySubscriptionSummary | null;
+  // Active company impersonation (superuser viendo como una empresa)
+  impersonating?: IImpersonation | null;
   // Basic info from onboarding
   firstName?: string;
   lastName?: string;
@@ -70,6 +82,127 @@ export interface IEmployerProfile {
   description?: string;
   address?: string;
   phone?: string;
+}
+
+// ============================================
+// Company Types (cuenta empresa multiusuario)
+// ============================================
+
+export interface ICompanySubscription {
+  planId?: string | null;
+  planName?: string | null;
+  durationMonths?: number | null;
+  startedAt?: string | null;
+  currentPeriodEnd?: string | null;
+  aiCvEnabled?: boolean;
+  maxCvAnalyses?: number; // -1 = ilimitado
+  cvAnalysesUsed?: number;
+  status?: 'active' | 'expired' | 'inactive';
+}
+
+// Resumen de suscripción que devuelve /auth/me para la empresa actual.
+export interface ICompanySubscriptionSummary {
+  active: boolean;
+  expired: boolean;
+  currentPeriodEnd: string | null;
+  planId: string | null;
+  planName: string | null;
+  aiCvEnabled: boolean;
+  maxCvAnalyses: number;
+  cvAnalysesUsed: number;
+}
+
+// Plan de empresa (vigencia + IA + cupo de CVs).
+export interface ICompanyPlan {
+  id: string;
+  name: string;
+  description?: string;
+  durationMonths: number;
+  aiCvEnabled: boolean;
+  maxCvAnalyses: number; // -1 = ilimitado
+  price?: number;
+  isDefault?: boolean;
+  active: boolean;
+  order?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ICreateCompanyPlanData {
+  name: string;
+  description?: string;
+  durationMonths: number;
+  aiCvEnabled: boolean;
+  maxCvAnalyses: number;
+  price?: number;
+  isDefault?: boolean;
+  active?: boolean;
+  order?: number;
+}
+
+export interface IUpdateCompanyPlanData extends Partial<ICreateCompanyPlanData> {}
+
+export interface ICompanyKpis {
+  totalOffers: number;
+  totalCandidatesEvaluated: number;
+  totalHires: number;
+  talentPoolSize: number;
+  updatedAt?: string | null;
+}
+
+export interface ICompanyProfile {
+  uid?: string;
+  organizationId?: string;
+  businessName: string;
+  contactName?: string | null;
+  rubro?: string | null;
+  localidad?: string | null;
+  city?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  description?: string | null;
+  photoUrl?: string | null;
+  active?: boolean;
+  maxMembers?: number | null; // límite de cuentas del equipo (incluye al dueño); null = sin límite
+  subscription?: ICompanySubscription;
+  kpis?: ICompanyKpis;
+  onboarding?: { completed: boolean; steps?: Record<string, unknown> };
+}
+
+// Miembro del equipo de una cuenta empresa.
+export interface ICompanyMember {
+  uid: string;
+  email: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  isOwner: boolean;
+  createdAt?: string | null;
+}
+
+// Entrada del talent pool de la empresa (CV analizado y guardado).
+export interface ICompanyCandidate {
+  id: string;
+  candidate: {
+    firstName: string | null;
+    lastName: string | null;
+    email: string | null;
+    phone: string | null;
+    puesto?: string | null;
+    zona?: string | null;
+    city?: string | null;
+    skills?: string[];
+  };
+  fileUrl?: string | null;
+  sourceOfferIds?: string[];
+  lastAssessment?: {
+    score: number;
+    stars: number;
+    recommendation?: string | null;
+    summary?: string | null;
+    offerId?: string | null;
+    assessedAt?: string;
+  } | null;
+  relevance?: IRelevance;
 }
 
 // ============================================
@@ -330,7 +463,7 @@ export interface IAdminUser {
   createdAt?: string;
   updatedAt?: string;
   deletedAt?: string;
-  profile?: IWorkerProfile | IEmployerProfile | null;
+  profile?: IWorkerProfile | IEmployerProfile | ICompanyProfile | null;
   jobOffers?: IJobOffer[];
   // Campos de Firestore (users collection)
   firstName?: string;
@@ -340,6 +473,7 @@ export interface IAdminUser {
   nickname?: string;
   onboardingCompleted?: boolean;
   secondaryRole?: string;
+  organizationId?: string;
   aiCvEnabled?: boolean; // Admin-controlled: AI CV-assessment module enabled
   lastLocation?: {
     city?: string;
@@ -437,7 +571,7 @@ export interface IAdminUserDetail {
     phoneNumber?: string;
     emailVerified?: boolean;
   };
-  profile: IWorkerProfile | IEmployerProfile | null;
+  profile: IWorkerProfile | IEmployerProfile | ICompanyProfile | null;
   stats: {
     matches: number;
     jobOffers: number;

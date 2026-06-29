@@ -49,6 +49,15 @@ export default function DashboardPage() {
   const effectiveRole = getEffectiveAppRole();
   const isSuperuser = userData?.role === "superuser";
   const isEmployer = effectiveRole === "employer";
+  const isCompanyView =
+    userData?.role === "company" ||
+    (userData?.role === "superuser" && !!userData?.impersonating?.companyId);
+  const profileHref =
+    effectiveRole === "worker"
+      ? "/worker/profile"
+      : isCompanyView
+        ? "/company/profile"
+        : "/employer/profile";
 
   // Employer dashboard state
   const [employerDashboard, setEmployerDashboard] = useState<EmployerDashboard | null>(null);
@@ -91,7 +100,8 @@ export default function DashboardPage() {
       router.push("/onboarding/basic-info");
     }
     // Superuser without secondaryRole should go to admin panel to set it
-    if (!loading && user && isSuperuser && !userData?.secondaryRole) {
+    // (salvo que esté impersonando una empresa: ahí se queda en la app).
+    if (!loading && user && isSuperuser && !userData?.secondaryRole && !userData?.impersonating?.companyId) {
       router.push("/sudo");
     }
   }, [loading, user, userData, router, isSuperuser]);
@@ -175,7 +185,7 @@ export default function DashboardPage() {
 
       {/* Profile Alert - No profile */}
       {!userData.profile && (
-        <Link href={isWorker ? "/worker/profile" : "/employer/profile"}>
+        <Link href={profileHref}>
           <div className="bg-gradient-to-r from-[#E10600] to-[#FF6A00] rounded-2xl p-4 mb-6 text-white active:scale-[0.98] transition-transform">
             <div className="flex items-center justify-between">
               <div>
@@ -472,7 +482,7 @@ export default function DashboardPage() {
       </h2>
 
       <div className="space-y-3">
-        <Link href={isWorker ? "/worker/profile" : "/employer/profile"}>
+        <Link href={profileHref}>
           <div className="m-2 theme-bg-card rounded-2xl p-4 border theme-border flex items-center active:scale-[0.98] transition-transform">
             <div className="w-12 h-12 bg-[#E10600]/20 rounded-xl flex items-center justify-center mr-4">
               <svg

@@ -15,9 +15,10 @@ interface AdminLayoutProps {
 export function AdminLayout({ children, title }: AdminLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, userData, loading, signOut, setSecondaryRole } = useAuth();
+  const { user, userData, loading, signOut, setSecondaryRole, stopImpersonatingCompany } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [changingRole, setChangingRole] = useState(false);
+  const [stoppingImpersonation, setStoppingImpersonation] = useState(false);
 
   const isSuperuser = userData?.role === "superuser";
 
@@ -72,6 +73,44 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
             strokeLinejoin="round"
             strokeWidth={2}
             d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+          />
+        </svg>
+      ),
+    },
+    {
+      href: "/sudo/companies",
+      label: "Empresas",
+      icon: (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0H5m14 0h2M5 21H3m4-14h.01M11 7h.01M15 7h.01M7 11h.01M11 11h.01M15 11h.01M7 15h.01M11 15h.01M15 15h.01"
+          />
+        </svg>
+      ),
+    },
+    {
+      href: "/sudo/company-plans",
+      label: "Planes Empresa",
+      icon: (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
           />
         </svg>
       ),
@@ -266,6 +305,17 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
     router.push("/");
   };
 
+  const handleStopImpersonation = async () => {
+    setStoppingImpersonation(true);
+    try {
+      await stopImpersonatingCompany();
+    } catch (error) {
+      console.error("Error stopping impersonation:", error);
+    } finally {
+      setStoppingImpersonation(false);
+    }
+  };
+
   const handleSecondaryRoleChange = async (role: EAppRole) => {
     setChangingRole(true);
     try {
@@ -319,6 +369,33 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
 
         {/* Footer */}
         <div className="p-3 border-t theme-border flex-shrink-0">
+          {/* Impersonación activa de una empresa */}
+          {userData?.impersonating?.companyId && (
+            <div className="px-3 py-2 mb-2 rounded-lg bg-purple-100 border border-purple-300">
+              <p className="text-xs text-purple-800 font-medium">
+                Viendo como empresa
+              </p>
+              <p className="text-sm text-purple-900 font-semibold truncate">
+                {userData.impersonating.businessName || userData.impersonating.companyId}
+              </p>
+              <div className="flex gap-2 mt-1.5">
+                <Link
+                  href="/home"
+                  className="flex-1 text-center text-xs py-1 px-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700"
+                >
+                  Ir a la app
+                </Link>
+                <button
+                  onClick={handleStopImpersonation}
+                  disabled={stoppingImpersonation}
+                  className="flex-1 text-xs py-1 px-2 rounded-lg bg-white text-purple-700 border border-purple-300 hover:bg-purple-50 disabled:opacity-50"
+                >
+                  Salir
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Secondary Role Selector */}
           <div className="px-3 py-2 mb-2 theme-bg-card rounded-lg">
             <label className="block text-xs theme-text-muted mb-1.5">
@@ -357,6 +434,29 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
                 {userData.secondaryRole === "worker"
                   ? "trabajador"
                   : "empleador"}
+              </Link>
+            )}
+
+            {/* Entrar como empresa: hay que elegir cuál, lleva al listado */}
+            {!userData?.impersonating?.companyId && (
+              <Link
+                href="/sudo/companies"
+                className="flex items-center justify-center gap-1.5 mt-2 pt-2 border-t theme-border text-xs font-medium text-purple-600 hover:text-purple-700"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0H5m14 0h2M5 21H3m4-14h.01M11 7h.01M15 7h.01M7 11h.01M11 11h.01M15 11h.01M7 15h.01M11 15h.01M15 15h.01"
+                  />
+                </svg>
+                Ir como empresa
               </Link>
             )}
           </div>

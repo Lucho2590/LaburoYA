@@ -4,21 +4,24 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
-import { IAdminUser, EUserRole, IWorkerProfile, IEmployerProfile, IJobOffer } from '@/types';
-import { Users, Filter, ChevronDown, ChevronUp, ExternalLink, UserPlus } from 'lucide-react';
+import { IAdminUser, EUserRole, IWorkerProfile, IEmployerProfile, ICompanyProfile, IJobOffer } from '@/types';
+import { Users, Filter, ChevronDown, ChevronUp, ExternalLink, UserPlus, Search } from 'lucide-react';
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<IAdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [roleFilter, setRoleFilter] = useState<EUserRole | ''>('');
+  const [search, setSearch] = useState('');
   const [total, setTotal] = useState(0);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
 
   const fetchUsers = async (role?: EUserRole | '') => {
     setLoading(true);
     try {
-      const data = await api.getAdminUsers(role ? { role } : undefined);
+      // Cargamos todos los usuarios (el backend lee la colección completa igual)
+      // para que el buscador cubra a todos, no solo los primeros 50.
+      const data = await api.getAdminUsers(role ? { role, limit: 1000 } : { limit: 1000 });
       setUsers(data.users);
       setTotal(data.total);
     } catch (err) {
@@ -36,11 +39,13 @@ export default function AdminUsersPage() {
     const styles = {
       worker: 'bg-blue-100 text-blue-800',
       employer: 'bg-green-100 text-green-800',
+      company: 'bg-purple-100 text-purple-800',
       superuser: 'bg-red-100 text-red-800',
     };
     const labels = {
       worker: 'Trabajador',
       employer: 'Empleador',
+      company: 'Empresa',
       superuser: 'Superuser',
     };
     return (
@@ -59,11 +64,11 @@ export default function AdminUsersPage() {
     });
   };
 
-  const isIWorkerProfile = (profile: IWorkerProfile | IEmployerProfile | null | undefined): profile is IWorkerProfile => {
+  const isIWorkerProfile = (profile: IWorkerProfile | IEmployerProfile | ICompanyProfile | null | undefined): profile is IWorkerProfile => {
     return profile !== null && profile !== undefined && 'puesto' in profile;
   };
 
-  const isIEmployerProfile = (profile: IWorkerProfile | IEmployerProfile | null | undefined): profile is IEmployerProfile => {
+  const isIEmployerProfile = (profile: IWorkerProfile | IEmployerProfile | ICompanyProfile | null | undefined): profile is IEmployerProfile => {
     return profile !== null && profile !== undefined && 'businessName' in profile;
   };
 
@@ -80,6 +85,36 @@ export default function AdminUsersPage() {
     }
     return 'Sin perfil';
   };
+
+  // Normaliza para buscar sin distinguir mayúsculas ni acentos.
+  const normalize = (s?: string | null) =>
+    (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+  // Filtra por nombre/email/perfil (client-side, instantáneo a esta escala).
+  const term = normalize(search.trim());
+  const filteredUsers = term
+    ? users.filter((u) => {
+        const profile = u.profile;
+        const businessName = profile && 'businessName' in profile ? profile.businessName : '';
+        const puesto = profile && 'puesto' in profile ? profile.puesto : '';
+        const rubro = profile && 'rubro' in profile ? profile.rubro : '';
+        const haystack = normalize(
+          [
+            u.email,
+            u.firstName,
+            u.lastName,
+            u.displayName,
+            u.nickname,
+            businessName,
+            puesto,
+            rubro,
+          ]
+            .filter(Boolean)
+            .join(' ')
+        );
+        return haystack.includes(term);
+      })
+    : users;
 
   // Stats
   const stats = {
@@ -169,8 +204,20 @@ export default function AdminUsersPage() {
             <option value="">Todos los roles</option>
             <option value="worker">Trabajadores</option>
             <option value="employer">Empleadores</option>
+            <option value="company">Empresas</option>
             <option value="superuser">Superusers</option>
           </select>
+
+          <div className="relative">
+            <Search className="w-4 h-4 theme-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por nombre o email…"
+              className="pl-9 pr-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm w-64 max-w-full"
+            />
+          </div>
         </div>
 
         <Link
@@ -183,12 +230,14 @@ export default function AdminUsersPage() {
       </div>
 
       {/* Users Table */}
-      {users.length === 0 ? (
+      {filteredUsers.length === 0 ? (
         <div className="text-center py-16 theme-bg-card rounded-xl border theme-border">
           <span className="text-5xl">👥</span>
           <p className="theme-text-primary font-medium mt-4">No hay usuarios</p>
           <p className="theme-text-muted text-sm mt-1">
-            {roleFilter
+            {search
+              ? 'No hay resultados para tu búsqueda'
+              : roleFilter
               ? 'Proba cambiando los filtros'
               : 'Los usuarios apareceran cuando se registren'}
           </p>
@@ -217,7 +266,7 @@ export default function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y theme-border">
-                {users.map((user) => (
+                {filteredUsers.map((user) => (
                   <React.Fragment key={user.uid}>
                     <tr
                       className={`${user.disabled ? 'opacity-60' : ''} hover:theme-bg-secondary cursor-pointer transition-colors`}
