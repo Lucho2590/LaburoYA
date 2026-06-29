@@ -21,7 +21,10 @@ function initializeFirebase() {
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
         privateKey: privateKey
-      })
+      }),
+      // Bucket de Storage (mismo que usa el front). Permite subir CVs desde el backend.
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET ||
+        (process.env.FIREBASE_PROJECT_ID ? `${process.env.FIREBASE_PROJECT_ID}.firebasestorage.app` : undefined)
     });
   }
 
@@ -40,8 +43,13 @@ function getAuth() {
   return admin.auth();
 }
 
+function getBucket() {
+  return admin.storage().bucket();
+}
+
 module.exports = {
   initializeFirebase,
   getDb,
-  getAuth
+  getAuth,
+  getBucket
 };

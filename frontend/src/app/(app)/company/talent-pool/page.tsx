@@ -206,6 +206,16 @@ export default function CompanyTalentPoolPage() {
                   <div className="text-right flex-shrink-0">
                     <Stars value={stars} />
                     <p className="text-xs theme-text-muted mt-0.5">{score} pts</p>
+                    {c.fileUrl && (
+                      <a
+                        href={c.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block mt-1 text-xs text-[#E10600] hover:underline"
+                      >
+                        Ver CV
+                      </a>
+                    )}
                   </div>
                 </div>
 

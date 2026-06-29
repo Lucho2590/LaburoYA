@@ -976,6 +976,31 @@ class ApiService {
   }
 
   // ============================================
+  // Prospects (validación de perfil migrado del talent pool) — público
+  // ============================================
+
+  async getProspect(token: string) {
+    return this.request<{
+      prospect: {
+        id: string;
+        status: string;
+        firstName: string | null;
+        lastName: string | null;
+        email: string | null;
+        puesto: string | null;
+        skills: string[];
+      };
+    }>(`/prospects/${token}`, { requireAuth: false });
+  }
+
+  async claimProspect(token: string, data: { password: string }) {
+    return this.request<{ success: boolean; uid: string; email: string; alreadyHadAccount: boolean }>(
+      `/prospects/${token}/claim`,
+      { method: 'POST', body: data, requireAuth: false }
+    );
+  }
+
+  // ============================================
   // Companies - Talent pool
   // ============================================
 

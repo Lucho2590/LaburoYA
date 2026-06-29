@@ -55,7 +55,7 @@ async function findExisting(db, organizationId, { fileHash, emailNorm, phoneNorm
 
 // Upsert del candidato analizado en el talent pool de la organización.
 // `candidate` y `assessment` provienen del doc ya normalizado de pinnedCandidates.
-async function upsertFromAssessment({ db, organizationId, offerId, fileHash, candidate, assessment }) {
+async function upsertFromAssessment({ db, organizationId, offerId, fileHash, candidate, assessment, fileUrl = null, filePath = null }) {
   if (!organizationId) return null;
   const emailNorm = normEmail(candidate?.email);
   const phoneNorm = normPhone(candidate?.phone);
@@ -85,6 +85,9 @@ async function upsertFromAssessment({ db, organizationId, offerId, fileHash, can
       candidate: { ...prev.candidate, ...candidate },
       emailNorm: emailNorm || prev.emailNorm || null,
       phoneNorm: phoneNorm || prev.phoneNorm || null,
+      // Solo pisar el archivo si vino uno nuevo en esta carga.
+      fileUrl: fileUrl || prev.fileUrl || null,
+      filePath: filePath || prev.filePath || null,
       lastAssessment,
       sourceOfferIds,
       updatedAt: new Date(),
@@ -97,7 +100,8 @@ async function upsertFromAssessment({ db, organizationId, offerId, fileHash, can
     fileHash: fileHash || null,
     emailNorm,
     phoneNorm,
-    fileUrl: null, // PLACEHOLDER: subir a Storage si el bucket está configurado.
+    fileUrl: fileUrl || null,
+    filePath: filePath || null,
     candidate: candidate || {},
     lastAssessment,
     sourceOfferIds: offerId ? [offerId] : [],
@@ -114,14 +118,15 @@ async function listForOrganization(db, organizationId) {
     .get();
 
   const cutoff = Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000;
-  const expiredRefs = [];
 
+  // Ocultar los vencidos (>6 meses) de la vista de la empresa: la exclusividad
+  // termina a los 6 meses. El borrado/migración lo hace el job (talentProspects),
+  // NO se borra en lectura para no perder el perfil antes de migrarlo.
   const items = snap.docs
     .map(d => {
       const data = d.data();
       const createdAt = data.createdAt?.toDate?.() || data.createdAt;
       return {
-        ref: d.ref,
         createdMs: createdAt ? new Date(createdAt).getTime() : 0,
         value: {
           id: d.id,
@@ -131,21 +136,7 @@ async function listForOrganization(db, organizationId) {
         },
       };
     })
-    .filter(it => {
-      // Vencidos (más de 6 meses desde que se guardaron): excluir + borrar lazy.
-      if (it.createdMs && it.createdMs < cutoff) {
-        expiredRefs.push(it.ref);
-        return false;
-      }
-      return true;
-    });
-
-  // Borrado lazy best-effort de los vencidos (no bloquea la respuesta).
-  if (expiredRefs.length > 0) {
-    const batch = db.batch();
-    expiredRefs.forEach(ref => batch.delete(ref));
-    batch.commit().catch(() => {});
-  }
+    .filter(it => !(it.createdMs && it.createdMs < cutoff));
 
   return items
     .map(it => it.value)
@@ -156,4 +147,4 @@ async function listForOrganization(db, organizationId) {
     });
 }
 
-module.exports = { upsertFromAssessment, listForOrganization, normEmail, normPhone };
+module.exports = { upsertFromAssessment, listForOrganization, normEmail, normPhone, RETENTION_DAYS, COLLECTION };
