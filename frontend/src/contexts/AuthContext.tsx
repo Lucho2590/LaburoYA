@@ -16,7 +16,7 @@ import {
 } from 'firebase/auth';
 import { auth } from '@/config/firebase';
 import { api } from '@/services/api';
-import { IUserData, EUserRole, EAppRole, IWorkerProfile, IEmployerProfile } from '@/types';
+import { IUserData, EUserRole, EAppRole, IWorkerProfile, IEmployerProfile, ICompanyProfile } from '@/types';
 
 interface AuthContextType {
   user: User | null;
@@ -30,6 +30,8 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   setRole: (role: EUserRole) => Promise<void>;
   setSecondaryRole: (role: EAppRole) => Promise<void>;
+  impersonateCompany: (companyId: string) => Promise<void>;
+  stopImpersonatingCompany: () => Promise<void>;
   refreshUserData: () => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
   reloadUser: () => Promise<boolean>; // Returns emailVerified status
@@ -59,7 +61,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: user.email,
         role: data.user?.role as EUserRole | undefined,
         secondaryRole: data.user?.secondaryRole as EAppRole | undefined,
-        profile: data.profile as IWorkerProfile | IEmployerProfile | undefined,
+        organizationId: data.user?.organizationId,
+        companySubscription: data.companySubscription ?? null,
+        impersonating: data.impersonating ?? null,
+        profile: data.profile as IWorkerProfile | IEmployerProfile | ICompanyProfile | undefined,
         firstName: data.user?.firstName,
         lastName: data.user?.lastName,
         age: data.user?.age,
@@ -97,7 +102,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             email: firebaseUser.email,
             role: data.user?.role as EUserRole | undefined,
             secondaryRole: data.user?.secondaryRole as EAppRole | undefined,
-            profile: data.profile as IWorkerProfile | IEmployerProfile | undefined,
+            organizationId: data.user?.organizationId,
+            companySubscription: data.companySubscription ?? null,
+            impersonating: data.impersonating ?? null,
+            profile: data.profile as IWorkerProfile | IEmployerProfile | ICompanyProfile | undefined,
             firstName: data.user?.firstName,
             lastName: data.user?.lastName,
             age: data.user?.age,
@@ -169,6 +177,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await refreshUserData();
   };
 
+  const impersonateCompany = async (companyId: string) => {
+    await api.impersonateCompany(companyId);
+    await refreshUserData();
+  };
+
+  const stopImpersonatingCompany = async () => {
+    await api.stopImpersonatingCompany();
+    await refreshUserData();
+  };
+
   const resendVerificationEmail = async () => {
     if (!user) throw new Error('No user logged in');
     await sendEmailVerification(user);
@@ -189,7 +207,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const getEffectiveAppRole = (): EAppRole | undefined => {
     if (!userData) return undefined;
+    // Una empresa usa las mismas pantallas que el empleador.
+    if (userData.role === 'company') {
+      return EAppRole.EMPLOYER;
+    }
     if (userData.role === 'superuser') {
+      // Impersonar una empresa gana sobre el secondaryRole; ambos caen en la
+      // experiencia "employer".
+      if (userData.impersonating?.companyId) {
+        return EAppRole.EMPLOYER;
+      }
       return userData.secondaryRole;
     }
     return userData.role as EAppRole | undefined;
@@ -209,6 +236,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signOut,
         setRole,
         setSecondaryRole,
+        impersonateCompany,
+        stopImpersonatingCompany,
         refreshUserData,
         resendVerificationEmail,
         reloadUser,

@@ -272,17 +272,20 @@ class MatchingService {
       }
     }
 
-    // Batch fetch all employers at once
+    // Batch fetch all owners at once. El dueño puede ser un employer individual
+    // o una empresa (companies); el employerId es el mismo campo en ambos casos,
+    // así que probamos employers y caemos a companies si no está.
     const employerMap = new Map();
     if (employerIds.size > 0) {
-      const employerPromises = Array.from(employerIds).map(id =>
-        db.collection('employers').doc(id).get()
-      );
-      const employerDocs = await Promise.all(employerPromises);
-      employerDocs.forEach(doc => {
-        if (doc.exists) {
-          employerMap.set(doc.id, doc.data());
-        }
+      const ownerDocs = await Promise.all(Array.from(employerIds).map(async id => {
+        const emp = await db.collection('employers').doc(id).get();
+        if (emp.exists) return { id, data: emp.data() };
+        const comp = await db.collection('companies').doc(id).get();
+        if (comp.exists) return { id, data: comp.data() };
+        return null;
+      }));
+      ownerDocs.forEach(d => {
+        if (d) employerMap.set(d.id, d.data);
       });
     }
 

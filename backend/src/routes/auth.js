@@ -3,6 +3,7 @@ const { getDb, getAuth } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const { isSuperuserEmail } = require('../utils/superuser');
 const { lookupIp } = require('../services/ipGeolocation');
+const companySubscription = require('../utils/companySubscription');
 
 const router = express.Router();
 
@@ -70,9 +71,17 @@ router.get('/me', authMiddleware, async (req, res, next) => {
     }
 
     let profileData = null;
+    let impersonating = null;
+    let companySub = null;
 
-    // Get profile based on role (or secondaryRole for superusers)
-    const effectiveRole = userData.role === 'superuser' ? userData.secondaryRole : userData.role;
+    // Rol efectivo. Para superusers: impersonar una empresa gana sobre el
+    // secondaryRole (worker/employer); si no hay nada, es superuser puro.
+    let effectiveRole;
+    if (userData.role === 'superuser') {
+      effectiveRole = userData.impersonatingCompanyId ? 'company' : userData.secondaryRole;
+    } else {
+      effectiveRole = userData.role;
+    }
 
     if (effectiveRole === 'worker') {
       const workerDoc = await db.collection('workers').doc(uid).get();
@@ -84,11 +93,28 @@ router.get('/me', authMiddleware, async (req, res, next) => {
       if (employerDoc.exists) {
         profileData = employerDoc.data();
       }
+    } else if (effectiveRole === 'company') {
+      // El perfil de empresa es uno solo, el de la organización. Para el dueño
+      // organizationId === uid; para un miembro es el uid de la empresa madre.
+      // Superuser impersonando: el uid de la empresa impersonada.
+      const companyUid = userData.role === 'superuser'
+        ? userData.impersonatingCompanyId
+        : (userData.organizationId || uid);
+      const companyDoc = await db.collection('companies').doc(companyUid).get();
+      if (companyDoc.exists) {
+        profileData = companyDoc.data();
+        companySub = companySubscription.summarize(profileData, new Date());
+        if (userData.role === 'superuser') {
+          impersonating = { companyId: companyUid, businessName: profileData.businessName || null };
+        }
+      }
     }
 
     res.json({
       user: userData,
-      profile: profileData
+      profile: profileData,
+      ...(impersonating ? { impersonating } : {}),
+      ...(companySub ? { companySubscription: companySub } : {})
     });
   } catch (error) {
     next(error);
@@ -172,6 +198,67 @@ router.patch('/secondary-role', authMiddleware, async (req, res, next) => {
       message: 'Secondary role updated successfully',
       secondaryRole
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Superuser: impersonate a company (entrar a su perfil, como secondaryRole pero
+// apuntando a una empresa concreta). Mientras está activo, /me y los endpoints
+// company-scoped actúan como esa empresa.
+router.patch('/impersonate-company', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const { companyId } = req.body;
+
+    if (!companyId) {
+      return res.status(400).json({ error: 'companyId is required' });
+    }
+
+    const db = getDb();
+
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (!userDoc.exists || userDoc.data().role !== 'superuser') {
+      return res.status(403).json({ error: 'Only superusers can impersonate a company' });
+    }
+
+    const companyDoc = await db.collection('companies').doc(companyId).get();
+    if (!companyDoc.exists) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    await db.collection('users').doc(uid).update({
+      impersonatingCompanyId: companyId,
+      updatedAt: new Date()
+    });
+
+    res.json({
+      message: 'Impersonating company',
+      companyId,
+      businessName: companyDoc.data().businessName || null
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Superuser: stop impersonating the current company.
+router.delete('/impersonate-company', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const db = getDb();
+
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (!userDoc.exists || userDoc.data().role !== 'superuser') {
+      return res.status(403).json({ error: 'Only superusers can stop impersonating' });
+    }
+
+    await db.collection('users').doc(uid).update({
+      impersonatingCompanyId: null,
+      updatedAt: new Date()
+    });
+
+    res.json({ message: 'Stopped impersonating company' });
   } catch (error) {
     next(error);
   }

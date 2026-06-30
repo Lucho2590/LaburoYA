@@ -32,6 +32,13 @@ import {
   ITermsAndConditions,
   IAssessCvResponse,
   IPinnedCandidate,
+  ICompanyCandidate,
+  ICompanyMember,
+  ICompanyProfile,
+  ICompanyPlan,
+  ICreateCompanyPlanData,
+  IUpdateCompanyPlanData,
+  ICompanySubscriptionSummary,
   IAiError
 } from '@/types';
 
@@ -146,6 +153,8 @@ class ApiService {
       user: {
         role: string;
         secondaryRole?: string;
+        organizationId?: string;
+        impersonatingCompanyId?: string | null;
         firstName?: string;
         lastName?: string;
         age?: number;
@@ -154,6 +163,8 @@ class ApiService {
         aiCvEnabled?: boolean;
       };
       profile: unknown;
+      impersonating?: { companyId: string; businessName?: string | null };
+      companySubscription?: ICompanySubscriptionSummary;
     }>('/auth/me');
   }
 
@@ -161,6 +172,20 @@ class ApiService {
     return this.request<{ message: string; secondaryRole: string }>('/auth/secondary-role', {
       method: 'PATCH',
       body: { secondaryRole },
+    });
+  }
+
+  // Superuser: entrar/salir de una empresa (impersonación)
+  async impersonateCompany(companyId: string) {
+    return this.request<{ message: string; companyId: string; businessName?: string | null }>(
+      '/auth/impersonate-company',
+      { method: 'PATCH', body: { companyId } }
+    );
+  }
+
+  async stopImpersonatingCompany() {
+    return this.request<{ message: string }>('/auth/impersonate-company', {
+      method: 'DELETE',
     });
   }
 
@@ -319,8 +344,10 @@ class ApiService {
     firstName?: string;
     lastName?: string;
     phone?: string;
-    role: 'worker' | 'employer';
+    role: 'worker' | 'employer' | 'company';
     plan?: string;
+    businessName?: string; // requerido para role 'company'
+    companyPlanId?: string; // requerido para role 'company'
     workerProfile?: {
       rubro: string;
       puesto: string;
@@ -946,6 +973,145 @@ class ApiService {
     return this.request<{ message: string; id: string }>(`/job-offers/${offerId}/pinned-candidates/${pinId}`, {
       method: 'DELETE',
     });
+  }
+
+  // ============================================
+  // Prospects (validación de perfil migrado del talent pool) — público
+  // ============================================
+
+  async getProspect(token: string) {
+    return this.request<{
+      prospect: {
+        id: string;
+        status: string;
+        firstName: string | null;
+        lastName: string | null;
+        email: string | null;
+        puesto: string | null;
+        skills: string[];
+      };
+    }>(`/prospects/${token}`, { requireAuth: false });
+  }
+
+  async claimProspect(token: string, data: { password: string }) {
+    return this.request<{ success: boolean; uid: string; email: string; alreadyHadAccount: boolean }>(
+      `/prospects/${token}/claim`,
+      { method: 'POST', body: data, requireAuth: false }
+    );
+  }
+
+  // ============================================
+  // Companies - Talent pool
+  // ============================================
+
+  async getCompanyTalentPool() {
+    return this.request<{ candidates: ICompanyCandidate[]; total: number }>('/companies/talent-pool');
+  }
+
+  // Re-puntúa el talent pool guardado contra una oferta (sin re-subir CVs).
+  async getCompanyTalentPoolMatch(offerId: string) {
+    return this.request<{ offerId: string; candidates: ICompanyCandidate[]; total: number }>(
+      `/companies/talent-pool/match?offerId=${encodeURIComponent(offerId)}`
+    );
+  }
+
+  // ============================================
+  // Companies - Equipo (self-service, solo el dueño)
+  // ============================================
+
+  async updateCompanyProfile(data: {
+    businessName?: string;
+    rubro?: string | null;
+    localidad?: string | null;
+    city?: string | null;
+    address?: string | null;
+    phone?: string | null;
+    description?: string | null;
+    photoUrl?: string | null;
+    contactName?: string | null;
+  }) {
+    return this.request<{ message: string; profile: ICompanyProfile }>('/companies/me', {
+      method: 'PATCH',
+      body: data,
+    });
+  }
+
+  async getCompanyMembers() {
+    return this.request<{ members: ICompanyMember[]; total: number }>('/companies/members');
+  }
+
+  async inviteCompanyMember(data: { email: string; firstName?: string; lastName?: string }) {
+    return this.request<{ success: boolean; message: string; member: ICompanyMember }>(
+      '/companies/members',
+      { method: 'POST', body: data }
+    );
+  }
+
+  async removeCompanyMember(memberUid: string) {
+    return this.request<{ success: boolean; message: string }>(
+      `/companies/members/${memberUid}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  // ============================================
+  // Admin - Empresa: config + equipo (superuser)
+  // ============================================
+
+  // Editar config de la empresa: límite de miembros, renovar plan (planId),
+  // override de IA y cupo de CVs. maxMembers null = sin límite.
+  async updateAdminCompany(
+    companyUid: string,
+    data: { maxMembers?: number | null; planId?: string; aiCvEnabled?: boolean; maxCvAnalyses?: number }
+  ) {
+    return this.request<{ message: string; company: ICompanyProfile }>(
+      `/admin/companies/${companyUid}`,
+      { method: 'PATCH', body: data }
+    );
+  }
+
+  // ============================================
+  // Admin - Planes de empresa (companyPlans)
+  // ============================================
+
+  async getAdminCompanyPlans(params?: { active?: boolean }) {
+    const q = params?.active !== undefined ? `?active=${params.active}` : '';
+    return this.request<{ plans: ICompanyPlan[] }>(`/admin/company-plans${q}`);
+  }
+
+  async createAdminCompanyPlan(data: ICreateCompanyPlanData) {
+    return this.request<ICompanyPlan>('/admin/company-plans', { method: 'POST', body: data });
+  }
+
+  async updateAdminCompanyPlan(planId: string, data: IUpdateCompanyPlanData) {
+    return this.request<ICompanyPlan>(`/admin/company-plans/${planId}`, { method: 'PATCH', body: data });
+  }
+
+  async deleteAdminCompanyPlan(planId: string) {
+    return this.request<{ message: string }>(`/admin/company-plans/${planId}`, { method: 'DELETE' });
+  }
+
+  async getAdminCompanyMembers(companyUid: string) {
+    return this.request<{ members: ICompanyMember[]; total: number }>(
+      `/admin/companies/${companyUid}/members`
+    );
+  }
+
+  async inviteAdminCompanyMember(
+    companyUid: string,
+    data: { email: string; firstName?: string; lastName?: string }
+  ) {
+    return this.request<{ success: boolean; message: string; member: ICompanyMember }>(
+      `/admin/companies/${companyUid}/members`,
+      { method: 'POST', body: data }
+    );
+  }
+
+  async removeAdminCompanyMember(companyUid: string, memberUid: string) {
+    return this.request<{ success: boolean; message: string }>(
+      `/admin/companies/${companyUid}/members/${memberUid}`,
+      { method: 'DELETE' }
+    );
   }
 }
 

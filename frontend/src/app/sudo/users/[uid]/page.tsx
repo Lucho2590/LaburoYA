@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
-import { IAdminUserDetail, EUserRole, IWorkerProfile, IEmployerProfile } from '@/types';
+import { IAdminUserDetail, EUserRole, IWorkerProfile, IEmployerProfile, ICompanyProfile } from '@/types';
 
 export default function AdminUserDetailPage() {
   const params = useParams();
@@ -118,11 +118,11 @@ export default function AdminUserDetailPage() {
     });
   };
 
-  const isIWorkerProfile = (profile: IWorkerProfile | IEmployerProfile | null): profile is IWorkerProfile => {
+  const isIWorkerProfile = (profile: IWorkerProfile | IEmployerProfile | ICompanyProfile | null): profile is IWorkerProfile => {
     return profile !== null && 'puesto' in profile;
   };
 
-  const isIEmployerProfile = (profile: IWorkerProfile | IEmployerProfile | null): profile is IEmployerProfile => {
+  const isIEmployerProfile = (profile: IWorkerProfile | IEmployerProfile | ICompanyProfile | null): profile is IEmployerProfile => {
     return profile !== null && 'businessName' in profile;
   };
 

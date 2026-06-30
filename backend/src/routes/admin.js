@@ -4,6 +4,8 @@ const { getDb, getAuth } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const { superuserMiddleware } = require('../middleware/superuser');
 const { sendInvitationEmail } = require('../services/emailService');
+const companyMembers = require('../services/companyMembers');
+const companySubscription = require('../utils/companySubscription');
 const adminSecurity = require('../services/adminSecurity');
 const aiProvider = require('../services/aiProvider');
 const pdfParser = require('../services/pdfParser');
@@ -22,6 +24,21 @@ const pdfUpload = multer({
 router.use(authMiddleware);
 router.use(superuserMiddleware);
 
+// Límite de miembros por defecto al crear una empresa (incluye al dueño).
+const DEFAULT_COMPANY_MAX_MEMBERS = 3;
+
+// Resuelve el perfil del dueño de una oferta/match: employer individual o empresa.
+// Las ofertas de empresa guardan employerId = uid de la empresa (mismo campo),
+// así que probamos employers y, si no está, companies (compatibilidad).
+async function getOwnerProfile(db, ownerId) {
+  if (!ownerId) return null;
+  const employerDoc = await db.collection('employers').doc(ownerId).get();
+  if (employerDoc.exists) return employerDoc.data();
+  const companyDoc = await db.collection('companies').doc(ownerId).get();
+  if (companyDoc.exists) return companyDoc.data();
+  return null;
+}
+
 // GET /api/admin/stats - General statistics
 router.get('/stats', async (req, res, next) => {
   try {
@@ -35,6 +52,7 @@ router.get('/stats', async (req, res, next) => {
     const usersByRole = {
       worker: users.filter(u => u.role === 'worker').length,
       employer: users.filter(u => u.role === 'employer').length,
+      company: users.filter(u => u.role === 'company').length,
       superuser: users.filter(u => u.role === 'superuser').length
     };
 
@@ -74,7 +92,7 @@ router.get('/stats', async (req, res, next) => {
 // POST /api/admin/users - Create a new user (invitation)
 router.post('/users', async (req, res, next) => {
   try {
-    const { email, firstName, lastName, phone, role, plan, workerProfile } = req.body;
+    const { email, firstName, lastName, phone, role, plan, workerProfile, businessName, maxMembers, companyPlanId } = req.body;
     const db = getDb();
     const auth = getAuth();
 
@@ -83,8 +101,24 @@ router.post('/users', async (req, res, next) => {
       return res.status(400).json({ error: 'Email es requerido' });
     }
 
-    if (!role || !['worker', 'employer'].includes(role)) {
-      return res.status(400).json({ error: 'Rol debe ser "worker" o "employer"' });
+    if (!role || !['worker', 'employer', 'company'].includes(role)) {
+      return res.status(400).json({ error: 'Rol debe ser "worker", "employer" o "company"' });
+    }
+
+    // Las cuentas empresa requieren razón social y un plan desde su creación.
+    let companyPlan = null;
+    if (role === 'company') {
+      if (!businessName) {
+        return res.status(400).json({ error: 'businessName es requerido para cuentas empresa' });
+      }
+      if (!companyPlanId) {
+        return res.status(400).json({ error: 'Tenés que elegir un plan para la empresa' });
+      }
+      const planDoc = await db.collection('companyPlans').doc(companyPlanId).get();
+      if (!planDoc.exists) {
+        return res.status(400).json({ error: 'El plan seleccionado no existe' });
+      }
+      companyPlan = { id: planDoc.id, ...planDoc.data() };
     }
 
     // Verificar si el email ya existe
@@ -106,7 +140,7 @@ router.post('/users', async (req, res, next) => {
     });
 
     // 2. Crear documento en Firestore
-    await db.collection('users').doc(userRecord.uid).set({
+    const userPayload = {
       uid: userRecord.uid,
       role,
       firstName: firstName || null,
@@ -116,7 +150,51 @@ router.post('/users', async (req, res, next) => {
       invitedBy: req.user.uid,
       createdAt: new Date(),
       updatedAt: new Date()
-    });
+    };
+    // En MVP la empresa "es" la organización: organizationId = su propio uid.
+    // Deja la puerta abierta a multi-miembro (varios uid → un organizationId).
+    if (role === 'company') {
+      userPayload.organizationId = userRecord.uid;
+      // El perfil de empresa se carga desde el admin, así que no pasa por el
+      // onboarding de la app (placeholder: se puede agregar uno propio luego).
+      userPayload.onboardingCompleted = true;
+    }
+    await db.collection('users').doc(userRecord.uid).set(userPayload);
+
+    // 2c. Si role=company, crear el perfil de empresa (con placeholders de
+    // suscripción/KPIs/onboarding a definir más adelante).
+    if (role === 'company') {
+      await db.collection('companies').doc(userRecord.uid).set({
+        uid: userRecord.uid,
+        organizationId: userRecord.uid,
+        businessName,
+        contactName: firstName && lastName ? `${firstName} ${lastName}` : (firstName || null),
+        phone: phone || null,
+        rubro: null,
+        address: null,
+        localidad: null,
+        city: null,
+        description: null,
+        photoUrl: null,
+        active: true,
+        // Límite de cuentas del equipo (incluye al dueño). null = sin límite.
+        maxMembers: Number.isInteger(maxMembers) && maxMembers > 0 ? maxMembers : DEFAULT_COMPANY_MAX_MEMBERS,
+        // Suscripción materializada desde el plan elegido (vigencia + IA + cupo).
+        subscription: companySubscription.applyPlan(companyPlan, new Date()),
+        // KPIs (PLACEHOLDER, a definir).
+        kpis: {
+          totalOffers: 0,
+          totalCandidatesEvaluated: 0,
+          totalHires: 0,
+          talentPoolSize: 0,
+          updatedAt: null
+        },
+        // Onboarding (PLACEHOLDER, a definir).
+        onboarding: { completed: false, steps: {} },
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+    }
 
     // 2b. Si role=worker y vienen datos de worker profile, crear el perfil
     let workerProfileCreated = false;
@@ -229,7 +307,7 @@ router.get('/users', async (req, res, next) => {
     let query = db.collection('users');
     let useOrderBy = true;
 
-    if (role && ['worker', 'employer', 'superuser'].includes(role)) {
+    if (role && ['worker', 'employer', 'superuser', 'company'].includes(role)) {
       query = query.where('role', '==', role);
       // Skip orderBy when filtering to avoid needing composite index
       useOrderBy = false;
@@ -267,12 +345,13 @@ router.get('/users', async (req, res, next) => {
         if (workerDoc.exists) {
           profile = workerDoc.data();
         }
-      } else if (userData.role === 'employer') {
-        const employerDoc = await db.collection('employers').doc(doc.id).get();
-        if (employerDoc.exists) {
-          profile = employerDoc.data();
+      } else if (userData.role === 'employer' || userData.role === 'company') {
+        const profileCol = userData.role === 'company' ? 'companies' : 'employers';
+        const profileDoc = await db.collection(profileCol).doc(doc.id).get();
+        if (profileDoc.exists) {
+          profile = profileDoc.data();
         }
-        // Get employer's job offers
+        // Get the owner's job offers (empresa y employer comparten employerId).
         const jobOffersSnapshot = await db.collection('jobOffers')
           .where('employerId', '==', doc.id)
           .get();
@@ -368,10 +447,11 @@ router.get('/users/:uid', async (req, res, next) => {
       if (workerDoc.exists) {
         profile = workerDoc.data();
       }
-    } else if (userData.role === 'employer') {
-      const employerDoc = await db.collection('employers').doc(uid).get();
-      if (employerDoc.exists) {
-        profile = employerDoc.data();
+    } else if (userData.role === 'employer' || userData.role === 'company') {
+      const profileCol = userData.role === 'company' ? 'companies' : 'employers';
+      const profileDoc = await db.collection(profileCol).doc(uid).get();
+      if (profileDoc.exists) {
+        profile = profileDoc.data();
       }
     }
 
@@ -386,7 +466,7 @@ router.get('/users/:uid', async (req, res, next) => {
         .where('workerId', '==', uid)
         .get();
       stats.matches = matchesSnapshot.size;
-    } else if (userData.role === 'employer') {
+    } else if (userData.role === 'employer' || userData.role === 'company') {
       const matchesSnapshot = await db.collection('matches')
         .where('employerId', '==', uid)
         .get();
@@ -425,7 +505,7 @@ router.patch('/users/:uid', async (req, res, next) => {
     const updates = { updatedAt: new Date() };
 
     if (role !== undefined) {
-      if (!['worker', 'employer', 'superuser'].includes(role)) {
+      if (!['worker', 'employer', 'superuser', 'company'].includes(role)) {
         return res.status(400).json({ error: 'Invalid role' });
       }
       updates.role = role;
@@ -479,6 +559,8 @@ router.delete('/users/:uid', async (req, res, next) => {
     if (hard === 'true') {
       // Hard delete - remove user and related data
       const batch = db.batch();
+      const auth = getAuth();
+      const authUidsToDelete = [uid]; // cuentas de Firebase Auth a liberar
 
       // Delete user document
       batch.delete(userRef);
@@ -486,17 +568,46 @@ router.delete('/users/:uid', async (req, res, next) => {
       // Delete profile
       if (userData.role === 'worker') {
         batch.delete(db.collection('workers').doc(uid));
-      } else if (userData.role === 'employer') {
-        batch.delete(db.collection('employers').doc(uid));
+      } else if (userData.role === 'employer' || userData.role === 'company') {
+        batch.delete(db.collection(userData.role === 'company' ? 'companies' : 'employers').doc(uid));
 
-        // Delete employer's job offers
+        // Delete the owner's job offers
         const jobOffersSnapshot = await db.collection('jobOffers')
           .where('employerId', '==', uid)
           .get();
         jobOffersSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+
+        // Empresa: borrar también su talent pool y sus MIEMBROS del equipo.
+        if (userData.role === 'company') {
+          const candidatesSnapshot = await db.collection('companyCandidates')
+            .where('organizationId', '==', uid)
+            .get();
+          candidatesSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+
+          // Miembros de la organización (otros uid con organizationId === uid).
+          const membersSnapshot = await db.collection('users')
+            .where('organizationId', '==', uid)
+            .get();
+          membersSnapshot.docs.forEach(doc => {
+            if (doc.id !== uid) {
+              batch.delete(doc.ref);
+              authUidsToDelete.push(doc.id);
+            }
+          });
+        }
       }
 
       await batch.commit();
+
+      // Liberar las cuentas de Firebase Auth (best-effort) para que el email
+      // pueda re-invitarse en el futuro. Cada borrado es independiente.
+      await Promise.all(authUidsToDelete.map(async (authUid) => {
+        try {
+          await auth.deleteUser(authUid);
+        } catch (e) {
+          // Ya no existe en Auth o falló: no bloqueamos el borrado.
+        }
+      }));
 
       res.json({ message: 'User permanently deleted' });
     } else {
@@ -510,6 +621,120 @@ router.delete('/users/:uid', async (req, res, next) => {
       res.json({ message: 'User disabled' });
     }
   } catch (error) {
+    next(error);
+  }
+});
+
+// ----- Equipo de una empresa (gestión por el superuser) -----
+
+// Verifica que :companyUid sea una cuenta empresa dueña (uid === organizationId).
+async function ensureCompanyOwner(db, companyUid) {
+  const doc = await db.collection('users').doc(companyUid).get();
+  if (!doc.exists || doc.data().role !== 'company') {
+    const err = new Error('Empresa no encontrada');
+    err.status = 404;
+    throw err;
+  }
+  return companyUid;
+}
+
+// PATCH /api/admin/companies/:companyUid - Editar config de la empresa (límite de miembros)
+router.patch('/companies/:companyUid', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const companyUid = await ensureCompanyOwner(db, req.params.companyUid);
+    const updates = { updatedAt: new Date() };
+
+    if (req.body.maxMembers !== undefined) {
+      const n = Number(req.body.maxMembers);
+      // null/0/'' → sin límite; entero > 0 → límite.
+      if (req.body.maxMembers === null || req.body.maxMembers === '') {
+        updates.maxMembers = null;
+      } else if (Number.isInteger(n) && n > 0) {
+        updates.maxMembers = n;
+      } else {
+        return res.status(400).json({ error: 'maxMembers debe ser un entero mayor a 0 (o null para sin límite)' });
+      }
+    }
+
+    // Renovar / asignar plan: reinicia vigencia y contador de CVs.
+    if (req.body.planId) {
+      const planDoc = await db.collection('companyPlans').doc(req.body.planId).get();
+      if (!planDoc.exists) {
+        return res.status(400).json({ error: 'El plan seleccionado no existe' });
+      }
+      updates.subscription = companySubscription.applyPlan({ id: planDoc.id, ...planDoc.data() }, new Date());
+    }
+
+    // Overrides por empresa sobre la suscripción vigente (IA y cupo de CVs).
+    if (req.body.aiCvEnabled !== undefined || req.body.maxCvAnalyses !== undefined) {
+      const current = updates.subscription || (await db.collection('companies').doc(companyUid).get()).data().subscription || {};
+      const sub = { ...current };
+      if (req.body.aiCvEnabled !== undefined) sub.aiCvEnabled = Boolean(req.body.aiCvEnabled);
+      if (req.body.maxCvAnalyses !== undefined) {
+        const m = Number(req.body.maxCvAnalyses);
+        if (m < -1 || m === 0 || !Number.isInteger(m)) {
+          return res.status(400).json({ error: 'maxCvAnalyses debe ser un entero mayor a 0 o -1 (ilimitado)' });
+        }
+        sub.maxCvAnalyses = m;
+      }
+      updates.subscription = sub;
+    }
+
+    await db.collection('companies').doc(companyUid).update(updates);
+    const updated = await db.collection('companies').doc(companyUid).get();
+    res.json({ message: 'Empresa actualizada', company: updated.data() });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+// GET /api/admin/companies/:companyUid/members
+router.get('/companies/:companyUid/members', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const organizationId = await ensureCompanyOwner(db, req.params.companyUid);
+    const members = await companyMembers.listMembers(db, getAuth(), organizationId);
+    res.json({ members, total: members.length });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+// POST /api/admin/companies/:companyUid/members - Invitar miembro
+router.post('/companies/:companyUid/members', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const organizationId = await ensureCompanyOwner(db, req.params.companyUid);
+    const { email, firstName, lastName } = req.body;
+    const member = await companyMembers.inviteMember(db, getAuth(), {
+      organizationId,
+      email,
+      firstName,
+      lastName,
+      invitedBy: req.user.uid,
+    });
+    res.status(201).json({ success: true, message: 'Invitación enviada', member });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    next(error);
+  }
+});
+
+// DELETE /api/admin/companies/:companyUid/members/:memberUid - Quitar miembro
+router.delete('/companies/:companyUid/members/:memberUid', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const organizationId = await ensureCompanyOwner(db, req.params.companyUid);
+    await companyMembers.removeMember(db, getAuth(), {
+      organizationId,
+      memberUid: req.params.memberUid,
+    });
+    res.json({ success: true, message: 'Miembro eliminado' });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     next(error);
   }
 });
@@ -535,14 +760,8 @@ router.get('/job-offers', async (req, res, next) => {
     const jobOffers = await Promise.all(snapshot.docs.map(async doc => {
       const data = doc.data();
 
-      // Get employer info
-      let employer = null;
-      if (data.employerId) {
-        const employerDoc = await db.collection('employers').doc(data.employerId).get();
-        if (employerDoc.exists) {
-          employer = employerDoc.data();
-        }
-      }
+      // Get owner info (employer individual o empresa).
+      const employer = await getOwnerProfile(db, data.employerId);
 
       // Include stats (default to 0 if not present)
       const stats = data.stats || { interestedCount: 0, notInterestedCount: 0 };
@@ -792,14 +1011,8 @@ router.get('/matches', async (req, res, next) => {
         }
       }
 
-      // Get employer info
-      let employer = null;
-      if (data.employerId) {
-        const employerDoc = await db.collection('employers').doc(data.employerId).get();
-        if (employerDoc.exists) {
-          employer = employerDoc.data();
-        }
-      }
+      // Get owner info (employer individual o empresa).
+      const employer = await getOwnerProfile(db, data.employerId);
 
       return {
         id: doc.id,
@@ -1063,6 +1276,141 @@ router.delete('/plans/:planId', async (req, res, next) => {
 
     await planRef.delete();
 
+    res.json({ message: 'Plan eliminado correctamente' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================
+// COMPANY PLANS CRUD (planes de empresa: vigencia + IA + cupo de CVs)
+// ============================================
+
+// GET /api/admin/company-plans
+router.get('/company-plans', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const { active } = req.query;
+    let query = db.collection('companyPlans');
+    if (active !== undefined) query = query.where('active', '==', active === 'true');
+    let docs;
+    try {
+      docs = (await query.orderBy('order', 'asc').get()).docs;
+    } catch (e) {
+      docs = (await db.collection('companyPlans').get()).docs;
+    }
+    const plans = docs
+      .map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate?.() || doc.data().createdAt,
+        updatedAt: doc.data().updatedAt?.toDate?.() || doc.data().updatedAt,
+      }))
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    res.json({ plans });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/admin/company-plans
+router.post('/company-plans', async (req, res, next) => {
+  try {
+    const { name, description, durationMonths, aiCvEnabled, maxCvAnalyses, price = 0, isDefault, active = true, order = 0 } = req.body;
+
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ error: 'El nombre es requerido' });
+    }
+    if (!durationMonths || durationMonths < 1) {
+      return res.status(400).json({ error: 'La vigencia debe ser de al menos 1 mes' });
+    }
+    if (maxCvAnalyses === undefined || maxCvAnalyses < -1 || maxCvAnalyses === 0) {
+      return res.status(400).json({ error: 'El cupo de CVs debe ser mayor a 0 o -1 para ilimitado' });
+    }
+
+    const db = getDb();
+
+    if (isDefault) {
+      const existing = await db.collection('companyPlans').where('isDefault', '==', true).get();
+      const batch = db.batch();
+      existing.docs.forEach(doc => batch.update(doc.ref, { isDefault: false, updatedAt: new Date() }));
+      await batch.commit();
+    }
+
+    const planData = {
+      name: name.trim(),
+      description: description?.trim() || '',
+      durationMonths: Number(durationMonths),
+      aiCvEnabled: Boolean(aiCvEnabled),
+      maxCvAnalyses: Number(maxCvAnalyses),
+      price: Number(price) || 0,
+      isDefault: Boolean(isDefault),
+      active: Boolean(active),
+      order: Number(order),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const ref = await db.collection('companyPlans').add(planData);
+    res.status(201).json({ id: ref.id, ...planData });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/admin/company-plans/:planId
+router.patch('/company-plans/:planId', async (req, res, next) => {
+  try {
+    const { planId } = req.params;
+    const db = getDb();
+    const planRef = db.collection('companyPlans').doc(planId);
+    const planDoc = await planRef.get();
+    if (!planDoc.exists) return res.status(404).json({ error: 'Plan no encontrado' });
+
+    const updates = { updatedAt: new Date() };
+    const allowed = ['name', 'description', 'durationMonths', 'aiCvEnabled', 'maxCvAnalyses', 'price', 'isDefault', 'active', 'order'];
+    for (const field of allowed) {
+      if (req.body[field] === undefined) continue;
+      if (field === 'name' && String(req.body[field]).trim() === '') {
+        return res.status(400).json({ error: 'El nombre no puede estar vacío' });
+      }
+      if (field === 'aiCvEnabled' || field === 'isDefault' || field === 'active') {
+        updates[field] = Boolean(req.body[field]);
+      } else if (['durationMonths', 'maxCvAnalyses', 'price', 'order'].includes(field)) {
+        updates[field] = Number(req.body[field]);
+      } else {
+        updates[field] = typeof req.body[field] === 'string' ? req.body[field].trim() : req.body[field];
+      }
+    }
+
+    if (updates.isDefault === true) {
+      const existing = await db.collection('companyPlans').where('isDefault', '==', true).get();
+      const batch = db.batch();
+      existing.docs.forEach(doc => {
+        if (doc.id !== planId) batch.update(doc.ref, { isDefault: false, updatedAt: new Date() });
+      });
+      await batch.commit();
+    }
+
+    await planRef.update(updates);
+    const updated = await planRef.get();
+    res.json({ id: updated.id, ...updated.data() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/admin/company-plans/:planId
+router.delete('/company-plans/:planId', async (req, res, next) => {
+  try {
+    const { planId } = req.params;
+    const db = getDb();
+    const planRef = db.collection('companyPlans').doc(planId);
+    const planDoc = await planRef.get();
+    if (!planDoc.exists) return res.status(404).json({ error: 'Plan no encontrado' });
+    if (planDoc.data().isDefault) {
+      return res.status(400).json({ error: 'No se puede eliminar el plan por defecto. Asigná otro como default primero.' });
+    }
+    await planRef.delete();
     res.json({ message: 'Plan eliminado correctamente' });
   } catch (error) {
     next(error);

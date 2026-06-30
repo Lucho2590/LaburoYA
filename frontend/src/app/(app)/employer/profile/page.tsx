@@ -134,10 +134,10 @@ export default function EmployerProfilePage() {
     <div className="px-4 py-6 space-y-6">
       {/* Photo */}
       <div>
-        <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+        <label className="block text-sm font-medium theme-text-secondary mb-2">
           Foto del negocio o logo
         </label>
-        <p className="text-[#667085] text-sm mb-3">
+        <p className="theme-text-muted text-sm mb-3">
           Mostrá tu negocio a los trabajadores. Genera más confianza.
         </p>
 
@@ -157,7 +157,7 @@ export default function EmployerProfilePage() {
             <button
               type="button"
               onClick={() => setPhotoBlob(null)}
-              className="w-full p-3 rounded-xl border-2 border-[#344054] text-[#98A2B3]"
+              className="w-full p-3 rounded-xl border-2 theme-border theme-text-secondary"
             >
               📷 Tomar otra foto
             </button>
@@ -173,7 +173,7 @@ export default function EmployerProfilePage() {
 
       {/* Business Name */}
       <div>
-        <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+        <label className="block text-sm font-medium theme-text-secondary mb-2">
           Nombre del negocio *
         </label>
         <input
@@ -181,13 +181,13 @@ export default function EmployerProfilePage() {
           value={formData.businessName}
           onChange={(e) => setFormData({ ...formData, businessName: e.target.value })}
           placeholder="Ej: Restaurante El Puerto"
-          className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none"
+          className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
         />
       </div>
 
       {/* Rubro */}
       <div>
-        <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+        <label className="block text-sm font-medium theme-text-secondary mb-2">
           Rubro *
         </label>
         <div className="grid grid-cols-2 gap-2">
@@ -199,7 +199,7 @@ export default function EmployerProfilePage() {
               className={`p-4 rounded-xl border-2 text-left transition-all active:scale-95 ${
                 formData.rubro === key
                   ? 'border-[#E10600] bg-[#E10600]/10'
-                  : 'border-[#344054] bg-[#1F2937]'
+                  : 'theme-border theme-bg-card'
               }`}
             >
               <span className="text-2xl block mb-1">
@@ -210,7 +210,7 @@ export default function EmployerProfilePage() {
                 {key === 'transporte' && '🚗'}
                 {key === 'administracion' && '💼'}
               </span>
-              <span className="font-medium text-white">{value.label}</span>
+              <span className="font-medium theme-text-primary">{value.label}</span>
             </button>
           ))}
         </div>
@@ -218,7 +218,7 @@ export default function EmployerProfilePage() {
 
       {/* Localidad */}
       <div>
-        <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+        <label className="block text-sm font-medium theme-text-secondary mb-2">
           Localidad
         </label>
         <input
@@ -226,13 +226,13 @@ export default function EmployerProfilePage() {
           value={formData.localidad}
           onChange={(e) => setFormData({ ...formData, localidad: e.target.value })}
           placeholder="Ej: Mar del Plata, Batán, etc."
-          className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none"
+          className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
         />
       </div>
 
       {/* Phone */}
       <div>
-        <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+        <label className="block text-sm font-medium theme-text-secondary mb-2">
           Teléfono de contacto
         </label>
         <input
@@ -240,13 +240,13 @@ export default function EmployerProfilePage() {
           value={formData.phone}
           onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
           placeholder="223-4567890"
-          className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none"
+          className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
         />
       </div>
 
       {/* Address */}
       <div>
-        <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+        <label className="block text-sm font-medium theme-text-secondary mb-2">
           Dirección
         </label>
         <input
@@ -254,13 +254,13 @@ export default function EmployerProfilePage() {
           value={formData.address}
           onChange={(e) => setFormData({ ...formData, address: e.target.value })}
           placeholder="Av. Colón 1234, Mar del Plata"
-          className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none"
+          className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none"
         />
       </div>
 
       {/* Description */}
       <div>
-        <label className="block text-sm font-medium text-[#98A2B3] mb-2">
+        <label className="block text-sm font-medium theme-text-secondary mb-2">
           Sobre el negocio
         </label>
         <textarea
@@ -268,7 +268,7 @@ export default function EmployerProfilePage() {
           onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           placeholder="Contá sobre tu negocio..."
           rows={3}
-          className="w-full p-4 rounded-xl border-2 border-[#344054] bg-[#1F2937] text-white placeholder-[#667085] focus:border-[#E10600] focus:outline-none resize-none"
+          className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary placeholder:theme-text-muted focus:border-[#E10600] focus:outline-none resize-none"
         />
       </div>
 

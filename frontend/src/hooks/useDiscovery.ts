@@ -137,8 +137,12 @@ export function useDiscoveryWorkers() {
   }, [user, authReady]);
 
   useEffect(() => {
-    if (authReady && (userData?.role === 'employer' ||
-        (userData?.role === 'superuser' && userData?.secondaryRole === 'employer'))) {
+    // Empleadores, empresas, y superusers actuando como tales (secondaryRole o
+    // impersonando una empresa) ven candidatos.
+    const isEmployerView = userData?.role === 'employer' || userData?.role === 'company' ||
+      (userData?.role === 'superuser' &&
+        (userData?.secondaryRole === 'employer' || !!userData?.impersonating?.companyId));
+    if (authReady && isEmployerView) {
       fetchWorkers();
     }
   }, [fetchWorkers, userData, authReady]);
