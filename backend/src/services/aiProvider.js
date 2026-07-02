@@ -14,14 +14,51 @@ const MODELS = {
   gemini: 'gemini-2.5-flash-lite'
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Fallos transitorios del proveedor de IA: el modelo está saturado / indisponible
+// momentáneamente (ej. Gemini "This model is currently experiencing high demand"),
+// un 5xx del servidor, o un corte de red. Se reintentan; NO incluye 429/quota (eso
+// no se recupera en segundos y se maneja aparte como rate-limit).
+const TRANSIENT_AI_RE = /overloaded|high demand|currently unavailable|temporarily unavailable|try again later|service unavailable|econnreset|etimedout|fetch failed|socket hang up/i;
+
+function isTransientAiError(error) {
+  if (!error) return false;
+  const status = Number(error.status || error.statusCode) || 0;
+  if ([500, 502, 503, 529].includes(status)) return true; // 529 = "Overloaded" (Anthropic)
+  const text = `${error.message || ''} ${error.cause?.message || ''} ${error.code || ''}`;
+  return TRANSIENT_AI_RE.test(text);
+}
+
+// Reintenta una llamada al proveedor de IA ante fallos transitorios (saturación
+// del modelo, 5xx, red), con backoff exponencial + jitter. Los errores permanentes
+// (config, 4xx, parse, provider desconocido) se relanzan en el primer intento.
+async function withAiRetry(fn, { retries = 2 } = {}) {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt >= retries || !isTransientAiError(error)) throw error;
+      const base = 600 * Math.pow(2, attempt); // 600ms, 1200ms, ...
+      const delay = Math.round(base * (0.75 + Math.random() * 0.5));
+      attempt += 1;
+      await sleep(delay);
+    }
+  }
+}
+
 // Translates raw SDK/runtime errors from the AI providers into a short,
-// user-facing message. Errors we threw ourselves (they already carry a
-// `.status`) pass through untouched. The original error is kept in `.cause`
-// so the server logs still show the full provider message.
+// user-facing message. Errors we threw ourselves con un status intencional
+// (400/422) pasan tal cual. El original queda en `.cause` para los logs.
 function friendlyAiError(error) {
-  if (error && error.status) return error;
+  // Errores intencionales nuestros (mensaje ya claro en español): pasan tal cual.
+  const preStatus = Number(error && error.status) || 0;
+  if ([400, 422].includes(preStatus)) return error;
+
   const raw = error && error.message ? String(error.message) : '';
-  const lower = raw.toLowerCase();
+  const causeMsg = error && error.cause && error.cause.message ? String(error.cause.message) : '';
+  const lower = `${raw} ${causeMsg}`.toLowerCase();
 
   let message = 'No se pudo procesar el CV con la IA. Intentá de nuevo en unos minutos.';
   let status = 502;
@@ -30,6 +67,14 @@ function friendlyAiError(error) {
     message = 'La API key de IA no es válida o no tiene permisos. Revisá la configuración en /sudo/ai-settings.';
   } else if (/not found|is not supported|does not exist|no such model|\b404\b/.test(lower)) {
     message = 'El modelo de IA configurado ya no está disponible. Avisá al administrador para que lo actualice.';
+  } else if (isTransientAiError(error)) {
+    // Saturación / indisponibilidad transitoria del proveedor → reintentable.
+    const err = new Error('La IA está saturada en este momento. Reintentá en unos segundos.');
+    err.status = 503;
+    err.retryable = true;
+    err.rateScope = 'minute';
+    err.cause = error;
+    return err;
   } else if (/quota|rate.?limit|resource has been exhausted|too many requests|\b429\b/.test(lower)) {
     status = 503;
     const isDaily = /per ?day|perday|requests per day|perdayper/.test(lower);
@@ -333,13 +378,15 @@ async function parseCvWithAi(pdfText) {
   const { parse: systemPrompt } = await getResolvedPrompts();
 
   try {
-    switch (data.provider) {
-      case 'claude': return await parseWithClaude(pdfText, apiKey, rubros, systemPrompt);
-      case 'openai': return await parseWithOpenAI(pdfText, apiKey, rubros, systemPrompt);
-      case 'gemini': return await parseWithGemini(pdfText, apiKey, rubros, systemPrompt);
-      default:
-        throw new Error(`Provider desconocido: ${data.provider}`);
-    }
+    return await withAiRetry(() => {
+      switch (data.provider) {
+        case 'claude': return parseWithClaude(pdfText, apiKey, rubros, systemPrompt);
+        case 'openai': return parseWithOpenAI(pdfText, apiKey, rubros, systemPrompt);
+        case 'gemini': return parseWithGemini(pdfText, apiKey, rubros, systemPrompt);
+        default:
+          throw new Error(`Provider desconocido: ${data.provider}`);
+      }
+    });
   } catch (error) {
     throw friendlyAiError(error);
   }
@@ -433,17 +480,19 @@ async function parseCvFromPdf(buffer, mimeType) {
   const base64 = buffer.toString('base64');
 
   try {
-    switch (data.provider) {
-      case 'claude': return await parseWithClaudePdf(base64, mimeType, apiKey, rubros, systemPrompt);
-      case 'gemini': return await parseWithGeminiPdf(base64, mimeType, apiKey, rubros, systemPrompt);
-      case 'openai': {
-        const err = new Error('El OCR de PDFs escaneados requiere Claude o Gemini. Cambiá el proveedor en /sudo/ai-settings.');
-        err.status = 422;
-        throw err;
+    return await withAiRetry(() => {
+      switch (data.provider) {
+        case 'claude': return parseWithClaudePdf(base64, mimeType, apiKey, rubros, systemPrompt);
+        case 'gemini': return parseWithGeminiPdf(base64, mimeType, apiKey, rubros, systemPrompt);
+        case 'openai': {
+          const err = new Error('El OCR de PDFs escaneados requiere Claude o Gemini. Cambiá el proveedor en /sudo/ai-settings.');
+          err.status = 422;
+          throw err;
+        }
+        default:
+          throw new Error(`Provider desconocido: ${data.provider}`);
       }
-      default:
-        throw new Error(`Provider desconocido: ${data.provider}`);
-    }
+    });
   } catch (error) {
     throw friendlyAiError(error);
   }
@@ -617,32 +666,30 @@ async function assessCvFit({ offer, cvText, fileBuffer, mimeType }) {
   const { assess: systemPrompt } = await getResolvedPrompts();
 
   try {
-    let out;
-    if (cvText) {
-      const userText = buildAssessUserMessage(offer, cvText);
-      switch (provider) {
-        case 'claude': out = await assessWithClaude(userText, apiKey, systemPrompt); break;
-        case 'openai': out = await assessWithOpenAI(userText, apiKey, systemPrompt); break;
-        case 'gemini': out = await assessWithGemini([userText], apiKey, systemPrompt); break;
-        default: throw new Error(`Provider desconocido: ${provider}`);
+    const out = await withAiRetry(() => {
+      if (cvText) {
+        const userText = buildAssessUserMessage(offer, cvText);
+        switch (provider) {
+          case 'claude': return assessWithClaude(userText, apiKey, systemPrompt);
+          case 'openai': return assessWithOpenAI(userText, apiKey, systemPrompt);
+          case 'gemini': return assessWithGemini([userText], apiKey, systemPrompt);
+          default: throw new Error(`Provider desconocido: ${provider}`);
+        }
       }
-    } else {
       // No text layer → multimodal (scanned PDFs / images)
       const base64 = fileBuffer.toString('base64');
       const text = buildAssessUserMessage(offer, null);
       switch (provider) {
         case 'claude':
-          out = await assessWithClaude([
+          return assessWithClaude([
             claudeMediaBlock(base64, mimeType),
             { type: 'text', text }
           ], apiKey, systemPrompt);
-          break;
         case 'gemini':
-          out = await assessWithGemini([
+          return assessWithGemini([
             { inlineData: { mimeType: mimeType || 'application/pdf', data: base64 } },
             text
           ], apiKey, systemPrompt);
-          break;
         case 'openai': {
           const err = new Error('El OCR de PDFs escaneados requiere Claude o Gemini. Cambiá el proveedor en /sudo/ai-settings.');
           err.status = 422;
@@ -651,7 +698,7 @@ async function assessCvFit({ offer, cvText, fileBuffer, mimeType }) {
         default:
           throw new Error(`Provider desconocido: ${provider}`);
       }
-    }
+    });
 
     return {
       ...out.data,
