@@ -738,6 +738,103 @@ router.delete('/orphan-workers/:uid', async (req, res, next) => {
   }
 });
 
+// ----- Ofertas laborales "para limpiar" -----
+// - "orphan": el employerId no tiene doc en `users` (dueño borrado a mano).
+// - "superuser": el employerId es una cuenta con role 'superuser' (ofertas de prueba).
+// Estas ofertas siguen apareciendo/matcheando en la app pero no tienen un dueño
+// real; acá se listan y borran junto con su data relacionada.
+
+// Borra la oferta + su data relacionada. Devuelve los conteos borrados.
+async function deleteOfferAndRefs(db, offerId) {
+  const counts = { offer: 0, offerInteractions: 0, matches: 0, contactRequests: 0, pinnedCandidates: 0 };
+
+  const offerRef = db.collection('jobOffers').doc(offerId);
+  if ((await offerRef.get()).exists) {
+    await offerRef.delete();
+    counts.offer = 1;
+  }
+
+  const deleteWhere = async (collection, key) => {
+    const snap = await db.collection(collection).where('offerId', '==', offerId).get();
+    if (!snap.size) return;
+    const batch = db.batch();
+    snap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    counts[key] += snap.size;
+  };
+
+  await deleteWhere('offerInteractions', 'offerInteractions');
+  await deleteWhere('matches', 'matches');
+  await deleteWhere('contactRequests', 'contactRequests');
+  await deleteWhere('pinnedCandidates', 'pinnedCandidates');
+
+  return counts;
+}
+
+// Clasifica una oferta: 'orphan' (dueño sin users doc), 'superuser' (dueño superuser) o null.
+function offerCleanupCategory(offer, usersMap) {
+  const owner = offer.employerId ? usersMap.get(offer.employerId) : null;
+  if (!owner) return 'orphan';
+  if (owner.role === 'superuser') return 'superuser';
+  return null;
+}
+
+// GET /api/admin/orphan-offers - Ofertas huérfanas o creadas por superusers.
+router.get('/orphan-offers', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const snap = await db.collection('jobOffers').get();
+    const usersMap = await getDocMapByIds(db, 'users', snap.docs.map(d => d.data().employerId).filter(Boolean));
+
+    const offers = snap.docs
+      .map(d => ({ doc: d, category: offerCleanupCategory(d.data(), usersMap) }))
+      .filter(x => x.category)
+      .map(({ doc, category }) => {
+        const o = doc.data();
+        return {
+          id: doc.id,
+          category,
+          puesto: o.puesto || null,
+          rubro: o.rubro || null,
+          zona: o.zona || null,
+          employerId: o.employerId || null,
+          active: o.active !== false,
+          createdAt: o.createdAt?.toDate?.() || o.createdAt || null
+        };
+      });
+
+    res.json({ offers, total: offers.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/admin/orphan-offers/:id - Borra una oferta huérfana/superuser + su data.
+// Por seguridad, solo procede si la oferta realmente entra en esas categorías.
+router.delete('/orphan-offers/:id', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const { id } = req.params;
+
+    const offerDoc = await db.collection('jobOffers').doc(id).get();
+    if (!offerDoc.exists) {
+      return res.status(404).json({ error: 'Oferta no encontrada' });
+    }
+    const employerId = offerDoc.data().employerId;
+    const usersMap = await getDocMapByIds(db, 'users', employerId ? [employerId] : []);
+    if (!offerCleanupCategory(offerDoc.data(), usersMap)) {
+      return res.status(400).json({
+        error: 'Esta oferta tiene un dueño válido; borrala desde su cuenta, no desde acá.'
+      });
+    }
+
+    const deleted = await deleteOfferAndRefs(db, id);
+    res.json({ message: 'Oferta eliminada', deleted });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ----- Equipo de una empresa (gestión por el superuser) -----
 
 // Verifica que :companyUid sea una cuenta empresa dueña (uid === organizationId).

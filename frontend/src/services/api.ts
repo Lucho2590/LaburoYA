@@ -12,6 +12,7 @@ import {
   IAdminJobOffer,
   IAdminMatch,
   IOrphanWorker,
+  IOrphanOffer,
   IContactRequest,
   IDiscoveryOffersResponse,
   IDiscoveryWorkersResponse,
@@ -455,6 +456,17 @@ class ApiService {
 
   async deleteOrphanWorker(uid: string) {
     return this.request<{ message: string }>(`/admin/orphan-workers/${uid}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Admin - Ofertas para limpiar (huérfanas o creadas por superusers)
+  async getOrphanOffers() {
+    return this.request<{ offers: IOrphanOffer[]; total: number }>('/admin/orphan-offers');
+  }
+
+  async deleteOrphanOffer(id: string) {
+    return this.request<{ message: string }>(`/admin/orphan-offers/${id}`, {
       method: 'DELETE',
     });
   }

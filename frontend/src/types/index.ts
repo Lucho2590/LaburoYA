@@ -617,6 +617,18 @@ export interface IOrphanWorker {
   createdAt: string | null;
 }
 
+// Oferta para limpiar: sin dueño válido ('orphan') o creada por un superuser.
+export interface IOrphanOffer {
+  id: string;
+  category: 'orphan' | 'superuser';
+  puesto: string | null;
+  rubro: string | null;
+  zona: string | null;
+  employerId: string | null;
+  active: boolean;
+  createdAt: string | null;
+}
+
 export interface IPaginatedResponse<T> {
   total: number;
   limit: number;
