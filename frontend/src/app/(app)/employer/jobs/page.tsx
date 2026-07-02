@@ -129,7 +129,16 @@ export default function EmployerJobsPage() {
   const [offerRadius, setOfferRadius] = useState<number | null>(null);
 
   const effectiveRole = getEffectiveAppRole();
-  const aiOn = !!userData?.aiCvEnabled;
+  // La IA se habilita distinto según el tipo de cuenta (igual que el backend):
+  //  - empresa (o superuser impersonando una empresa) → por el plan
+  //    (companySubscription.aiCvEnabled)
+  //  - employer individual → por el flag del usuario (aiCvEnabled)
+  const isCompanyView =
+    userData?.role === 'company' ||
+    (userData?.role === 'superuser' && !!userData?.impersonating?.companyId);
+  const aiOn = isCompanyView
+    ? !!userData?.companySubscription?.aiCvEnabled
+    : !!userData?.aiCvEnabled;
 
   const resetForm = useCallback(() => {
     setFormData({ rubro: '', customRubro: '', puesto: '', customPuesto: '', description: '', salary: '', schedule: '', businessName: '', zona: '', availability: '' });
