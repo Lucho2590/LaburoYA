@@ -58,7 +58,14 @@ interface AssessItem {
 }
 
 const MAX_CVS = 20;
-const AI_PACING_MS = 1200; // espaciado entre llamadas de IA para no gatillar el rate-limit
+// Procesamiento de tandas de CV con IA. En el free tier de Gemini el techo es
+// ~15 req/min, así que espaciamos los arranques (throttle) para acercarnos a ese
+// techo sin gatillar 429 de más, con algo de concurrencia para solapar latencia.
+const AI_CONCURRENCY = 2; // CVs en vuelo simultáneos (IA)
+const AI_MIN_INTERVAL_MS = 4200; // ~14 req/min: arranque mínimo entre llamadas
+const AI_RATE_BACKOFF_MS = 20000; // espera al pegar contra el límite por minuto
+const AI_MAX_RETRIES = 4; // reintentos por CV ante 429 por minuto
+const BASIC_CONCURRENCY = 4; // modo básico (sin IA): sin rate-limit, más paralelo
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -542,31 +549,57 @@ export default function EmployerJobsPage() {
   const runAssessment = async () => {
     if (!assessModal) return;
     setAssessRunning(true);
-    // Snapshot of items to process (those not yet done) — evaluate one by one.
+
+    // Snapshot de los CVs a procesar (pendientes o con error previo).
     const pending = assessItems.filter((it) => it.status === 'pending' || it.status === 'error');
-    // AI mode bursts hit provider rate limits → space the calls a bit.
+    // Modo IA: llama a Gemini (rate-limited). Modo básico: sin IA, más paralelo.
     const willUseAi = aiOn && assessModal.job.aiAssessEnabled !== false;
-    let done = 0;
-    for (let i = 0; i < pending.length; i++) {
-      const r = await assessOne(pending[i]);
-      if (r.outcome === 'rate_limited') {
-        const remaining = pending.length - done;
-        toast.error(
-          (r.rateScope === 'day'
-            ? 'Límite diario de la IA alcanzado. '
-            : 'Límite por minuto de la IA alcanzado. ') +
-          `Se analizaron ${done}; quedaron ${remaining} sin analizar. Reintentá más tarde con "Evaluar".`
-        );
-        break;
+
+    let index = 0;
+    let dayLimit = false;
+    let nextStart = 0; // throttle de arranques compartido entre workers
+
+    // Espacia los arranques de las llamadas de IA para respetar el rate-limit.
+    const throttle = async () => {
+      if (!willUseAi) return;
+      const now = Date.now();
+      const wait = Math.max(0, nextStart - now);
+      nextStart = Math.max(now, nextStart) + AI_MIN_INTERVAL_MS;
+      if (wait > 0) await sleep(wait);
+    };
+
+    // Un worker toma CVs de la cola hasta agotarla. Ante 429 por minuto, espera
+    // y reintenta el MISMO CV (no corta la tanda); ante 429 diario, se detiene.
+    const worker = async () => {
+      while (!dayLimit) {
+        const i = index++;
+        if (i >= pending.length) return;
+        const item = pending[i];
+        let attempts = 0;
+        while (!dayLimit) {
+          await throttle();
+          const r = await assessOne(item);
+          if (r.outcome !== 'rate_limited') break; // done o error → siguiente CV
+          if (r.rateScope === 'day') { dayLimit = true; break; }
+          attempts += 1;
+          if (attempts > AI_MAX_RETRIES) {
+            updateItem(item.id, { status: 'error', error: 'Límite de IA alcanzado. Reintentá con "Evaluar".' });
+            break;
+          }
+          await sleep(AI_RATE_BACKOFF_MS); // límite por minuto → esperar y reintentar
+        }
       }
-      done++;
-      // Pacing between AI calls (skip after the last one).
-      if (willUseAi && i < pending.length - 1) {
-        await sleep(AI_PACING_MS);
-      }
-    }
+    };
+
+    const workers = willUseAi ? AI_CONCURRENCY : BASIC_CONCURRENCY;
+    const n = Math.min(workers, pending.length || 1);
+    await Promise.all(Array.from({ length: n }, () => worker()));
+
     setAssessRunning(false);
-    refreshJobsSilent(); // update ranking count + AI spend without the full-page spinner
+    if (dayLimit) {
+      toast.error('Límite diario de la IA alcanzado. Reintentá mañana con "Evaluar".');
+    }
+    refreshJobsSilent(); // actualiza ranking + gasto de IA sin spinner de pantalla
   };
 
   // Reintenta la evaluación de un único CV (botón "Reintentar" del item).

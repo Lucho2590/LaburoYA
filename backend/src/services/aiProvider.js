@@ -9,7 +9,9 @@ const SUPPORTED_PROVIDERS = ['claude', 'openai', 'gemini'];
 const MODELS = {
   claude: 'claude-sonnet-4-6',
   openai: 'gpt-4o-mini',
-  gemini: 'gemini-2.5-flash'
+  // flash-lite: más rápido y con más margen de rate-limit en el free tier
+  // (15 RPM vs 10). Revertir a 'gemini-2.5-flash' si baja la calidad.
+  gemini: 'gemini-2.5-flash-lite'
 };
 
 // Translates raw SDK/runtime errors from the AI providers into a short,
@@ -58,6 +60,7 @@ const MODEL_PRICING = {
   'claude-sonnet-4-6': { in: 3, out: 15 },
   'gpt-4o-mini': { in: 0.15, out: 0.60 },
   'gemini-2.5-flash': { in: 0.30, out: 2.50 },
+  'gemini-2.5-flash-lite': { in: 0.10, out: 0.40 },
 };
 const DEFAULT_PRICING = { in: 1, out: 3 };
 
@@ -112,11 +115,26 @@ function buildPdfUserMessage(rubros) {
   return `Lista de rubros válidos (elegí exactamente uno o null):\n${rubros.map(r => `- ${r}`).join('\n')}\n\nExtraé los datos del CV adjunto (PDF). Si el PDF es una imagen escaneada, leelo con OCR.`;
 }
 
+// Cache en memoria del doc de config de IA. En el análisis de CVs este doc se
+// lee varias veces por CV (config + prompts); cachearlo con TTL corto evita esas
+// lecturas repetidas a Firestore. Se invalida al guardar cambios de config/prompts.
+const AI_CONFIG_TTL_MS = 60_000;
+let _aiConfigCache = { data: null, ts: 0 };
+
+function invalidateAiConfigCache() {
+  _aiConfigCache = { data: null, ts: 0 };
+}
+
 async function getAiConfigDoc() {
+  const now = Date.now();
+  if (_aiConfigCache.ts && now - _aiConfigCache.ts < AI_CONFIG_TTL_MS) {
+    return _aiConfigCache.data;
+  }
   const db = getDb();
   const doc = await db.collection('appConfig').doc('aiConfig').get();
-  if (!doc.exists) return null;
-  return doc.data();
+  const data = doc.exists ? doc.data() : null;
+  _aiConfigCache = { data, ts: now };
+  return data;
 }
 
 async function getAiConfigPublic() {
@@ -164,6 +182,7 @@ async function updateAiConfig({ provider, apiKey, updatedBy }) {
     update.apiKeyEncrypted = existing.apiKeyEncrypted;
   }
   await ref.set(update, { merge: true });
+  invalidateAiConfigCache();
 }
 
 // ============================================
@@ -209,6 +228,7 @@ async function updateAiPrompts({ parsePrompt, assessPrompt, updatedBy }) {
     update.assessPrompt = (typeof assessPrompt === 'string' && assessPrompt.trim()) ? assessPrompt : null;
   }
   await ref.set(update, { merge: true });
+  invalidateAiConfigCache();
 }
 
 async function parseWithClaude(pdfText, apiKey, rubros, systemPrompt) {

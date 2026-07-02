@@ -407,7 +407,16 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
     const { offerId } = req.params;
     const db = getDb();
 
-    const offerDoc = await db.collection('jobOffers').doc(offerId).get();
+    if (!req.file) {
+      return res.status(400).json({ error: 'Falta el archivo PDF (campo "cv")' });
+    }
+
+    // Oferta + ranking existente en paralelo (lecturas independientes).
+    const [offerDoc, existingSnap] = await Promise.all([
+      db.collection('jobOffers').doc(offerId).get(),
+      db.collection('pinnedCandidates').where('offerId', '==', offerId).get(),
+    ]);
+
     if (!offerDoc.exists) {
       return res.status(404).json({ error: 'Oferta no encontrada' });
     }
@@ -417,17 +426,9 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
       return res.status(403).json({ error: 'No tenés permiso sobre esta oferta' });
     }
 
-    if (!req.file) {
-      return res.status(400).json({ error: 'Falta el archivo PDF (campo "cv")' });
-    }
-
     // Fingerprint of the exact file, to detect the same CV uploaded twice.
     const fileHash = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
 
-    // Load the offer's existing ranking once; reuse it for both dedup checks.
-    const existingSnap = await db.collection('pinnedCandidates')
-      .where('offerId', '==', offerId)
-      .get();
     const existingDocs = existingSnap.docs
       .filter(d => d.data().employerId === uid)
       .map(d => ({ id: d.id, ...d.data() }));
