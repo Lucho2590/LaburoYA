@@ -1,72 +1,52 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { IMessage, IChat } from '@/types';
 
+interface ChatData {
+  chat: IChat;
+  messages: IMessage[];
+}
+
 export function useChat(matchId?: string) {
   const { user } = useAuth();
-  const [chat, setChat] = useState<IChat | null>(null);
-  const [messages, setMessages] = useState<IMessage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const enabled = !!user && !!matchId;
+  const queryKey = ['chat', matchId];
 
-  const initializeChat = useCallback(async () => {
-    if (!user || !matchId) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-      console.log('[useChat] Initializing chat for matchId:', matchId);
-      const chatData = await api.getOrCreateChat(matchId) as IChat;
-      console.log('[useChat] Chat data received:', chatData);
-      setChat(chatData);
-
-      const messagesData = await api.getChatMessages(chatData.id) as IMessage[];
-      console.log('[useChat] Messages received:', messagesData.length);
-      setMessages(messagesData);
-    } catch (err) {
-      console.error('[useChat] Error initializing chat:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load chat');
-    } finally {
-      setLoading(false);
-    }
-  }, [user, matchId]);
-
-  useEffect(() => {
-    initializeChat();
-  }, [initializeChat]);
+  const { data, isLoading, error, refetch } = useQuery<ChatData>({
+    queryKey,
+    queryFn: async () => {
+      const chat = (await api.getOrCreateChat(matchId as string)) as IChat;
+      const messages = (await api.getChatMessages(chat.id)) as IMessage[];
+      return { chat, messages };
+    },
+    enabled,
+    // Los mensajes cambian seguido: revalidar al abrir el chat.
+    staleTime: 0,
+  });
 
   const sendMessage = async (text: string) => {
-    if (!chat) return;
-
-    try {
-      const newMessage = await api.sendMessage(chat.id, text) as IMessage;
-      setMessages((prev) => [...prev, newMessage]);
-      return newMessage;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message');
-      throw err;
-    }
+    if (!data?.chat) return;
+    const newMessage = (await api.sendMessage(data.chat.id, text)) as IMessage;
+    queryClient.setQueryData<ChatData>(queryKey, (prev) =>
+      prev ? { ...prev, messages: [...prev.messages, newMessage] } : prev
+    );
+    return newMessage;
   };
 
   const refreshMessages = async () => {
-    if (!chat) return;
-
-    try {
-      const messagesData = await api.getChatMessages(chat.id) as IMessage[];
-      setMessages(messagesData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to refresh messages');
-    }
+    if (!data?.chat) return;
+    await refetch();
   };
 
   return {
-    chat,
-    messages,
-    loading,
-    error,
+    chat: data?.chat ?? null,
+    messages: data?.messages ?? [],
+    loading: enabled && isLoading,
+    error: error ? (error as Error).message : null,
     sendMessage,
     refreshMessages,
   };
@@ -74,33 +54,18 @@ export function useChat(matchId?: string) {
 
 export function useChats() {
   const { user } = useAuth();
-  const [chats, setChats] = useState<IChat[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const enabled = !!user;
 
-  const fetchChats = useCallback(async () => {
-    if (!user) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await api.getMyChats() as IChat[];
-      setChats(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch chats');
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    fetchChats();
-  }, [fetchChats]);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['chats', user?.uid],
+    queryFn: () => api.getMyChats() as Promise<IChat[]>,
+    enabled,
+  });
 
   return {
-    chats,
-    loading,
-    error,
-    refetch: fetchChats,
+    chats: data ?? [],
+    loading: !enabled || isLoading,
+    error: error ? (error as Error).message : null,
+    refetch,
   };
 }

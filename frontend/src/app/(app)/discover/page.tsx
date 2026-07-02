@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageTitle } from "@/contexts/PageTitleContext";
@@ -133,6 +133,44 @@ export default function DiscoverPage() {
     }
   };
 
+  // Derivados memoizados: evitan el map+filter+sort O(n log n) en cada render.
+  // Van al tope del componente (no dentro de los if de rama) por reglas de hooks.
+  const allOffers = useMemo(
+    () =>
+      [
+        ...(offers?.fullMatch || []),
+        ...(offers?.partialMatch || []),
+        ...(offers?.skillsMatch || []),
+      ]
+        .map((o) => ({
+          ...o,
+          matchLevel: o.relevance.stars ?? scoreToStars(o.relevance.score),
+        }))
+        .filter((o) => o.matchLevel >= minStars)
+        .sort((a, b) => b.matchLevel - a.matchLevel || b.relevance.score - a.relevance.score),
+    [offers, minStars],
+  );
+
+  const allWorkers = useMemo(
+    () =>
+      [
+        ...(workers?.fullMatch || []),
+        ...(workers?.partialMatch || []),
+        ...(workers?.skillsMatch || []),
+      ]
+        .map((w) => ({
+          ...w,
+          matchLevel: w.relevance.stars ?? w.bestStars ?? scoreToStars(w.relevance.score),
+        }))
+        .filter((w) => w.matchLevel >= minStars)
+        .sort((a, b) => b.matchLevel - a.matchLevel || b.relevance.score - a.relevance.score),
+    [workers, minStars],
+  );
+
+  // Handlers estables para que React.memo en las cards sea efectivo.
+  const handleSelectOffer = useCallback((o: IRelevantOffer) => setSelectedOffer(o), []);
+  const handleSelectWorker = useCallback((w: IRelevantWorker) => setSelectedWorker(w), []);
+
   // Empresa con plan vencido: no se muestran candidatos.
   if (isEmployer && userData?.companySubscription?.expired) {
     return (
@@ -159,19 +197,6 @@ export default function DiscoverPage() {
 
   // Worker view - show offers (con estrellas como el employer)
   if (isWorker) {
-    // Combinar todas las ofertas y derivar el nivel (1-5) del backend.
-    const allOffers = [
-      ...(offers?.fullMatch || []),
-      ...(offers?.partialMatch || []),
-      ...(offers?.skillsMatch || []),
-    ]
-      .map((o) => ({
-        ...o,
-        matchLevel: o.relevance.stars ?? scoreToStars(o.relevance.score),
-      }))
-      .filter((o) => o.matchLevel >= minStars)
-      .sort((a, b) => b.matchLevel - a.matchLevel || b.relevance.score - a.relevance.score);
-
     const totalCount = allOffers.length;
 
     return (
@@ -220,7 +245,7 @@ export default function DiscoverPage() {
                   key={offer.id}
                   offer={offer}
                   matchLevel={offer.matchLevel}
-                  onClick={() => setSelectedOffer(offer)}
+                  onSelect={handleSelectOffer}
                 />
               ))}
             </div>
@@ -241,19 +266,6 @@ export default function DiscoverPage() {
 
   // Employer view - show workers (todos en una lista con estrellas)
   if (isEmployer) {
-    // Combinar todos los candidatos y derivar el nivel (1-5) del backend.
-    const allWorkers = [
-      ...(workers?.fullMatch || []),
-      ...(workers?.partialMatch || []),
-      ...(workers?.skillsMatch || []),
-    ]
-      .map((w) => ({
-        ...w,
-        matchLevel: w.relevance.stars ?? w.bestStars ?? scoreToStars(w.relevance.score),
-      }))
-      .filter((w) => w.matchLevel >= minStars)
-      .sort((a, b) => b.matchLevel - a.matchLevel || b.relevance.score - a.relevance.score);
-
     const totalCount = allWorkers.length;
 
     return (
@@ -302,7 +314,7 @@ export default function DiscoverPage() {
                   key={`${worker.uid}-${worker.matchLevel}`}
                   worker={worker}
                   matchLevel={worker.matchLevel}
-                  onClick={() => setSelectedWorker(worker)}
+                  onSelect={handleSelectWorker}
                 />
               ))}
             </div>
@@ -332,14 +344,14 @@ export default function DiscoverPage() {
 // ============================================
 // Offer Card - Para Workers (con estrellas de match)
 // ============================================
-function OfferCard({
+const OfferCard = memo(function OfferCard({
   offer,
   matchLevel,
-  onClick,
+  onSelect,
 }: {
   offer: IRelevantOffer;
   matchLevel?: number;
-  onClick: () => void;
+  onSelect: (offer: IRelevantOffer) => void;
 }) {
   // Renderizar estrellas según nivel de match (1-5)
   const renderStars = (level: number) => {
@@ -356,7 +368,7 @@ function OfferCard({
   return (
     <div
       className="theme-bg-card rounded-xl border theme-border p-4 active:scale-[0.98] transition-transform cursor-pointer"
-      onClick={onClick}
+      onClick={() => onSelect(offer)}
     >
       <div className="flex items-center gap-3">
         {/* Info */}
@@ -420,19 +432,19 @@ function OfferCard({
       </div>
     </div>
   );
-}
+});
 
 // ============================================
 // Worker Card - Para Employers (con estrellas de match)
 // ============================================
-function WorkerCard({
+const WorkerCard = memo(function WorkerCard({
   worker,
   matchLevel,
-  onClick,
+  onSelect,
 }: {
   worker: IRelevantWorker;
   matchLevel?: number;
-  onClick: () => void;
+  onSelect: (worker: IRelevantWorker) => void;
 }) {
   const displayName =
     worker.firstName && worker.lastName
@@ -454,7 +466,7 @@ function WorkerCard({
   return (
     <div
       className="theme-bg-card rounded-xl border theme-border p-4 active:scale-[0.98] transition-transform cursor-pointer"
-      onClick={onClick}
+      onClick={() => onSelect(worker)}
     >
       <div className="flex items-center gap-3">
         {/* Info */}
@@ -508,4 +520,4 @@ function WorkerCard({
       </div>
     </div>
   );
-}
+});

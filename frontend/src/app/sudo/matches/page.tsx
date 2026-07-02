@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
+import { AdminPagination } from '@/components/AdminPagination';
 import { api } from '@/services/api';
 import { IAdminMatch, TMatchStatus } from '@/types';
 
@@ -12,6 +13,8 @@ export default function AdminMatchesPage() {
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState<TMatchStatus | ''>('');
   const [total, setTotal] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const fetchMatches = async () => {
     setLoading(true);
@@ -29,8 +32,14 @@ export default function AdminMatchesPage() {
   };
 
   useEffect(() => {
+    setCurrentPage(1);
     fetchMatches();
   }, [statusFilter]);
+
+  const paginatedMatches = matches.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   const getStatusBadge = (status: TMatchStatus) => {
     const styles = {
@@ -116,7 +125,7 @@ export default function AdminMatchesPage() {
                 </td>
               </tr>
             ) : (
-              matches.map((match) => (
+              paginatedMatches.map((match) => (
                 <tr key={match.id} className="hover:theme-bg-secondary transition-colors">
                   <td className="px-6 py-4">
                     <span className="font-mono text-sm theme-text-primary">
@@ -161,6 +170,14 @@ export default function AdminMatchesPage() {
             )}
           </tbody>
         </table>
+
+        <AdminPagination
+          currentPage={currentPage}
+          totalItems={matches.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+        />
       </div>
     </AdminLayout>
   );

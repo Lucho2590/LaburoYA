@@ -1,53 +1,33 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { IMatch } from '@/types';
 
 export function useMatches() {
   const { user, authReady } = useAuth();
-  const [matches, setMatches] = useState<IMatch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const enabled = !!user && authReady;
+  const queryKey = ['matches', user?.uid];
 
-  const fetchMatches = useCallback(async () => {
-    if (!user || !authReady) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-      console.log('[useMatches] Fetching matches...');
-      const data = await api.getMatches() as IMatch[];
-      console.log('[useMatches] Matches received:', data.length, data);
-      setMatches(data);
-    } catch (err) {
-      console.error('[useMatches] Error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch matches');
-    } finally {
-      setLoading(false);
-    }
-  }, [user, authReady]);
-
-  useEffect(() => {
-    fetchMatches();
-  }, [fetchMatches]);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey,
+    queryFn: () => api.getMatches() as Promise<IMatch[]>,
+    enabled,
+  });
 
   const updateMatchStatus = async (matchId: string, status: 'accepted' | 'rejected') => {
-    try {
-      await api.updateMatchStatus(matchId, status);
-      await fetchMatches();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update match');
-      throw err;
-    }
+    await api.updateMatchStatus(matchId, status);
+    await queryClient.invalidateQueries({ queryKey });
   };
 
   return {
-    matches,
-    loading,
-    error,
-    refetch: fetchMatches,
+    matches: data ?? [],
+    // Spinner solo en la primera carga; al volver con cache no hay loading.
+    loading: !enabled || isLoading,
+    error: error ? (error as Error).message : null,
+    refetch,
     updateMatchStatus,
   };
 }

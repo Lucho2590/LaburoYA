@@ -1,0 +1,34 @@
+# Mantiene "caliente" el backend en Render para evitar el cold-start (30-60s)
+# del primer request cuando el servicio duerme por inactividad.
+#
+# REQUISITO: setear la variable de repositorio BACKEND_URL con la URL del
+# backend de producción (sin barra final), ej: https://laburoya-backend.onrender.com
+#   GitHub → Settings → Secrets and variables → Actions → Variables → New variable
+#     Name: BACKEND_URL
+#     Value: https://<tu-servicio>.onrender.com
+#
+# Nota: los cron de GitHub Actions pueden demorarse unos minutos y se
+# desactivan tras 60 días sin actividad en el repo. Para algo más confiable,
+# una alternativa es UptimeRobot / cron-job.org. La solución definitiva al
+# cold-start es un plan de Render que no duerma (min-instances >= 1).
+
+name: keepalive
+
+on:
+  schedule:
+    # Cada 10 minutos (Render duerme a los ~15 min de inactividad).
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {} # permite dispararlo manualmente desde la pestaña Actions
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: |
+          if [ -z "${{ vars.BACKEND_URL }}" ]; then
+            echo "::error::Falta la variable de repositorio BACKEND_URL. Seteala en Settings → Secrets and variables → Actions → Variables."
+            exit 1
+          fi
+          echo "Pinging ${{ vars.BACKEND_URL }}/api/health"
+          curl -fsS --max-time 60 "${{ vars.BACKEND_URL }}/api/health"

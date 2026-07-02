@@ -606,6 +606,17 @@ export interface IAdminMatch extends IMatch {
   employer?: IEmployerProfile;
 }
 
+// Perfil de worker "huérfano": existe en `workers` pero no en `users`.
+export interface IOrphanWorker {
+  uid: string;
+  puesto: string | null;
+  rubro: string | null;
+  zona: string | null;
+  active: boolean;
+  hasVideo: boolean;
+  createdAt: string | null;
+}
+
 export interface IPaginatedResponse<T> {
   total: number;
   limit: number;

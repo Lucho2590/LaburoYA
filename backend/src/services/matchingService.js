@@ -631,3 +631,8 @@ module.exports.scoreToStars = scoreToStars;
 module.exports.sanitizeLocation = sanitizeLocation;
 module.exports.resolveCoords = resolveCoords;
 module.exports.haversineKm = haversineKm;
+// Lecturas cacheadas (TTL 60s) de colecciones activas. Se exponen para que otros
+// endpoints (ej. dashboard del empleador) reutilicen el mismo cache y no repitan
+// el full-scan de workers/ofertas.
+module.exports.getActiveWorkers = getActiveWorkers;
+module.exports.getActiveOffers = getActiveOffers;
