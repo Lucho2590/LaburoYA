@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
+import { auth } from "@/config/firebase";
 import { AuthLayout } from "@/components/AuthLayout";
 import { isSuperuserEmail } from "@/config/constants";
 import { toast } from "sonner";
@@ -12,11 +13,20 @@ import { CheckCircle } from "lucide-react";
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signIn, signInWithGoogle, signInWithFacebook } = useAuth();
+  const { signIn, signInWithGoogle, signInWithFacebook, user } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showVerifiedBanner, setShowVerifiedBanner] = useState(false);
+
+  // Si ya hay sesión (incluida la ventana tras el popup de Google, donde
+  // auth.currentUser ya está seteado pero el estado `user` todavía no propagó),
+  // redirigir a la app sin mostrar el formulario.
+  const isAuthed = !!user || !!auth?.currentUser;
+
+  useEffect(() => {
+    if (isAuthed) router.replace("/home");
+  }, [isAuthed, router]);
 
   // Pre-fill email from URL params (e.g., after email verification)
   useEffect(() => {
@@ -72,6 +82,17 @@ function LoginContent() {
       setLoading(false);
     }
   };
+
+  // Ya autenticado: mostrar spinner mientras redirigimos, nunca el formulario.
+  if (isAuthed) {
+    return (
+      <AuthLayout>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="w-10 h-10 border-4 border-[#E10600] border-t-transparent rounded-full animate-spin" />
+        </div>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout>

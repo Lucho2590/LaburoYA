@@ -13,7 +13,7 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const [isDesktop, setIsDesktop] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const { user, loading, authReady } = useAuth();
+  const { user, sessionReady } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -34,13 +34,15 @@ export function AppShell({ children }: AppShellProps) {
 
   // Redirect to landing if not authenticated
   useEffect(() => {
-    if (authReady && !loading && !user) {
+    if (sessionReady && !user) {
       router.push('/');
     }
-  }, [authReady, loading, user, router]);
+  }, [sessionReady, user, router]);
 
-  // Show loading while checking auth
-  if (!authReady || loading) {
+  // Solo esperamos a que Firebase resuelva la sesión (~100ms). NO esperamos a
+  // /auth/me: el shell se renderiza con el cache optimista de userData y el
+  // perfil (nombre/avatar) se completa en background.
+  if (!sessionReady) {
     return (
       <div className="min-h-screen flex items-center justify-center theme-bg-primary">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#E10600]"></div>

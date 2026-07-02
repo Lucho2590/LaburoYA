@@ -1,42 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
+import { auth } from "@/config/firebase";
 import { useMatches } from "@/hooks/useMatches";
 import { usePageTitle } from "@/contexts/PageTitleContext";
 import { useDiscoveryOffers } from "@/hooks/useDiscovery";
 import { useReceivedContactRequests } from "@/hooks/useContactRequests";
+import { useEmployerDashboard } from "@/hooks/useEmployerDashboard";
 import { Badge } from "@/components/ui/badge";
 import { IWorkerProfile } from "@/types";
-import { api } from "@/services/api";
 import { Users, UserCheck, Clock, Eye, Briefcase, MessageCircle } from "lucide-react";
-
-interface EmployerDashboard {
-  summary: {
-    totalOffers: number;
-    activeOffers: number;
-    totalInterested: number;
-    interestedNotContacted: number;
-    totalCandidates: number;
-    totalMatches: number;
-  };
-  offers: {
-    id: string;
-    rubro: string;
-    puesto: string;
-    active: boolean;
-    isExpired: boolean;
-    expiresAt?: string;
-    stats: {
-      interested: number;
-      interestedNotContacted: number;
-      candidates: number;
-      matches: number;
-    };
-  }[];
-}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -59,28 +35,8 @@ export default function DashboardPage() {
         ? "/company/profile"
         : "/employer/profile";
 
-  // Employer dashboard state
-  const [employerDashboard, setEmployerDashboard] = useState<EmployerDashboard | null>(null);
-  const [dashboardLoading, setDashboardLoading] = useState(false);
-
-  const fetchEmployerDashboard = useCallback(async () => {
-    if (!isEmployer) return;
-    setDashboardLoading(true);
-    try {
-      const data = await api.getEmployerDashboard();
-      setEmployerDashboard(data);
-    } catch (error) {
-      console.error("Error fetching dashboard:", error);
-    } finally {
-      setDashboardLoading(false);
-    }
-  }, [isEmployer]);
-
-  useEffect(() => {
-    if (isEmployer && user && !loading) {
-      fetchEmployerDashboard();
-    }
-  }, [isEmployer, user, loading, fetchEmployerDashboard]);
+  // Employer dashboard (cacheado vía React Query, comparte entre navegaciones)
+  const { dashboard: employerDashboard, loading: dashboardLoading } = useEmployerDashboard(isEmployer);
 
   // Set page config
   useEffect(() => {
@@ -88,7 +44,9 @@ export default function DashboardPage() {
   }, [setPageConfig]);
 
   useEffect(() => {
-    if (!loading && !user) {
+    // No rebotar a /login si Firebase todavía tiene sesión resolviéndose
+    // (p.ej. justo tras el popup de Google, donde `user` aún no propagó).
+    if (!loading && !user && !auth?.currentUser) {
       router.push("/login");
     }
     if (!loading && user && !userData?.role) {

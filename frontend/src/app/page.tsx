@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useAuth } from "@/contexts/AuthContext";
+import { auth } from "@/config/firebase";
 import { JOB_CATEGORIES } from "@/config/constants";
 import { api } from "@/services/api";
 import {
@@ -29,6 +30,10 @@ export default function LandingPage() {
   const [termsContent, setTermsContent] = useState("");
   const [loadingTerms, setLoadingTerms] = useState(false);
   const { user, loading } = useAuth();
+  // Considerar logueado también en la ventana tras el login (auth.currentUser
+  // ya seteado pero el estado `user` todavía sin propagar), para no mostrar
+  // "Crear cuenta"/"Ingresar" a un usuario con sesión.
+  const isAuthed = !!user || !!auth?.currentUser;
 
   const handleShowTerms = async () => {
     setShowTermsModal(true);
@@ -116,7 +121,7 @@ export default function LandingPage() {
             <div className="flex items-center gap-3">
               {loading ? (
                 <div className="w-8 h-8 animate-spin rounded-full border-2 border-gray-300 border-t-[#E10600]"></div>
-              ) : user ? (
+              ) : isAuthed ? (
                 <Link href="/home">
                   <button className="px-6 py-2 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2">
                     Ir a la app
@@ -168,13 +173,13 @@ export default function LandingPage() {
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                <Link href={user ? "/home" : "/register?role=worker"}>
+                <Link href={isAuthed ? "/home" : "/register?role=worker"}>
                   <button className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold text-lg hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2">
-                    {user ? "Ir a la app" : "Crear cuenta gratis"}
+                    {isAuthed ? "Ir a la app" : "Crear cuenta gratis"}
                     <ArrowRight className="h-5 w-5" />
                   </button>
                 </Link>
-                {!user && (
+                {!isAuthed && (
                   <Link href="/login">
                     <button className="w-full sm:w-auto px-8 py-4 bg-gray-100 text-gray-700 rounded-xl font-semibold text-lg hover:bg-gray-200 transition-all flex items-center justify-center gap-2">
                       <LogIn className="h-5 w-5" />
@@ -415,9 +420,9 @@ export default function LandingPage() {
                 </li>
               </ul>
 
-              <Link href={user ? "/home" : "/register?role=worker"}>
+              <Link href={isAuthed ? "/home" : "/register?role=worker"}>
                 <button className="w-full py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
-                  {user ? "Ir a la app" : "Crear mi perfil"}
+                  {isAuthed ? "Ir a la app" : "Crear mi perfil"}
                   <ArrowRight className="h-5 w-5" />
                 </button>
               </Link>
@@ -461,9 +466,9 @@ export default function LandingPage() {
                 </li>
               </ul>
 
-              <Link href={user ? "/home" : "/register?role=employer"}>
+              <Link href={isAuthed ? "/home" : "/register?role=employer"}>
                 <button className="w-full py-4 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-800 transition-colors flex items-center justify-center gap-2">
-                  {user ? "Ir a la app" : "Publicá tu primera oferta"}
+                  {isAuthed ? "Ir a la app" : "Publicá tu primera oferta"}
                   <ArrowRight className="h-5 w-5" />
                 </button>
               </Link>
@@ -641,9 +646,9 @@ export default function LandingPage() {
               </p>
 
               <div className="flex justify-center lg:justify-start mb-8">
-                <Link href={user ? "/home" : "/register?role=worker"}>
+                <Link href={isAuthed ? "/home" : "/register?role=worker"}>
                   <button className="inline-flex items-center gap-2 bg-white text-[#E10600] px-6 py-3 rounded-xl text-base font-semibold hover:bg-white/90 transition-colors">
-                    {user ? "Ir a la app" : "Empezar ahora"}
+                    {isAuthed ? "Ir a la app" : "Empezar ahora"}
                     <ArrowRight className="h-5 w-5" />
                   </button>
                 </Link>
@@ -688,9 +693,9 @@ export default function LandingPage() {
           <p className="text-lg text-gray-600 mb-8">
             Creá tu cuenta gratis y empezá a recibir ofertas que coinciden con tu perfil
           </p>
-          <Link href={user ? "/home" : "/register?role=worker"}>
+          <Link href={isAuthed ? "/home" : "/register?role=worker"}>
             <button className="px-12 py-4 bg-gradient-to-r from-[#E10600] to-[#FF6A00] text-white rounded-xl font-semibold text-lg hover:opacity-90 transition-all hover:scale-[1.02] active:scale-[0.98] inline-flex items-center gap-2">
-              {user ? "Ir a la app" : "Crear cuenta gratis"}
+              {isAuthed ? "Ir a la app" : "Crear cuenta gratis"}
               <ArrowRight className="h-5 w-5" />
             </button>
           </Link>

@@ -403,9 +403,13 @@ export function DesktopLayout({
               {/* Notification Bell */}
               <NotificationBell />
 
-              <span className="theme-text-secondary text-sm">
-                {userData?.nickname || userData?.firstName || userData?.email}
-              </span>
+              {userData ? (
+                <span className="theme-text-secondary text-sm">
+                  {userData.nickname || userData.firstName || userData.email}
+                </span>
+              ) : (
+                <span className="h-4 w-24 rounded theme-bg-secondary animate-pulse" />
+              )}
               <div className="w-8 h-8 rounded-full bg-gradient-to-r from-[#E10600] to-[#FF6A00] flex items-center justify-center text-white text-sm font-medium">
                 {(
                   userData?.firstName?.[0] ||

@@ -2,8 +2,16 @@ const express = require('express');
 const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
+const matchingService = require('../services/matchingService');
 
 const router = express.Router();
+
+// Firestore permite hasta 10 valores en un filtro `in`. Parte un array en lotes.
+function chunk10(arr) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += 10) out.push(arr.slice(i, i + 10));
+  return out;
+}
 
 // Create or update employer profile
 router.post('/', authMiddleware, async (req, res, next) => {
@@ -112,11 +120,38 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
 
     const offerIds = offersSnapshot.docs.map(doc => doc.id);
 
-    // Get all contact requests FROM this employer (to know who was contacted)
-    const sentRequestsSnapshot = await db.collection('contactRequests')
-      .where('fromUid', '==', uid)
-      .where('fromType', '==', 'employer')
-      .get();
+    // Lecturas independientes en paralelo (antes eran secuenciales).
+    // - Las interacciones "interested" se consultan por offerId en lotes de 10
+    //   (filtro `in`), en vez de escanear TODA la colección offerInteractions.
+    // - Los workers activos se toman del cache compartido de matchingService
+    //   (TTL 60s), evitando un full-scan duplicado con discovery.
+    const [
+      sentRequestsSnapshot,
+      matchesSnapshot,
+      interactionChunks,
+      pinnedSnapshot,
+      activeWorkers
+    ] = await Promise.all([
+      db.collection('contactRequests')
+        .where('fromUid', '==', uid)
+        .where('fromType', '==', 'employer')
+        .get(),
+      db.collection('matches')
+        .where('employerId', '==', uid)
+        .get(),
+      Promise.all(
+        chunk10(offerIds).map(ids =>
+          db.collection('offerInteractions')
+            .where('type', '==', 'interested')
+            .where('offerId', 'in', ids)
+            .get()
+        )
+      ),
+      db.collection('pinnedCandidates')
+        .where('employerId', '==', uid)
+        .get(),
+      matchingService.getActiveWorkers(db)
+    ]);
 
     const contactedWorkersByOffer = new Map();
     sentRequestsSnapshot.docs.forEach(doc => {
@@ -126,11 +161,6 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
       }
       contactedWorkersByOffer.get(data.offerId).add(data.toUid);
     });
-
-    // Get all matches for this employer
-    const matchesSnapshot = await db.collection('matches')
-      .where('employerId', '==', uid)
-      .get();
 
     const matchesByOffer = new Map();
     matchesSnapshot.docs.forEach(doc => {
@@ -145,42 +175,22 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
       });
     });
 
-    // Get interested interactions for all offers
-    const interactionsSnapshot = await db.collection('offerInteractions')
-      .where('type', '==', 'interested')
-      .get();
-
     const interestedByOffer = new Map();
-    interactionsSnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      if (offerIds.includes(data.offerId)) {
+    interactionChunks.forEach(snapshot => {
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
         if (!interestedByOffer.has(data.offerId)) {
           interestedByOffer.set(data.offerId, []);
         }
         interestedByOffer.get(data.offerId).push(data.userId);
-      }
+      });
     });
-
-    // Get pinned candidates count per offer for this employer
-    const pinnedSnapshot = await db.collection('pinnedCandidates')
-      .where('employerId', '==', uid)
-      .get();
 
     const pinnedByOffer = new Map();
     pinnedSnapshot.docs.forEach(doc => {
       const oId = doc.data().offerId;
       pinnedByOffer.set(oId, (pinnedByOffer.get(oId) || 0) + 1);
     });
-
-    // Get worker profiles for candidate count estimation
-    const workersSnapshot = await db.collection('workers')
-      .where('active', '!=', false)
-      .get();
-
-    const activeWorkers = workersSnapshot.docs.map(doc => ({
-      uid: doc.id,
-      ...doc.data()
-    }));
 
     // Process each offer
     let totalInterested = 0;

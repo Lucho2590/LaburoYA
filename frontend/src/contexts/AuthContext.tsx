@@ -18,10 +18,39 @@ import { auth } from '@/config/firebase';
 import { api } from '@/services/api';
 import { IUserData, EUserRole, EAppRole, IWorkerProfile, IEmployerProfile, ICompanyProfile } from '@/types';
 
+const USER_DATA_CACHE_KEY = 'laburoya:userData';
+
+// Cache optimista de userData en localStorage. Permite renderizar el shell
+// (nav + nombre + avatar) al instante para usuarios recurrentes mientras
+// /auth/me revalida en background, en vez de esperar el roundtrip al backend.
+function readCachedUserData(): IUserData | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(USER_DATA_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as IUserData) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedUserData(data: IUserData | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (data) {
+      window.localStorage.setItem(USER_DATA_CACHE_KEY, JSON.stringify(data));
+    } else {
+      window.localStorage.removeItem(USER_DATA_CACHE_KEY);
+    }
+  } catch {
+    // Ignorar (modo privado / storage lleno)
+  }
+}
+
 interface AuthContextType {
   user: User | null;
   userData: IUserData | null;
   loading: boolean;
+  sessionReady: boolean; // Firebase resolvió si hay sesión (rápido, ~100ms)
   authReady: boolean; // Token listo para hacer llamadas API
   signIn: (email: string, password: string) => Promise<{ emailVerified: boolean }>;
   signUp: (email: string, password: string) => Promise<void>;
@@ -44,9 +73,17 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [userData, setUserData] = useState<IUserData | null>(null);
+  // Hidratamos desde localStorage para que el primer render ya tenga rol/nombre.
+  const [userData, setUserDataState] = useState<IUserData | null>(() => readCachedUserData());
   const [loading, setLoading] = useState(true);
+  const [sessionReady, setSessionReady] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+
+  // Wrapper que persiste userData en el cache optimista.
+  const setUserData = (data: IUserData | null) => {
+    setUserDataState(data);
+    writeCachedUserData(data);
+  };
 
   const refreshUserData = async () => {
     if (!user) {
@@ -89,13 +126,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const unsubscribe = onAuthStateChanged(auth as Auth, async (firebaseUser) => {
-      setAuthReady(false); // Reset mientras procesamos
       setUser(firebaseUser);
 
       if (firebaseUser) {
+        // La sesión ya está resuelta: el shell puede renderizar de inmediato
+        // (usando el cache optimista de userData) sin esperar a /auth/me.
+        // OJO: `loading` sigue en true hasta que userData esté cargado, porque
+        // varios guards (onboarding, redirects) lo usan para saber si el perfil
+        // ya llegó. `sessionReady` es solo para el chrome del shell.
+        setSessionReady(true);
+
+        // Cache optimista: si tenemos un perfil válido (con rol) del MISMO
+        // usuario, lo usamos ya y no bloqueamos → los guards de onboarding/rol
+        // corren con datos correctos y el header aparece al instante; /auth/me
+        // revalida en background. Si NO hay cache válido (login nuevo, otra
+        // cuenta, o cache sin rol), ponemos loading=true y descartamos el cache
+        // viejo, para que los guards ESPEREN al perfil en vez de asumir que es
+        // un usuario nuevo y mandarlo a onboarding.
+        const cached = readCachedUserData();
+        const cacheValid = !!cached && cached.uid === firebaseUser.uid && !!cached.role;
+        if (cacheValid) {
+          setUserDataState(cached);
+          setLoading(false);
+        } else {
+          if (cached && cached.uid !== firebaseUser.uid) writeCachedUserData(null);
+          setUserData(null);
+          setLoading(true);
+        }
+
         try {
-          // Esperar a que el token esté disponible antes de llamar a la API
+          // Esperar a que el token esté disponible antes de llamar a la API.
           await firebaseUser.getIdToken();
+          // Token listo: los hooks (notificaciones, etc.) ya pueden consultar,
+          // en paralelo con la carga del perfil.
+          setAuthReady(true);
+
           const data = await api.getCurrentUser();
           setUserData({
             uid: firebaseUser.uid,
@@ -119,18 +184,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Silently ignore - location tracking is not critical
           });
         } catch {
+          setAuthReady(true);
           setUserData({
             uid: firebaseUser.uid,
             email: firebaseUser.email,
           });
+        } finally {
+          // Perfil cargado (o falló): recién ahora liberamos los guards que
+          // dependen de userData (onboarding, redirects por rol).
+          setLoading(false);
         }
-        setAuthReady(true); // Token listo, se pueden hacer llamadas API
       } else {
         setUserData(null);
-        setAuthReady(true); // No hay usuario, pero auth está lista
+        setSessionReady(true); // No hay usuario, pero la sesión está resuelta
+        setAuthReady(true);
+        setLoading(false);
       }
-
-      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -228,6 +297,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         userData,
         loading,
+        sessionReady,
         authReady,
         signIn,
         signUp,

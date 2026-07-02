@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePageTitle } from '@/contexts/PageTitleContext';
@@ -267,17 +267,33 @@ export default function EmployerJobsPage() {
     fetchJobs();
   }, [fetchJobs]);
 
-  const selectedCity = cities.find((c) => c.nombre === cityName) || cities[0] || null;
-  const zonaOptions = selectedCity?.zonas?.length ? selectedCity.zonas : (ZONAS_MDP as readonly string[]);
+  const selectedCity = useMemo(
+    () => cities.find((c) => c.nombre === cityName) || cities[0] || null,
+    [cities, cityName],
+  );
+  const zonaOptions = useMemo(
+    () => (selectedCity?.zonas?.length ? selectedCity.zonas : (ZONAS_MDP as readonly string[])),
+    [selectedCity],
+  );
   // Radio efectivo del círculo/slider: el propio de la oferta o el de la ciudad.
-  const effectiveRadius = offerRadius ?? Math.min(selectedCity?.radiusKm ?? 15, 20);
+  const effectiveRadius = useMemo(
+    () => offerRadius ?? Math.min(selectedCity?.radiusKm ?? 15, 20),
+    [offerRadius, selectedCity],
+  );
   // ¿La ubicación elegida cae en alguna ciudad donde opera la app?
-  const locationCovered =
-    !location || cities.some((c) => haversineKm(location, c.center) <= c.radiusKm);
+  // (itera todas las ciudades con haversine → memoizar para no rehacerlo por render)
+  const locationCovered = useMemo(
+    () => !location || cities.some((c) => haversineKm(location, c.center) <= c.radiusKm),
+    [location, cities],
+  );
 
-  const availablePuestos = formData.rubro && formData.rubro !== 'otro'
-    ? JOB_CATEGORIES[formData.rubro as TRubro]?.puestos || []
-    : [];
+  const availablePuestos = useMemo(
+    () =>
+      formData.rubro && formData.rubro !== 'otro'
+        ? JOB_CATEGORIES[formData.rubro as TRubro]?.puestos || []
+        : [],
+    [formData.rubro],
+  );
 
   const handleEdit = (job: DashboardOffer) => {
     // Convert to IJobOffer-like for editing

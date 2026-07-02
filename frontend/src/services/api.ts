@@ -11,6 +11,7 @@ import {
   IAdminUserDetail,
   IAdminJobOffer,
   IAdminMatch,
+  IOrphanWorker,
   IContactRequest,
   IDiscoveryOffersResponse,
   IDiscoveryWorkersResponse,
@@ -445,6 +446,17 @@ class ApiService {
     return this.request<{ matches: IAdminMatch[]; total: number; limit: number; offset: number }>(
       `/admin/matches${query ? `?${query}` : ''}`
     );
+  }
+
+  // Admin - Orphan workers (perfiles de worker sin usuario asociado)
+  async getOrphanWorkers() {
+    return this.request<{ orphans: IOrphanWorker[]; total: number }>('/admin/orphan-workers');
+  }
+
+  async deleteOrphanWorker(uid: string) {
+    return this.request<{ message: string }>(`/admin/orphan-workers/${uid}`, {
+      method: 'DELETE',
+    });
   }
 
   // Admin - Plans

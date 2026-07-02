@@ -154,6 +154,25 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
       ),
     },
     {
+      href: "/sudo/orphans",
+      label: "Huérfanos",
+      icon: (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 9v2m0 4h.01M5.07 19H19a2 2 0 001.75-2.96l-6.93-12a2 2 0 00-3.5 0l-6.93 12A2 2 0 005.07 19z"
+          />
+        </svg>
+      ),
+    },
+    {
       href: "/sudo/plans",
       label: "Planes",
       icon: (

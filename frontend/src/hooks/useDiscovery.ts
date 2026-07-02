@@ -1,115 +1,62 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { IDiscoveryOffersResponse, IDiscoveryWorkersResponse, IRelevantOffer, IRelevantWorker } from '@/types';
 
-// Simple hook-level cache to share data between components
-let offersCache: { data: IDiscoveryOffersResponse | null; timestamp: number } = {
-  data: null,
-  timestamp: 0,
-};
-const CACHE_TTL = 5000; // 5 seconds - short TTL to keep data fresh
-
 export function useDiscoveryOffers() {
   const { user, userData, authReady } = useAuth();
-  const [data, setData] = useState<IDiscoveryOffersResponse | null>(offersCache.data);
-  const [loading, setLoading] = useState(!offersCache.data);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const enabled = authReady && !!user && (
+    userData?.role === 'worker' ||
+    (userData?.role === 'superuser' && userData?.secondaryRole === 'worker')
+  );
+  const queryKey = ['discovery', 'offers', user?.uid];
 
-  const fetchOffers = useCallback(async (force = false) => {
-    if (!user || !authReady) return;
-
-    // Use cache if fresh (unless forced)
-    const now = Date.now();
-    if (!force && offersCache.data && (now - offersCache.timestamp) < CACHE_TTL) {
-      setData(offersCache.data);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await api.discoverOffers();
-      offersCache = { data: response, timestamp: Date.now() };
-      setData(response);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch offers');
-    } finally {
-      setLoading(false);
-    }
-  }, [user, authReady]);
-
-  useEffect(() => {
-    if (authReady && (userData?.role === 'worker' ||
-        (userData?.role === 'superuser' && userData?.secondaryRole === 'worker'))) {
-      fetchOffers();
-    }
-  }, [fetchOffers, userData, authReady]);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey,
+    queryFn: () => api.discoverOffers(),
+    enabled,
+  });
 
   const requestOffer = async (offerId: string) => {
-    try {
-      const result = await api.sendWorkerToOfferRequest(offerId);
-
-      // Update local state AND cache to mark offer as requested
-      if (data) {
-        const updateOffer = (offer: IRelevantOffer) =>
-          offer.id === offerId ? { ...offer, hasRequested: true } : offer;
-
-        const newData = {
-          ...data,
-          fullMatch: data.fullMatch.map(updateOffer),
-          partialMatch: data.partialMatch.map(updateOffer),
-          skillsMatch: data.skillsMatch.map(updateOffer),
-        };
-
-        setData(newData);
-        // Update the shared cache
-        offersCache = { data: newData, timestamp: Date.now() };
-      }
-
-      return result;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send request');
-      throw err;
-    }
+    const result = await api.sendWorkerToOfferRequest(offerId);
+    queryClient.setQueryData<IDiscoveryOffersResponse>(queryKey, (prev) => {
+      if (!prev) return prev;
+      const updateOffer = (offer: IRelevantOffer) =>
+        offer.id === offerId ? { ...offer, hasRequested: true } : offer;
+      return {
+        ...prev,
+        fullMatch: prev.fullMatch.map(updateOffer),
+        partialMatch: prev.partialMatch.map(updateOffer),
+        skillsMatch: prev.skillsMatch.map(updateOffer),
+      };
+    });
+    return result;
   };
 
   const markNotInterested = async (offerId: string) => {
-    try {
-      await api.markOfferNotInterested(offerId);
-
-      // Remove offer from local state AND cache
-      if (data) {
-        const filterOffer = (offer: IRelevantOffer) => offer.id !== offerId;
-
-        const newData = {
-          ...data,
-          fullMatch: data.fullMatch.filter(filterOffer),
-          partialMatch: data.partialMatch.filter(filterOffer),
-          skillsMatch: data.skillsMatch.filter(filterOffer),
-          total: data.total - 1,
-        };
-
-        setData(newData);
-        // Update the shared cache
-        offersCache = { data: newData, timestamp: Date.now() };
-      }
-
-      return { success: true };
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to mark as not interested');
-      throw err;
-    }
+    await api.markOfferNotInterested(offerId);
+    queryClient.setQueryData<IDiscoveryOffersResponse>(queryKey, (prev) => {
+      if (!prev) return prev;
+      const filterOffer = (offer: IRelevantOffer) => offer.id !== offerId;
+      return {
+        ...prev,
+        fullMatch: prev.fullMatch.filter(filterOffer),
+        partialMatch: prev.partialMatch.filter(filterOffer),
+        skillsMatch: prev.skillsMatch.filter(filterOffer),
+        total: prev.total - 1,
+      };
+    });
+    return { success: true };
   };
 
   return {
-    offers: data,
-    loading,
-    error,
-    refetch: fetchOffers,
+    offers: data ?? null,
+    loading: !enabled || isLoading,
+    error: error ? (error as Error).message : null,
+    refetch,
     requestOffer,
     markNotInterested,
   };
@@ -117,125 +64,79 @@ export function useDiscoveryOffers() {
 
 export function useDiscoveryWorkers() {
   const { user, userData, authReady } = useAuth();
-  const [data, setData] = useState<IDiscoveryWorkersResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  // Empleadores, empresas, y superusers actuando como tales (secondaryRole o
+  // impersonando una empresa) ven candidatos.
+  const isEmployerView = userData?.role === 'employer' || userData?.role === 'company' ||
+    (userData?.role === 'superuser' &&
+      (userData?.secondaryRole === 'employer' || !!userData?.impersonating?.companyId));
+  const enabled = authReady && !!user && isEmployerView;
+  const queryKey = ['discovery', 'workers', user?.uid];
 
-  const fetchWorkers = useCallback(async () => {
-    if (!user || !authReady) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await api.discoverWorkers();
-      setData(response);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch workers');
-    } finally {
-      setLoading(false);
-    }
-  }, [user, authReady]);
-
-  useEffect(() => {
-    // Empleadores, empresas, y superusers actuando como tales (secondaryRole o
-    // impersonando una empresa) ven candidatos.
-    const isEmployerView = userData?.role === 'employer' || userData?.role === 'company' ||
-      (userData?.role === 'superuser' &&
-        (userData?.secondaryRole === 'employer' || !!userData?.impersonating?.companyId));
-    if (authReady && isEmployerView) {
-      fetchWorkers();
-    }
-  }, [fetchWorkers, userData, authReady]);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey,
+    queryFn: () => api.discoverWorkers(),
+    enabled,
+  });
 
   const requestWorker = async (workerId: string, offerId: string) => {
-    try {
-      const result = await api.sendEmployerToWorkerRequest(workerId, offerId);
-
-      // Update local state to mark worker as requested
-      if (data) {
-        const updateWorker = (worker: IRelevantWorker) =>
-          worker.uid === workerId ? { ...worker, hasRequested: true } : worker;
-
-        setData({
-          ...data,
-          fullMatch: data.fullMatch.map(updateWorker),
-          partialMatch: data.partialMatch.map(updateWorker),
-          skillsMatch: data.skillsMatch.map(updateWorker),
-        });
-      }
-
-      return result;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send request');
-      throw err;
-    }
+    const result = await api.sendEmployerToWorkerRequest(workerId, offerId);
+    queryClient.setQueryData<IDiscoveryWorkersResponse>(queryKey, (prev) => {
+      if (!prev) return prev;
+      const updateWorker = (worker: IRelevantWorker) =>
+        worker.uid === workerId ? { ...worker, hasRequested: true } : worker;
+      return {
+        ...prev,
+        fullMatch: prev.fullMatch.map(updateWorker),
+        partialMatch: prev.partialMatch.map(updateWorker),
+        skillsMatch: prev.skillsMatch.map(updateWorker),
+      };
+    });
+    return result;
   };
 
   return {
-    workers: data,
-    loading,
-    error,
-    refetch: fetchWorkers,
+    workers: data ?? null,
+    loading: !enabled || isLoading,
+    error: error ? (error as Error).message : null,
+    refetch,
     requestWorker,
   };
 }
 
 export function useDiscoveryWorkersForOffer(offerId: string) {
   const { user, authReady } = useAuth();
-  const [data, setData] = useState<IDiscoveryWorkersResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const enabled = authReady && !!user && !!offerId;
+  const queryKey = ['discovery', 'workersForOffer', offerId];
 
-  const fetchWorkers = useCallback(async () => {
-    if (!user || !authReady || !offerId) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await api.discoverWorkersForOffer(offerId);
-      setData(response);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch workers');
-    } finally {
-      setLoading(false);
-    }
-  }, [user, authReady, offerId]);
-
-  useEffect(() => {
-    if (authReady) {
-      fetchWorkers();
-    }
-  }, [fetchWorkers, authReady]);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey,
+    queryFn: () => api.discoverWorkersForOffer(offerId),
+    enabled,
+  });
 
   const requestWorker = async (workerId: string) => {
-    try {
-      const result = await api.sendEmployerToWorkerRequest(workerId, offerId);
-
-      // Update local state to mark worker as requested
-      if (data) {
-        const updateWorker = (worker: IRelevantWorker) =>
-          worker.uid === workerId ? { ...worker, hasRequested: true } : worker;
-
-        setData({
-          ...data,
-          fullMatch: data.fullMatch.map(updateWorker),
-          partialMatch: data.partialMatch.map(updateWorker),
-          skillsMatch: data.skillsMatch.map(updateWorker),
-        });
-      }
-
-      return result;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send request');
-      throw err;
-    }
+    const result = await api.sendEmployerToWorkerRequest(workerId, offerId);
+    queryClient.setQueryData<IDiscoveryWorkersResponse>(queryKey, (prev) => {
+      if (!prev) return prev;
+      const updateWorker = (worker: IRelevantWorker) =>
+        worker.uid === workerId ? { ...worker, hasRequested: true } : worker;
+      return {
+        ...prev,
+        fullMatch: prev.fullMatch.map(updateWorker),
+        partialMatch: prev.partialMatch.map(updateWorker),
+        skillsMatch: prev.skillsMatch.map(updateWorker),
+      };
+    });
+    return result;
   };
 
   return {
-    workers: data,
-    loading,
-    error,
-    refetch: fetchWorkers,
+    workers: data ?? null,
+    loading: !enabled || isLoading,
+    error: error ? (error as Error).message : null,
+    refetch,
     requestWorker,
   };
 }

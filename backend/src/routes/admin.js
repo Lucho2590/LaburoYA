@@ -12,8 +12,16 @@ const pdfParser = require('../services/pdfParser');
 const citiesService = require('../services/citiesService');
 const locationService = require('../services/locationService');
 const { normalizeZona } = require('../utils/constants');
+const { getDocMapByIds } = require('../utils/firestore');
 
 const router = express.Router();
+
+// Parte un array en lotes de `size` (para `in` <=10 o auth.getUsers <=100).
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
 
 const pdfUpload = multer({
   storage: multer.memoryStorage(),
@@ -27,61 +35,62 @@ router.use(superuserMiddleware);
 // Límite de miembros por defecto al crear una empresa (incluye al dueño).
 const DEFAULT_COMPANY_MAX_MEMBERS = 3;
 
-// Resuelve el perfil del dueño de una oferta/match: employer individual o empresa.
-// Las ofertas de empresa guardan employerId = uid de la empresa (mismo campo),
-// así que probamos employers y, si no está, companies (compatibilidad).
-async function getOwnerProfile(db, ownerId) {
-  if (!ownerId) return null;
-  const employerDoc = await db.collection('employers').doc(ownerId).get();
-  if (employerDoc.exists) return employerDoc.data();
-  const companyDoc = await db.collection('companies').doc(ownerId).get();
-  if (companyDoc.exists) return companyDoc.data();
-  return null;
-}
-
 // GET /api/admin/stats - General statistics
 router.get('/stats', async (req, res, next) => {
   try {
     const db = getDb();
 
-    // Get all users
-    const usersSnapshot = await db.collection('users').get();
-    const users = usersSnapshot.docs.map(doc => doc.data());
+    // Conteos vía agregación count() en paralelo, en vez de leer las colecciones
+    // enteras a memoria. Cada count() se factura como pocas lecturas y no trae
+    // los documentos. "Activos" = total - (active == false) para conservar la
+    // semántica original (una oferta sin el campo `active` cuenta como activa).
+    const usersCol = db.collection('users');
+    const matchesCol = db.collection('matches');
+    const offersCol = db.collection('jobOffers');
+    const countOf = (q) => q.count().get().then(s => s.data().count);
 
-    // Count users by role
-    const usersByRole = {
-      worker: users.filter(u => u.role === 'worker').length,
-      employer: users.filter(u => u.role === 'employer').length,
-      company: users.filter(u => u.role === 'company').length,
-      superuser: users.filter(u => u.role === 'superuser').length
-    };
-
-    // Get matches
-    const matchesSnapshot = await db.collection('matches').get();
-    const matches = matchesSnapshot.docs.map(doc => doc.data());
-
-    // Count matches by status
-    const matchesByStatus = {
-      pending: matches.filter(m => m.status === 'pending').length,
-      accepted: matches.filter(m => m.status === 'accepted').length,
-      rejected: matches.filter(m => m.status === 'rejected').length
-    };
-
-    // Get job offers
-    const jobOffersSnapshot = await db.collection('jobOffers').get();
-    const jobOffers = jobOffersSnapshot.docs.map(doc => doc.data());
-
-    // Count active/inactive job offers
-    const activeJobOffers = jobOffers.filter(j => j.active !== false).length;
-    const inactiveJobOffers = jobOffers.filter(j => j.active === false).length;
+    const [
+      totalUsers,
+      workerCount,
+      employerCount,
+      companyCount,
+      superuserCount,
+      totalMatches,
+      pendingCount,
+      acceptedCount,
+      rejectedCount,
+      totalJobOffers,
+      inactiveJobOffers
+    ] = await Promise.all([
+      countOf(usersCol),
+      countOf(usersCol.where('role', '==', 'worker')),
+      countOf(usersCol.where('role', '==', 'employer')),
+      countOf(usersCol.where('role', '==', 'company')),
+      countOf(usersCol.where('role', '==', 'superuser')),
+      countOf(matchesCol),
+      countOf(matchesCol.where('status', '==', 'pending')),
+      countOf(matchesCol.where('status', '==', 'accepted')),
+      countOf(matchesCol.where('status', '==', 'rejected')),
+      countOf(offersCol),
+      countOf(offersCol.where('active', '==', false))
+    ]);
 
     res.json({
-      totalUsers: users.length,
-      usersByRole,
-      totalMatches: matches.length,
-      matchesByStatus,
-      totalJobOffers: jobOffers.length,
-      activeJobOffers,
+      totalUsers,
+      usersByRole: {
+        worker: workerCount,
+        employer: employerCount,
+        company: companyCount,
+        superuser: superuserCount
+      },
+      totalMatches,
+      matchesByStatus: {
+        pending: pendingCount,
+        accepted: acceptedCount,
+        rejected: rejectedCount
+      },
+      totalJobOffers,
+      activeJobOffers: totalJobOffers - inactiveJobOffers,
       inactiveJobOffers
     });
   } catch (error) {
@@ -317,50 +326,65 @@ router.get('/users', async (req, res, next) => {
       ? await query.orderBy('createdAt', 'desc').get()
       : await query.get();
 
-    // Fetch profile and auth data for each user
-    const users = await Promise.all(snapshot.docs.map(async doc => {
+    const docs = snapshot.docs;
+
+    // Agrupar ids por lo que hay que leer, para batchear (evita N+1).
+    const allUids = docs.map(d => d.id);
+    const workerIds = [];
+    const employerIds = [];
+    const companyIds = [];
+    const ownerIds = []; // employers + companies: dueños de jobOffers
+    docs.forEach(d => {
+      const r = d.data().role;
+      if (r === 'worker') workerIds.push(d.id);
+      else if (r === 'employer') { employerIds.push(d.id); ownerIds.push(d.id); }
+      else if (r === 'company') { companyIds.push(d.id); ownerIds.push(d.id); }
+    });
+
+    // Firebase Auth: getUsers batchea hasta 100 identifiers por llamada.
+    const authMap = new Map();
+    await Promise.all(chunk(allUids, 100).map(async ids => {
+      const result = await auth.getUsers(ids.map(uid => ({ uid })));
+      result.users.forEach(u => authMap.set(u.uid, u));
+    }));
+
+    // Perfiles: un getAll por colección.
+    const [workerMap, employerMap, companyMap] = await Promise.all([
+      getDocMapByIds(db, 'workers', workerIds),
+      getDocMapByIds(db, 'employers', employerIds),
+      getDocMapByIds(db, 'companies', companyIds),
+    ]);
+
+    // jobOffers de los owners: where('employerId','in', chunk<=10), agrupadas.
+    const jobOffersByOwner = new Map();
+    await Promise.all(chunk(ownerIds, 10).map(async ids => {
+      const snap = await db.collection('jobOffers').where('employerId', 'in', ids).get();
+      snap.docs.forEach(j => {
+        const data = j.data();
+        const arr = jobOffersByOwner.get(data.employerId) || [];
+        arr.push({ id: j.id, ...data, createdAt: data.createdAt?.toDate?.() || data.createdAt });
+        jobOffersByOwner.set(data.employerId, arr);
+      });
+    }));
+
+    const users = docs.map(doc => {
       const userData = doc.data();
+      const userRecord = authMap.get(doc.id);
+      const authData = userRecord ? {
+        email: userRecord.email,
+        displayName: userRecord.displayName,
+        photoURL: userRecord.photoURL,
+        phoneNumber: userRecord.phoneNumber,
+        emailVerified: userRecord.emailVerified,
+        disabled: userRecord.disabled
+      } : null;
+
       let profile = null;
-      let authData = null;
-      let jobOffers = [];
+      if (userData.role === 'worker') profile = workerMap.get(doc.id) || null;
+      else if (userData.role === 'employer') profile = employerMap.get(doc.id) || null;
+      else if (userData.role === 'company') profile = companyMap.get(doc.id) || null;
 
-      // Get Firebase Auth data (email, displayName, photoURL)
-      try {
-        const userRecord = await auth.getUser(doc.id);
-        authData = {
-          email: userRecord.email,
-          displayName: userRecord.displayName,
-          photoURL: userRecord.photoURL,
-          phoneNumber: userRecord.phoneNumber,
-          emailVerified: userRecord.emailVerified,
-          disabled: userRecord.disabled
-        };
-      } catch (e) {
-        // User might not exist in Auth
-      }
-
-      // Get profile based on role
-      if (userData.role === 'worker') {
-        const workerDoc = await db.collection('workers').doc(doc.id).get();
-        if (workerDoc.exists) {
-          profile = workerDoc.data();
-        }
-      } else if (userData.role === 'employer' || userData.role === 'company') {
-        const profileCol = userData.role === 'company' ? 'companies' : 'employers';
-        const profileDoc = await db.collection(profileCol).doc(doc.id).get();
-        if (profileDoc.exists) {
-          profile = profileDoc.data();
-        }
-        // Get the owner's job offers (empresa y employer comparten employerId).
-        const jobOffersSnapshot = await db.collection('jobOffers')
-          .where('employerId', '==', doc.id)
-          .get();
-        jobOffers = jobOffersSnapshot.docs.map(j => ({
-          id: j.id,
-          ...j.data(),
-          createdAt: j.data().createdAt?.toDate?.() || j.data().createdAt
-        }));
-      }
+      const jobOffers = jobOffersByOwner.get(doc.id) || [];
 
       return {
         uid: doc.id,
@@ -375,7 +399,7 @@ router.get('/users', async (req, res, next) => {
         jobOffers: jobOffers.length > 0 ? jobOffers : undefined,
         createdAt: userData.createdAt?.toDate?.() || userData.createdAt
       };
-    }));
+    });
 
     // Sort by createdAt desc if we didn't use orderBy
     if (!useOrderBy) {
@@ -625,6 +649,95 @@ router.delete('/users/:uid', async (req, res, next) => {
   }
 });
 
+// ----- Perfiles de worker "huérfanos" -----
+// Un worker es huérfano cuando existe su doc en `workers` pero NO su doc en
+// `users` (típicamente porque se borró el usuario a mano en la consola de
+// Firebase). Siguen apareciendo como candidatos en la app (el descubrimiento
+// lee `workers`) pero son invisibles al panel (que lista `users`).
+
+// Borra el worker + su data relacionada (matches/interacciones/solicitudes/
+// notificaciones). Devuelve los conteos borrados.
+async function deleteWorkerAndRefs(db, uid) {
+  const counts = { worker: 0, matches: 0, offerInteractions: 0, contactRequests: 0, notifications: 0 };
+
+  const workerRef = db.collection('workers').doc(uid);
+  if ((await workerRef.get()).exists) {
+    await workerRef.delete();
+    counts.worker = 1;
+  }
+
+  const deleteWhere = async (collection, field, key) => {
+    const snap = await db.collection(collection).where(field, '==', uid).get();
+    if (!snap.size) return;
+    const batch = db.batch();
+    snap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    counts[key] += snap.size;
+  };
+
+  await deleteWhere('matches', 'workerId', 'matches');
+  await deleteWhere('offerInteractions', 'userId', 'offerInteractions');
+  await deleteWhere('contactRequests', 'fromUid', 'contactRequests');
+  await deleteWhere('contactRequests', 'toUid', 'contactRequests');
+  await deleteWhere('notifications', 'userId', 'notifications');
+
+  return counts;
+}
+
+// GET /api/admin/orphan-workers - Lista de workers sin doc en `users`.
+router.get('/orphan-workers', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const snap = await db.collection('workers').get();
+    const ids = snap.docs.map(d => d.id);
+    const usersMap = await getDocMapByIds(db, 'users', ids);
+
+    const orphans = snap.docs
+      .filter(d => !usersMap.has(d.id))
+      .map(d => {
+        const w = d.data();
+        return {
+          uid: d.id,
+          puesto: w.puesto || null,
+          rubro: w.rubro || null,
+          zona: w.zona || null,
+          active: w.active !== false,
+          hasVideo: !!w.videoUrl,
+          createdAt: w.createdAt?.toDate?.() || w.createdAt || null
+        };
+      });
+
+    res.json({ orphans, total: orphans.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/admin/orphan-workers/:uid - Borra un worker huérfano + su data.
+// Por seguridad, solo procede si realmente NO existe el doc en `users`.
+router.delete('/orphan-workers/:uid', async (req, res, next) => {
+  try {
+    const db = getDb();
+    const { uid } = req.params;
+
+    const workerDoc = await db.collection('workers').doc(uid).get();
+    if (!workerDoc.exists) {
+      return res.status(404).json({ error: 'Worker no encontrado' });
+    }
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (userDoc.exists) {
+      return res.status(400).json({
+        error: 'Este worker tiene usuario asociado; borralo desde la lista de Usuarios.'
+      });
+    }
+
+    const deleted = await deleteWorkerAndRefs(db, uid);
+    res.json({ message: 'Worker huérfano eliminado', deleted });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ----- Equipo de una empresa (gestión por el superuser) -----
 
 // Verifica que :companyUid sea una cuenta empresa dueña (uid === organizationId).
@@ -756,12 +869,20 @@ router.get('/job-offers', async (req, res, next) => {
     }
 
     const snapshot = await query.orderBy('createdAt', 'desc').get();
+    const docs = snapshot.docs;
 
-    const jobOffers = await Promise.all(snapshot.docs.map(async doc => {
+    // Perfiles owner batcheados: employers y companies en un getAll cada uno
+    // (mismo orden de preferencia que getOwnerProfile: employer y si no, company).
+    const ownerIds = [...new Set(docs.map(d => d.data().employerId).filter(Boolean))];
+    const [employerMap, companyMap] = await Promise.all([
+      getDocMapByIds(db, 'employers', ownerIds),
+      getDocMapByIds(db, 'companies', ownerIds),
+    ]);
+    const ownerOf = (id) => employerMap.get(id) || companyMap.get(id) || null;
+
+    const jobOffers = docs.map(doc => {
       const data = doc.data();
-
-      // Get owner info (employer individual o empresa).
-      const employer = await getOwnerProfile(db, data.employerId);
+      const employer = ownerOf(data.employerId);
 
       // Include stats (default to 0 if not present)
       const stats = data.stats || { interestedCount: 0, notInterestedCount: 0 };
@@ -775,7 +896,7 @@ router.get('/job-offers', async (req, res, next) => {
         expiresAt: data.expiresAt?.toDate?.() || data.expiresAt,
         updatedAt: data.updatedAt?.toDate?.() || data.updatedAt
       };
-    }));
+    });
 
     // Simple pagination
     const paginated = jobOffers.slice(Number(offset), Number(offset) + Number(limit));
@@ -998,30 +1119,28 @@ router.get('/matches', async (req, res, next) => {
     }
 
     const snapshot = await query.orderBy('createdAt', 'desc').get();
+    const docs = snapshot.docs;
 
-    const matches = await Promise.all(snapshot.docs.map(async doc => {
+    // Lookups batcheados: workers + owners (employers/companies).
+    const workerIds = [...new Set(docs.map(d => d.data().workerId).filter(Boolean))];
+    const ownerIds = [...new Set(docs.map(d => d.data().employerId).filter(Boolean))];
+    const [workerMap, employerMap, companyMap] = await Promise.all([
+      getDocMapByIds(db, 'workers', workerIds),
+      getDocMapByIds(db, 'employers', ownerIds),
+      getDocMapByIds(db, 'companies', ownerIds),
+    ]);
+    const ownerOf = (id) => employerMap.get(id) || companyMap.get(id) || null;
+
+    const matches = docs.map(doc => {
       const data = doc.data();
-
-      // Get worker info
-      let worker = null;
-      if (data.workerId) {
-        const workerDoc = await db.collection('workers').doc(data.workerId).get();
-        if (workerDoc.exists) {
-          worker = workerDoc.data();
-        }
-      }
-
-      // Get owner info (employer individual o empresa).
-      const employer = await getOwnerProfile(db, data.employerId);
-
       return {
         id: doc.id,
         ...data,
-        worker,
-        employer,
+        worker: data.workerId ? (workerMap.get(data.workerId) || null) : null,
+        employer: ownerOf(data.employerId),
         createdAt: data.createdAt?.toDate?.() || data.createdAt
       };
-    }));
+    });
 
     // Simple pagination
     const paginated = matches.slice(Number(offset), Number(offset) + Number(limit));

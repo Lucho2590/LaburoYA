@@ -4,6 +4,7 @@ const { getDb } = require('../config/firebase');
 const FieldValue = admin.firestore.FieldValue;
 const { authMiddleware } = require('../middleware/auth');
 const notificationService = require('../services/notificationService');
+const { getAllByIds } = require('../utils/firestore');
 
 const router = express.Router();
 
@@ -460,11 +461,11 @@ router.get('/received', authMiddleware, async (req, res, next) => {
       };
     });
 
-    // Batch fetch all related documents in parallel
+    // Batch fetch all related documents (un round-trip por colección con getAll)
     const [workerDocs, employerDocs, offerDocs] = await Promise.all([
-      Promise.all(Array.from(workerIds).map(id => db.collection('workers').doc(id).get())),
-      Promise.all(Array.from(employerIds).map(id => db.collection('employers').doc(id).get())),
-      Promise.all(Array.from(offerIds).map(id => db.collection('jobOffers').doc(id).get()))
+      getAllByIds(db, 'workers', Array.from(workerIds)),
+      getAllByIds(db, 'employers', Array.from(employerIds)),
+      getAllByIds(db, 'jobOffers', Array.from(offerIds))
     ]);
 
     // Build lookup maps
@@ -549,11 +550,11 @@ router.get('/sent', authMiddleware, async (req, res, next) => {
       };
     });
 
-    // Batch fetch all related documents in parallel
+    // Batch fetch all related documents (un round-trip por colección con getAll)
     const [workerDocs, employerDocs, offerDocs] = await Promise.all([
-      Promise.all(Array.from(workerIds).map(id => db.collection('workers').doc(id).get())),
-      Promise.all(Array.from(employerIds).map(id => db.collection('employers').doc(id).get())),
-      Promise.all(Array.from(offerIds).map(id => db.collection('jobOffers').doc(id).get()))
+      getAllByIds(db, 'workers', Array.from(workerIds)),
+      getAllByIds(db, 'employers', Array.from(employerIds)),
+      getAllByIds(db, 'jobOffers', Array.from(offerIds))
     ]);
 
     // Build lookup maps

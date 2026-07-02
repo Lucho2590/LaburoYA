@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
+import { AdminPagination } from '@/components/AdminPagination';
 import { api } from '@/services/api';
 import { IAdminUser, EUserRole, IWorkerProfile, IEmployerProfile, ICompanyProfile, IJobOffer } from '@/types';
 import { Users, Filter, ChevronDown, ChevronUp, ExternalLink, UserPlus, Search } from 'lucide-react';
@@ -15,6 +16,8 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState('');
   const [total, setTotal] = useState(0);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const fetchUsers = async (role?: EUserRole | '') => {
     setLoading(true);
@@ -34,6 +37,11 @@ export default function AdminUsersPage() {
   useEffect(() => {
     fetchUsers(roleFilter);
   }, [roleFilter]);
+
+  // Volver a la primera página al cambiar filtro/búsqueda.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, roleFilter]);
 
   const getRoleBadge = (role: EUserRole) => {
     const styles = {
@@ -115,6 +123,11 @@ export default function AdminUsersPage() {
         return haystack.includes(term);
       })
     : users;
+
+  const paginatedUsers = filteredUsers.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   // Stats
   const stats = {
@@ -266,7 +279,7 @@ export default function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y theme-border">
-                {filteredUsers.map((user) => (
+                {paginatedUsers.map((user) => (
                   <React.Fragment key={user.uid}>
                     <tr
                       className={`${user.disabled ? 'opacity-60' : ''} hover:theme-bg-secondary cursor-pointer transition-colors`}
@@ -465,6 +478,13 @@ export default function AdminUsersPage() {
               </tbody>
             </table>
           </div>
+          <AdminPagination
+            currentPage={currentPage}
+            totalItems={filteredUsers.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+          />
         </div>
       )}
     </AdminLayout>
