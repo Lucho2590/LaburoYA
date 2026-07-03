@@ -193,6 +193,7 @@ export interface ICompanyCandidate {
     skills?: string[];
   };
   fileUrl?: string | null;
+  previewUrls?: string[] | null;
   sourceOfferIds?: string[];
   lastAssessment?: {
     score: number;

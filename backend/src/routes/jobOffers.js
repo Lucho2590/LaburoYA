@@ -14,6 +14,7 @@ const { normalizeZona } = require('../utils/constants');
 const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
 const companySubscription = require('../utils/companySubscription');
 const companyCandidates = require('../services/companyCandidates');
+const cvPreview = require('../services/cvPreview');
 const profileBlocks = require('../services/profileBlocks');
 const cvStorage = require('../services/cvStorage');
 const FieldValue = admin.firestore.FieldValue;
@@ -535,22 +536,31 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
     if (isCompany) {
       try {
         // Guardar el archivo original del CV en Storage (best-effort).
+        const orgId = offer.organizationId || uid;
         const { fileUrl, filePath } = await cvStorage.uploadCv({
           buffer: req.file.buffer,
           contentType: req.file.mimetype,
           originalname: req.file.originalname,
-          organizationId: offer.organizationId || uid,
+          organizationId: orgId,
           fileHash,
         });
+        // PDF: generar imágenes de preview para mostrarlo "como imagen" (sin la
+        // barra del visor). Best-effort: no rompe el análisis si falla.
+        let previewUrls = [];
+        if (req.file.mimetype === 'application/pdf') {
+          const buffers = await cvPreview.pdfToPngBuffers(req.file.buffer);
+          ({ previewUrls } = await cvStorage.uploadPreviewImages(buffers, { organizationId: orgId, fileHash }));
+        }
         await companyCandidates.upsertFromAssessment({
           db,
-          organizationId: offer.organizationId || uid,
+          organizationId: orgId,
           offerId,
           fileHash,
           candidate: docData.candidate,
           assessment: docData.assessment,
           fileUrl,
           filePath,
+          previewUrls,
         });
       } catch (e) {
         console.error('[assess-cv] no se pudo guardar en talent pool:', e.message);

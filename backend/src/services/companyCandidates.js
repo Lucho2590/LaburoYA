@@ -55,7 +55,7 @@ async function findExisting(db, organizationId, { fileHash, emailNorm, phoneNorm
 
 // Upsert del candidato analizado en el talent pool de la organización.
 // `candidate` y `assessment` provienen del doc ya normalizado de pinnedCandidates.
-async function upsertFromAssessment({ db, organizationId, offerId, fileHash, candidate, assessment, fileUrl = null, filePath = null }) {
+async function upsertFromAssessment({ db, organizationId, offerId, fileHash, candidate, assessment, fileUrl = null, filePath = null, previewUrls = [] }) {
   if (!organizationId) return null;
   const emailNorm = normEmail(candidate?.email);
   const phoneNorm = normPhone(candidate?.phone);
@@ -88,6 +88,7 @@ async function upsertFromAssessment({ db, organizationId, offerId, fileHash, can
       // Solo pisar el archivo si vino uno nuevo en esta carga.
       fileUrl: fileUrl || prev.fileUrl || null,
       filePath: filePath || prev.filePath || null,
+      previewUrls: (Array.isArray(previewUrls) && previewUrls.length) ? previewUrls : (prev.previewUrls || []),
       lastAssessment,
       sourceOfferIds,
       updatedAt: new Date(),
@@ -102,6 +103,7 @@ async function upsertFromAssessment({ db, organizationId, offerId, fileHash, can
     phoneNorm,
     fileUrl: fileUrl || null,
     filePath: filePath || null,
+    previewUrls: Array.isArray(previewUrls) ? previewUrls : [],
     candidate: candidate || {},
     lastAssessment,
     sourceOfferIds: offerId ? [offerId] : [],
