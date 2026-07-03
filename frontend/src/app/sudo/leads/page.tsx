@@ -6,6 +6,7 @@ import { api } from '@/services/api';
 import { ILead, ILeadStats, IRubro } from '@/types';
 import { toast } from 'sonner';
 import { Phone, MessageCircle, Check, Clock, Trash2, Users, Filter, Edit3, Save, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function AdminLeadsPage() {
   const [leads, setLeads] = useState<ILead[]>([]);
@@ -280,28 +281,36 @@ export default function AdminLeadsPage() {
           <span className="text-sm theme-text-secondary">Filtros:</span>
         </div>
 
-        <select
+        <Select
           value={filterContacted}
-          onChange={(e) => setFilterContacted(e.target.value as 'all' | 'yes' | 'no')}
-          className="px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm"
+          onValueChange={(v) => setFilterContacted(v as 'all' | 'yes' | 'no')}
         >
-          <option value="all">Todos</option>
-          <option value="no">Pendientes</option>
-          <option value="yes">Contactados</option>
-        </select>
+          <SelectTrigger className="px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm">
+            <SelectValue placeholder="Todos" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            <SelectItem value="no">Pendientes</SelectItem>
+            <SelectItem value="yes">Contactados</SelectItem>
+          </SelectContent>
+        </Select>
 
-        <select
-          value={filterRubro}
-          onChange={(e) => setFilterRubro(e.target.value)}
-          className="px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm"
+        <Select
+          value={filterRubro || '__all__'}
+          onValueChange={(v) => setFilterRubro(v === '__all__' ? '' : v)}
         >
-          <option value="">Todos los rubros</option>
-          {rubros.map((rubro) => (
-            <option key={rubro.id} value={rubro.id}>
-              {rubro.icono} {rubro.nombre}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm">
+            <SelectValue placeholder="Todos los rubros" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">Todos los rubros</SelectItem>
+            {rubros.map((rubro) => (
+              <SelectItem key={rubro.id} value={rubro.id}>
+                {rubro.icono} {rubro.nombre}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Leads Table */}

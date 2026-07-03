@@ -10,6 +10,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '@/config/firebase';
 import { VideoRecorder } from '@/components/VideoRecorder';
 import { CameraCapture } from '@/components/CameraCapture';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { IWorkerProfile, IGeoLocation, ICity } from '@/types';
 import LocationPicker from '@/components/LocationPicker';
@@ -433,15 +434,16 @@ export default function WorkerProfilePage() {
           <label className="block text-sm font-medium text-[#98A2B3] mb-2">
             ¿En qué ciudad trabajás?
           </label>
-          <select
-            value={cityName}
-            onChange={(e) => setCityName(e.target.value)}
-            className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary focus:border-[#E10600] focus:outline-none"
-          >
-            {cities.map((c) => (
-              <option key={c.id} value={c.nombre}>{c.nombre}</option>
-            ))}
-          </select>
+          <Select value={cityName} onValueChange={setCityName}>
+            <SelectTrigger className="w-full data-[size=default]:h-auto px-4 py-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary">
+              <SelectValue placeholder="Elegí una ciudad" />
+            </SelectTrigger>
+            <SelectContent>
+              {cities.map((c) => (
+                <SelectItem key={c.id} value={c.nombre}>{c.nombre}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
 
@@ -450,16 +452,20 @@ export default function WorkerProfilePage() {
         <label className="block text-sm font-medium text-[#98A2B3] mb-2">
           ¿En qué zona preferís trabajar?
         </label>
-        <select
-          value={formData.zona}
-          onChange={(e) => setFormData({ ...formData, zona: e.target.value })}
-          className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary focus:border-[#E10600] focus:outline-none"
+        <Select
+          value={formData.zona || "__any__"}
+          onValueChange={(v) => setFormData({ ...formData, zona: v === "__any__" ? "" : v })}
         >
-          <option value="">Cualquier zona</option>
-          {zonaOptions.map((zona) => (
-            <option key={zona} value={zona}>{zona}</option>
-          ))}
-        </select>
+          <SelectTrigger className="w-full data-[size=default]:h-auto px-4 py-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary">
+            <SelectValue placeholder="Cualquier zona" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__any__">Cualquier zona</SelectItem>
+            {zonaOptions.map((zona) => (
+              <SelectItem key={zona} value={zona}>{zona}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {/* Ubicación en el mapa (para ver primero las búsquedas más cercanas) */}
         <div className="mt-3">

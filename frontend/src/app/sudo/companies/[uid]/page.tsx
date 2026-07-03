@@ -7,6 +7,7 @@ import { AdminLayout } from "@/components/AdminLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/services/api";
 import { IAdminUserDetail, ICompanyProfile, ICompanyMember, ICompanyPlan } from "@/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function AdminCompanyDetailPage() {
   const params = useParams();
@@ -322,19 +323,23 @@ export default function AdminCompanyDetailPage() {
                   <div className="flex items-end gap-2 pt-2 border-t theme-border">
                     <div className="flex-1">
                       <label className="block text-xs theme-text-muted mb-1">Renovar / asignar plan</label>
-                      <select
-                        value={renewPlanId}
-                        onChange={(e) => setRenewPlanId(e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg theme-bg-secondary theme-text-primary border theme-border text-sm"
+                      <Select
+                        value={renewPlanId || "__none__"}
+                        onValueChange={(v) => setRenewPlanId(v === "__none__" ? "" : v)}
                       >
-                        <option value="">Elegí un plan…</option>
-                        {companyPlans.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} · {p.durationMonths}m · {p.aiCvEnabled ? "IA" : "sin IA"} ·{" "}
-                            {p.maxCvAnalyses === -1 ? "∞ CVs" : `${p.maxCvAnalyses} CVs`}
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger className="w-full px-3 py-2 rounded-lg theme-bg-secondary theme-text-primary border theme-border text-sm">
+                          <SelectValue placeholder="Elegí un plan…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Elegí un plan…</SelectItem>
+                          {companyPlans.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name} · {p.durationMonths}m · {p.aiCvEnabled ? "IA" : "sin IA"} ·{" "}
+                              {p.maxCvAnalyses === -1 ? "∞ CVs" : `${p.maxCvAnalyses} CVs`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <button
                       onClick={handleRenew}

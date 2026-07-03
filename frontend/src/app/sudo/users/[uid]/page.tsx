@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
 import { IAdminUserDetail, EUserRole, IWorkerProfile, IEmployerProfile, ICompanyProfile } from '@/types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function AdminUserDetailPage() {
   const params = useParams();
@@ -414,16 +415,20 @@ export default function AdminUserDetailPage() {
             {/* Change Role */}
             <div>
               <label className="block text-xs theme-text-muted mb-2">Cambiar rol</label>
-              <select
+              <Select
                 value={user.role}
-                onChange={(e) => handleRoleChange(e.target.value as EUserRole)}
+                onValueChange={(v) => handleRoleChange(v as EUserRole)}
                 disabled={updating || user.role === 'superuser'}
-                className="w-full theme-bg-secondary border theme-border rounded-lg px-3 py-2 theme-text-primary disabled:opacity-50"
               >
-                <option value="worker">Trabajador</option>
-                <option value="employer">Empleador</option>
-                <option value="superuser">Superuser</option>
-              </select>
+                <SelectTrigger className="w-full theme-bg-secondary border theme-border rounded-lg px-3 py-2 theme-text-primary disabled:opacity-50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="worker">Trabajador</SelectItem>
+                  <SelectItem value="employer">Empleador</SelectItem>
+                  <SelectItem value="superuser">Superuser</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Toggle Disabled */}

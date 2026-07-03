@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePageTitle } from "@/contexts/PageTitleContext";
 import { api } from "@/services/api";
 import { ICompanyCandidate, IJobOffer } from "@/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function Stars({ value }: { value: number }) {
   const n = Math.max(0, Math.min(5, Math.round(value)));
@@ -135,18 +136,22 @@ export default function CompanyTalentPoolPage() {
       {/* Selector de oferta para re-puntuar */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2">
         <label className="text-sm theme-text-muted">Puntuar contra:</label>
-        <select
-          value={selectedOfferId}
-          onChange={(e) => setSelectedOfferId(e.target.value)}
-          className="px-3 py-2 rounded-lg theme-bg-secondary theme-text-primary border theme-border text-sm"
+        <Select
+          value={selectedOfferId || "__all__"}
+          onValueChange={(v) => setSelectedOfferId(v === "__all__" ? "" : v)}
         >
-          <option value="">Todos (sin puntuar)</option>
-          {offers.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.puesto} · {o.rubro}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-full sm:w-auto min-w-[220px] rounded-lg theme-bg-secondary theme-text-primary theme-border">
+            <SelectValue placeholder="Todos (sin puntuar)" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">Todos (sin puntuar)</SelectItem>
+            {offers.map((o) => (
+              <SelectItem key={o.id} value={o.id}>
+                {o.puesto} · {o.rubro}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {selectedOffer && (
           <span className="text-xs theme-text-muted">
             Ordenados por afinidad con “{selectedOffer.puesto}”

@@ -6,6 +6,7 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { AdminPagination } from '@/components/AdminPagination';
 import { api } from '@/services/api';
 import { IAdminMatch, TMatchStatus } from '@/types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function AdminMatchesPage() {
   const [matches, setMatches] = useState<IAdminMatch[]>([]);
@@ -74,16 +75,20 @@ export default function AdminMatchesPage() {
       <div className="mb-6 flex items-center gap-4">
         <div className="flex items-center gap-2">
           <label className="theme-text-secondary text-sm">Filtrar por estado:</label>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as TMatchStatus | '')}
-            className="theme-bg-card border theme-border rounded-lg px-3 py-2 text-sm theme-text-primary"
+          <Select
+            value={statusFilter || '__all__'}
+            onValueChange={(v) => setStatusFilter(v === '__all__' ? '' : (v as TMatchStatus))}
           >
-            <option value="">Todos</option>
-            <option value="pending">Pendientes</option>
-            <option value="accepted">Aceptados</option>
-            <option value="rejected">Rechazados</option>
-          </select>
+            <SelectTrigger className="theme-bg-card border theme-border rounded-lg px-3 py-2 text-sm theme-text-primary">
+              <SelectValue placeholder="Todos" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Todos</SelectItem>
+              <SelectItem value="pending">Pendientes</SelectItem>
+              <SelectItem value="accepted">Aceptados</SelectItem>
+              <SelectItem value="rejected">Rechazados</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <span className="theme-text-muted text-sm">
           {total} match{total !== 1 ? 'es' : ''}

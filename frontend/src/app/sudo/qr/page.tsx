@@ -5,6 +5,7 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { QrCode, Download, Copy, Check, Plus, Trash2 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { toast } from 'sonner';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface QRConfig {
   id: string;
@@ -186,15 +187,19 @@ export default function QRGeneratorPage() {
                   onChange={(e) => setNewQR({ ...newQR, code: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm"
                 />
-                <select
+                <Select
                   value={newQR.role}
-                  onChange={(e) => setNewQR({ ...newQR, role: e.target.value as 'worker' | 'employer' | 'any' })}
-                  className="w-full px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm"
+                  onValueChange={(v) => setNewQR({ ...newQR, role: v as 'worker' | 'employer' | 'any' })}
                 >
-                  <option value="any">Cualquier rol</option>
-                  <option value="worker">Solo trabajadores</option>
-                  <option value="employer">Solo empleadores</option>
-                </select>
+                  <SelectTrigger className="w-full px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm">
+                    <SelectValue placeholder="Cualquier rol" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="any">Cualquier rol</SelectItem>
+                    <SelectItem value="worker">Solo trabajadores</SelectItem>
+                    <SelectItem value="employer">Solo empleadores</SelectItem>
+                  </SelectContent>
+                </Select>
                 <div className="flex gap-2">
                   <button
                     onClick={addQR}

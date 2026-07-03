@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
 import { IAdminJobOffer, IAdminMatch } from '@/types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface MatchesModalData {
   offerId: string;
@@ -263,75 +264,88 @@ export default function AdminJobsPage() {
           {/* Estado */}
           <div className="flex items-center gap-2">
             <label className="theme-text-secondary text-xs">Estado:</label>
-            <select
-              value={activeFilter}
-              onChange={(e) => setActiveFilter(e.target.value)}
-              className="theme-bg-card border theme-border rounded-lg px-3 py-1.5 text-sm theme-text-primary"
-            >
-              <option value="all">Todas</option>
-              <option value="active">Activas</option>
-              <option value="inactive">Inactivas</option>
-              <option value="expired">Expiradas</option>
-            </select>
+            <Select value={activeFilter} onValueChange={setActiveFilter}>
+              <SelectTrigger className="theme-bg-card theme-border rounded-lg px-3 py-1.5 text-sm theme-text-primary">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                <SelectItem value="active">Activas</SelectItem>
+                <SelectItem value="inactive">Inactivas</SelectItem>
+                <SelectItem value="expired">Expiradas</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Empleador */}
           <div className="flex items-center gap-2">
             <label className="theme-text-secondary text-xs">Empleador:</label>
-            <select
-              value={employerFilter}
-              onChange={(e) => setEmployerFilter(e.target.value)}
-              className="theme-bg-card border theme-border rounded-lg px-3 py-1.5 text-sm theme-text-primary max-w-[200px]"
+            <Select
+              value={employerFilter || '__all__'}
+              onValueChange={(v) => setEmployerFilter(v === '__all__' ? '' : v)}
             >
-              <option value="">Todos</option>
-              {employers.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {emp.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="theme-bg-card theme-border rounded-lg px-3 py-1.5 text-sm theme-text-primary max-w-[200px]">
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos</SelectItem>
+                {employers.map((emp) => (
+                  <SelectItem key={emp.id} value={emp.id}>
+                    {emp.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Rubro */}
           <div className="flex items-center gap-2">
             <label className="theme-text-secondary text-xs">Rubro:</label>
-            <select
-              value={rubroFilter}
-              onChange={(e) => {
-                setRubroFilter(e.target.value);
+            <Select
+              value={rubroFilter || '__all__'}
+              onValueChange={(v) => {
+                setRubroFilter(v === '__all__' ? '' : v);
                 setPuestoFilter(''); // Reset puesto cuando cambia el rubro
               }}
-              className="theme-bg-card border theme-border rounded-lg px-3 py-1.5 text-sm theme-text-primary"
             >
-              <option value="">Todos</option>
-              {rubros.map((rubro) => (
-                <option key={rubro} value={rubro}>
-                  {rubro}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="theme-bg-card theme-border rounded-lg px-3 py-1.5 text-sm theme-text-primary">
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos</SelectItem>
+                {rubros.map((rubro) => (
+                  <SelectItem key={rubro} value={rubro}>
+                    {rubro}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Puesto */}
           <div className="flex items-center gap-2">
             <label className="theme-text-secondary text-xs">Puesto:</label>
-            <select
-              value={puestoFilter}
-              onChange={(e) => setPuestoFilter(e.target.value)}
-              className="theme-bg-card border theme-border rounded-lg px-3 py-1.5 text-sm theme-text-primary"
+            <Select
+              value={puestoFilter || '__all__'}
+              onValueChange={(v) => setPuestoFilter(v === '__all__' ? '' : v)}
             >
-              <option value="">Todos</option>
-              {(rubroFilter
-                ? puestos.filter((p) =>
-                    allJobOffers.some((j) => j.rubro === rubroFilter && j.puesto === p)
-                  )
-                : puestos
-              ).map((puesto) => (
-                <option key={puesto} value={puesto}>
-                  {puesto}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="theme-bg-card theme-border rounded-lg px-3 py-1.5 text-sm theme-text-primary">
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos</SelectItem>
+                {(rubroFilter
+                  ? puestos.filter((p) =>
+                      allJobOffers.some((j) => j.rubro === rubroFilter && j.puesto === p)
+                    )
+                  : puestos
+                ).map((puesto) => (
+                  <SelectItem key={puesto} value={puesto}>
+                    {puesto}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </div>
@@ -509,19 +523,23 @@ export default function AdminJobsPage() {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <label className="theme-text-secondary text-sm">Mostrar:</label>
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(v) => {
+                    setPageSize(Number(v));
                     setCurrentPage(1);
                   }}
-                  className="theme-bg-secondary border theme-border rounded px-2 py-1 text-sm theme-text-primary"
                 >
-                  <option value={10}>10</option>
-                  <option value={25}>25</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
+                  <SelectTrigger className="theme-bg-secondary theme-border rounded px-2 py-1 text-sm theme-text-primary">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="25">25</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                    <SelectItem value="100">100</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <span className="theme-text-muted text-sm">
                 Mostrando {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, filteredOffers.length)} de {filteredOffers.length}
