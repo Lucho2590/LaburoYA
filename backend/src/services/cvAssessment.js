@@ -74,6 +74,15 @@ async function parseCv(buffer, mimeType) {
     return { ...normalizeFields(fields), source: 'text' };
   }
 
+  // PDF escaneado: Claude/Gemini lo leen nativo; OpenAI no → OCR local a texto.
+  const provider = await aiProvider.getConfiguredProvider();
+  const nativeMultimodal = provider === 'claude' || provider === 'gemini';
+  if (!nativeMultimodal) {
+    const ocrText = await ocr.ocrPdf(buffer); // 422 si no puede leerlo
+    const fields = await aiProvider.parseCvWithAi(ocrText);
+    return { ...normalizeFields(fields), source: 'ocr' };
+  }
+
   const fields = await aiProvider.parseCvFromPdf(buffer, mimeType);
   return { ...normalizeFields(fields), source: 'ocr' };
 }
@@ -105,6 +114,11 @@ function normalizeFields(f) {
 async function assessFit(buffer, mimeType, fileName, offer) {
   const kind = detectKind(mimeType, fileName);
 
+  // Claude/Gemini leen imágenes y PDFs escaneados de forma nativa (multimodal).
+  // OpenAI no acá: para esos casos preprocesamos a texto con OCR local (Tesseract).
+  const provider = await aiProvider.getConfiguredProvider();
+  const nativeMultimodal = provider === 'claude' || provider === 'gemini';
+
   if (kind === 'docx') {
     const { value } = await mammoth.extractRawText({ buffer });
     const result = await aiProvider.assessCvFit({ offer, cvText: (value || '').trim() });
@@ -118,12 +132,28 @@ async function assessFit(buffer, mimeType, fileName, offer) {
       const result = await aiProvider.assessCvFit({ offer, cvText: text });
       return { ...result, source: 'text' };
     }
-    const result = await aiProvider.assessCvFit({ offer, fileBuffer: buffer, mimeType: 'application/pdf' });
+    // Sin capa de texto (PDF escaneado).
+    if (nativeMultimodal) {
+      const result = await aiProvider.assessCvFit({ offer, fileBuffer: buffer, mimeType: 'application/pdf' });
+      return { ...result, source: 'ocr' };
+    }
+    const ocrText = await ocr.ocrPdf(buffer); // 422 si no puede leerlo
+    const result = await aiProvider.assessCvFit({ offer, cvText: ocrText });
     return { ...result, source: 'ocr' };
   }
 
   if (kind === 'image') {
-    const result = await aiProvider.assessCvFit({ offer, fileBuffer: buffer, mimeType });
+    if (nativeMultimodal) {
+      const result = await aiProvider.assessCvFit({ offer, fileBuffer: buffer, mimeType });
+      return { ...result, source: 'ocr' };
+    }
+    const ocrText = await ocr.ocrImage(buffer);
+    if (!ocrText || !ocrText.trim()) {
+      const err = new Error('No pudimos leer el CV.');
+      err.status = 422;
+      throw err;
+    }
+    const result = await aiProvider.assessCvFit({ offer, cvText: ocrText });
     return { ...result, source: 'ocr' };
   }
 
