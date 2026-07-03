@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Ban } from "lucide-react";
+import { Ban, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageTitle } from "@/contexts/PageTitleContext";
 import { api } from "@/services/api";
 import { ICompanyCandidate, IJobOffer } from "@/types";
 import { BlockProfileModal } from "@/components/BlockProfileModal";
+import { CvViewerModal } from "@/components/CvViewerModal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function Stars({ value }: { value: number }) {
@@ -44,6 +45,7 @@ export default function CompanyTalentPoolPage() {
   const [error, setError] = useState<string | null>(null);
   const [blockTarget, setBlockTarget] = useState<null | { id: string; email: string | null; phone: string | null; name: string }>(null);
   const [blocking, setBlocking] = useState(false);
+  const [cvView, setCvView] = useState<null | { url: string; name: string }>(null);
 
   useEffect(() => {
     setPageConfig({ title: "Talent pool", showBack: false, onBack: undefined });
@@ -239,14 +241,12 @@ export default function CompanyTalentPoolPage() {
                     <Stars value={stars} />
                     <p className="text-xs theme-text-muted mt-0.5">{score} pts</p>
                     {c.fileUrl && (
-                      <a
-                        href={c.fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-block mt-1 text-xs text-[#E10600] hover:underline"
+                      <button
+                        onClick={() => setCvView({ url: c.fileUrl!, name })}
+                        className="inline-flex items-center gap-1 mt-1 text-xs text-[#E10600] hover:underline cursor-pointer"
                       >
-                        Ver CV
-                      </a>
+                        <Eye className="h-3.5 w-3.5" /> Ver CV
+                      </button>
                     )}
                   </div>
                 </div>
@@ -319,6 +319,13 @@ export default function CompanyTalentPoolPage() {
         submitting={blocking}
         onClose={() => setBlockTarget(null)}
         onConfirm={handleBlock}
+      />
+
+      <CvViewerModal
+        open={!!cvView}
+        fileUrl={cvView?.url ?? null}
+        name={cvView?.name}
+        onClose={() => setCvView(null)}
       />
     </div>
   );
