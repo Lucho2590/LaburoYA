@@ -57,6 +57,10 @@ interface ApiOptions {
 class ApiService {
   private async getAuthToken(): Promise<string | null> {
     if (!auth) return null;
+    // Esperar a que Firebase restaure la sesión desde storage. En cold load
+    // (entrar directo o F5) currentUser todavía es null unos ms; sin esto las
+    // páginas que piden datos al montar fallan con "No authentication token".
+    await auth.authStateReady();
     const user = auth.currentUser;
     if (!user) return null;
     return user.getIdToken();
