@@ -5,6 +5,7 @@ const matchingService = require('../services/matchingService');
 const { MATCH_TYPES } = require('../services/matchingService');
 const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
 const companySubscription = require('../utils/companySubscription');
+const profileBlocks = require('../services/profileBlocks');
 
 const router = express.Router();
 
@@ -116,6 +117,13 @@ router.get('/workers', authMiddleware, async (req, res, next) => {
 
     const grouped = await matchingService.getAllRelevantWorkersForEmployer(uid);
 
+    // Excluir workers bloqueados por este empleador/empresa (no volver a verlos).
+    const { uids: blockedUids } = await profileBlocks.listBlockedKeysForOrg(db, uid);
+    const filterBlocked = (workers) => workers.filter(w => !blockedUids.has(w.uid));
+    const fullMatch = filterBlocked(grouped.fullMatch);
+    const partialMatch = filterBlocked(grouped.partialMatch);
+    const skillsMatch = filterBlocked(grouped.skillsMatch);
+
     // Check which workers the employer has already requested
     const sentRequestsSnapshot = await db.collection('contactRequests')
       .where('fromUid', '==', uid)
@@ -134,10 +142,10 @@ router.get('/workers', authMiddleware, async (req, res, next) => {
     }));
 
     res.json({
-      fullMatch: markRequested(grouped.fullMatch),
-      partialMatch: markRequested(grouped.partialMatch),
-      skillsMatch: markRequested(grouped.skillsMatch),
-      total: grouped.fullMatch.length + grouped.partialMatch.length + grouped.skillsMatch.length
+      fullMatch: markRequested(fullMatch),
+      partialMatch: markRequested(partialMatch),
+      skillsMatch: markRequested(skillsMatch),
+      total: fullMatch.length + partialMatch.length + skillsMatch.length
     });
   } catch (error) {
     next(error);
@@ -163,7 +171,11 @@ router.get('/workers/for-offer/:offerId', authMiddleware, async (req, res, next)
       await companySubscription.loadActiveCompanyOrThrow(getDb(), uid);
     }
 
-    const relevantWorkers = await matchingService.getRelevantWorkersForOffer(offerId, uid);
+    const relevantWorkersAll = await matchingService.getRelevantWorkersForOffer(offerId, uid);
+
+    // Excluir workers bloqueados por este empleador/empresa.
+    const { uids: blockedUids } = await profileBlocks.listBlockedKeysForOrg(db, uid);
+    const relevantWorkers = relevantWorkersAll.filter(w => !blockedUids.has(w.uid));
 
     // Group by match type
     const grouped = {
