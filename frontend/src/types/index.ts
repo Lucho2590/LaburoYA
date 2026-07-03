@@ -577,6 +577,21 @@ export interface IAdminUserDetail {
     jobOffers: number;
     chats: number;
   };
+  reputation?: {
+    count: number;
+    blocks: IProfileBlock[];
+  };
+}
+
+export interface IProfileBlock {
+  id: string;
+  reason: string;
+  reasonLabel: string;
+  note: string | null;
+  source: 'match' | 'cv' | null;
+  orgId: string | null;
+  offerId: string | null;
+  createdAt: string | null;
 }
 
 export interface IAdminStats {

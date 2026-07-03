@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
+import { Ban } from 'lucide-react';
 import { api } from '@/services/api';
 import { IAdminUserDetail, EUserRole, IWorkerProfile, IEmployerProfile, ICompanyProfile } from '@/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -35,6 +36,20 @@ export default function AdminUserDetailPage() {
       fetchUser();
     }
   }, [uid]);
+
+  const handleUnblock = async (blockId: string) => {
+    if (!userDetail?.reputation) return;
+    try {
+      await api.unblockProfile(blockId);
+      const remaining = userDetail.reputation.blocks.filter((b) => b.id !== blockId);
+      setUserDetail({
+        ...userDetail,
+        reputation: { count: remaining.length, blocks: remaining },
+      });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al desbloquear');
+    }
+  };
 
   const handleRoleChange = async (newRole: EUserRole) => {
     if (!userDetail) return;
@@ -150,7 +165,13 @@ export default function AdminUserDetailPage() {
     );
   }
 
-  const { user, profile, stats } = userDetail;
+  const { user, profile, stats, reputation } = userDetail;
+  const blockCount = reputation?.count ?? 0;
+  const repBadge = blockCount === 0
+    ? { cls: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200', text: 'Sin bloqueos' }
+    : blockCount <= 2
+      ? { cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200', text: `${blockCount} bloqueo${blockCount > 1 ? 's' : ''}` }
+      : { cls: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200', text: `${blockCount} bloqueos` };
 
   return (
     <AdminLayout title="Detalle de Usuario">
@@ -488,6 +509,47 @@ export default function AdminUserDetailPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Reputación / Bloqueos */}
+      <div className="mt-6 theme-bg-card rounded-xl p-6 border theme-border">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold theme-text-primary flex items-center gap-2">
+            <Ban className="w-5 h-5 text-[#E10600]" />
+            Reputación
+          </h2>
+          <span className={`text-sm px-3 py-1 rounded-full font-medium ${repBadge.cls}`}>{repBadge.text}</span>
+        </div>
+        {blockCount === 0 ? (
+          <p className="text-sm theme-text-muted">Este perfil no fue bloqueado por ningún empleador.</p>
+        ) : (
+          <>
+            <p className="text-sm theme-text-muted mb-3">
+              Empleadores que bloquearon este perfil (por match o por CV). Un número alto puede indicar un perfil problemático.
+            </p>
+            <ul className="space-y-2">
+              {reputation!.blocks.map((b) => (
+                <li key={b.id} className="flex items-start justify-between gap-3 p-3 rounded-lg theme-bg-secondary">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium theme-text-primary">{b.reasonLabel}</p>
+                    {b.note && <p className="text-xs theme-text-secondary mt-0.5">{b.note}</p>}
+                    <p className="text-xs theme-text-muted mt-1">
+                      {b.source === 'match' ? 'Desde un match/interesado' : 'Desde un CV analizado'}
+                      {b.createdAt ? ` · ${new Date(b.createdAt).toLocaleDateString('es-AR')}` : ''}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleUnblock(b.id)}
+                    className="text-xs text-[#7C3AED] font-medium shrink-0 cursor-pointer hover:underline"
+                    title="Desbloquear"
+                  >
+                    Desbloquear
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
       </div>
 
       {/* Danger Zone */}

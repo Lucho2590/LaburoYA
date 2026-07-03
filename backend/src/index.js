@@ -20,6 +20,7 @@ const settingsRoutes = require('./routes/settings');
 const citiesRoutes = require('./routes/cities');
 const geocodeRoutes = require('./routes/geocode');
 const prospectsRoutes = require('./routes/prospects');
+const profileBlocksRoutes = require('./routes/profileBlocks');
 const { seedCities } = require('./scripts/seedCities');
 const scheduler = require('./utils/scheduler');
 
@@ -65,6 +66,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/cities', citiesRoutes);
 app.use('/api/geocode', geocodeRoutes);
 app.use('/api/prospects', prospectsRoutes);
+app.use('/api/profile-blocks', profileBlocksRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

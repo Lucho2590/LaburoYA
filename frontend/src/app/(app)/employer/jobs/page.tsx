@@ -9,12 +9,13 @@ import { api } from '@/services/api';
 import { JOB_CATEGORIES, ZONAS_MDP, TRubro, getSuggestedSkills } from '@/config/constants';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { BlockProfileModal } from '@/components/BlockProfileModal';
 import { toast } from 'sonner';
 import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate, IGeoLocation, ICity } from '@/types';
 import { scoreToStars, STAR_MAX, STAR_FILTERS } from '@/lib/stars';
 import { haversineKm, getBrowserLocation } from '@/lib/geo';
 import LocationPicker from '@/components/LocationPicker';
-import { Check, Plus, X, Minus, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, AlertTriangle, RotateCcw, MapPin } from 'lucide-react';
+import { Check, Plus, X, Minus, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, AlertTriangle, RotateCcw, MapPin, Ban } from 'lucide-react';
 
 interface InterestedWorker extends IWorkerProfile {
   firstName?: string;
@@ -67,6 +68,42 @@ export default function EmployerJobsPage() {
   const [interestedModal, setInterestedModal] = useState<{ job: DashboardOffer; workers: InterestedWorker[] } | null>(null);
   const [loadingInterested, setLoadingInterested] = useState(false);
   const [contactingWorker, setContactingWorker] = useState<string | null>(null);
+
+  // Bloqueo de perfil (desde interesados/match o desde un CV del ranking).
+  const [blockTarget, setBlockTarget] = useState<null | {
+    source: 'match' | 'cv';
+    workerUid?: string;
+    email?: string | null;
+    phone?: string | null;
+    offerId?: string | null;
+    name: string;
+    onDone: () => void;
+  }>(null);
+  const [blocking, setBlocking] = useState(false);
+
+  const handleBlock = async (reason: string, note: string) => {
+    if (!blockTarget) return;
+    setBlocking(true);
+    try {
+      await api.blockProfile({
+        source: blockTarget.source,
+        workerUid: blockTarget.workerUid,
+        email: blockTarget.email ?? null,
+        phone: blockTarget.phone ?? null,
+        candidateName: blockTarget.name,
+        offerId: blockTarget.offerId ?? null,
+        reason,
+        note,
+      });
+      blockTarget.onDone();
+      toast.success('Perfil bloqueado');
+      setBlockTarget(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo bloquear');
+    } finally {
+      setBlocking(false);
+    }
+  };
 
   // Análisis de CVs: el estado y el loop viven en CvAnalysisContext para que
   // corran en segundo plano y sobrevivan a la navegación. Acá solo consumimos.
@@ -1402,6 +1439,25 @@ export default function EmployerJobsPage() {
                           <button onClick={() => removePin(p.id)} className="p-2 text-[#E10600] hover:bg-[#E10600]/10 rounded-lg transition-colors cursor-pointer" title="Quitar">
                             <Trash2 className="h-4 w-4" />
                           </button>
+                          <button
+                            onClick={() => {
+                              const name = [p.candidate.firstName, p.candidate.lastName].filter(Boolean).join(' ') || (p.candidate.email || 'Candidato');
+                              setBlockTarget({
+                                source: 'cv',
+                                email: p.candidate.email,
+                                phone: p.candidate.phone,
+                                offerId: pinnedModal?.job.id ?? null,
+                                name,
+                                onDone: () => setPinnedModal((prev) => prev
+                                  ? { ...prev, items: prev.items.filter((it) => it.id !== p.id) }
+                                  : prev),
+                              });
+                            }}
+                            className="p-2 text-[#E10600] hover:bg-[#E10600]/10 rounded-lg transition-colors cursor-pointer"
+                            title="Bloquear perfil"
+                          >
+                            <Ban className="h-4 w-4" />
+                          </button>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 mt-2 flex-wrap">
@@ -1631,6 +1687,28 @@ export default function EmployerJobsPage() {
                         )}
                       </button>
                     )}
+
+                    {/* Bloquear perfil */}
+                    <button
+                      onClick={() => {
+                        const name = worker.firstName && worker.lastName
+                          ? `${worker.firstName} ${worker.lastName}`
+                          : (worker.puesto || 'Trabajador');
+                        setBlockTarget({
+                          source: 'match',
+                          workerUid: worker.uid!,
+                          offerId: interestedModal.job.id,
+                          name,
+                          onDone: () => setInterestedModal((prev) => prev
+                            ? { ...prev, workers: prev.workers.filter((w) => w.uid !== worker.uid) }
+                            : prev),
+                        });
+                      }}
+                      className="mt-2 w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border theme-border text-[#E10600] text-sm font-medium active:scale-[0.98] transition-transform cursor-pointer"
+                    >
+                      <Ban className="h-4 w-4" />
+                      Bloquear
+                    </button>
                   </div>
                 ))
               )}
@@ -1638,6 +1716,14 @@ export default function EmployerJobsPage() {
           </div>
         </div>
       )}
+
+      <BlockProfileModal
+        open={!!blockTarget}
+        name={blockTarget?.name}
+        submitting={blocking}
+        onClose={() => setBlockTarget(null)}
+        onConfirm={handleBlock}
+      />
     </div>
   );
 }

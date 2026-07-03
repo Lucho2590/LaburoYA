@@ -14,6 +14,7 @@ const { normalizeZona } = require('../utils/constants');
 const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
 const companySubscription = require('../utils/companySubscription');
 const companyCandidates = require('../services/companyCandidates');
+const profileBlocks = require('../services/profileBlocks');
 const cvStorage = require('../services/cvStorage');
 const FieldValue = admin.firestore.FieldValue;
 
@@ -318,8 +319,16 @@ router.get('/:id/interested', authMiddleware, async (req, res, next) => {
       return res.json({ interested: [], total: 0 });
     }
 
-    // Get worker details for each interested user
-    const workerIds = interactionsSnapshot.docs.map(doc => doc.data().userId);
+    // Get worker details for each interested user, excluyendo los perfiles que
+    // este empleador/empresa haya bloqueado (no vuelven a aparecerle).
+    const blockedKeys = await profileBlocks.listBlockedKeysForOrg(db, uid);
+    const workerIds = interactionsSnapshot.docs
+      .map(doc => doc.data().userId)
+      .filter(id => !blockedKeys.uids.has(id));
+
+    if (workerIds.length === 0) {
+      return res.json({ interested: [], total: 0 });
+    }
 
     // Check which workers already have a contact request from this employer
     const contactRequestsSnapshot = await db.collection('contactRequests')

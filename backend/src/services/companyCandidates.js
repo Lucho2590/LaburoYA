@@ -112,12 +112,15 @@ async function upsertFromAssessment({ db, organizationId, offerId, fileHash, can
 }
 
 // Lista el talent pool vigente de una organización (excluye los > 6 meses).
-async function listForOrganization(db, organizationId) {
+// `blockedKeys` (opcional, { emails:Set, phones:Set }) excluye perfiles bloqueados.
+async function listForOrganization(db, organizationId, blockedKeys = null) {
   const snap = await db.collection(COLLECTION)
     .where('organizationId', '==', organizationId)
     .get();
 
   const cutoff = Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const blockedEmails = blockedKeys?.emails || new Set();
+  const blockedPhones = blockedKeys?.phones || new Set();
 
   // Ocultar los vencidos (>6 meses) de la vista de la empresa: la exclusividad
   // termina a los 6 meses. El borrado/migración lo hace el job (talentProspects),
@@ -136,7 +139,12 @@ async function listForOrganization(db, organizationId) {
         },
       };
     })
-    .filter(it => !(it.createdMs && it.createdMs < cutoff));
+    .filter(it => !(it.createdMs && it.createdMs < cutoff))
+    .filter(it => {
+      const e = it.value.emailNorm;
+      const p = it.value.phoneNorm;
+      return !((e && blockedEmails.has(e)) || (p && blockedPhones.has(p)));
+    });
 
   return items
     .map(it => it.value)

@@ -1,6 +1,7 @@
 const { getDb } = require('../config/firebase');
 const { zonaCentroid, normalizeZona } = require('../utils/constants');
 const citiesService = require('./citiesService');
+const profileBlocks = require('./profileBlocks');
 
 // Match type constants
 const MATCH_TYPES = {
@@ -513,20 +514,28 @@ class MatchingService {
     const workerIds = new Set();
     const offerIds = new Set();
 
-    const matchesRaw = matchesSnapshot.docs.map(doc => {
-      const matchData = doc.data();
-      if (role === 'worker') {
-        employerIds.add(matchData.employerId);
-        offerIds.add(matchData.offerId);
-      } else {
-        workerIds.add(matchData.workerId);
-      }
-      return {
-        id: doc.id,
-        ...matchData,
-        createdAt: matchData.createdAt?.toDate?.() || matchData.createdAt
-      };
-    });
+    // Del lado empleador/empresa, ocultamos los perfiles bloqueados por este org.
+    let blockedUids = new Set();
+    if (role !== 'worker') {
+      blockedUids = (await profileBlocks.listBlockedKeysForOrg(db, uid)).uids;
+    }
+
+    const matchesRaw = matchesSnapshot.docs
+      .filter(doc => role === 'worker' || !blockedUids.has(doc.data().workerId))
+      .map(doc => {
+        const matchData = doc.data();
+        if (role === 'worker') {
+          employerIds.add(matchData.employerId);
+          offerIds.add(matchData.offerId);
+        } else {
+          workerIds.add(matchData.workerId);
+        }
+        return {
+          id: doc.id,
+          ...matchData,
+          createdAt: matchData.createdAt?.toDate?.() || matchData.createdAt
+        };
+      });
 
     // Batch fetch all related documents in parallel
     const fetchPromises = [];
