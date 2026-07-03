@@ -100,10 +100,11 @@ class ApiService {
 
     if (!response.ok) {
       const err = new Error(data.error || `API request failed with status ${response.status}`) as Error & {
-        status?: number; rateLimited?: boolean; rateScope?: string; retryAfter?: number;
+        status?: number; rateLimited?: boolean; retryable?: boolean; rateScope?: string; retryAfter?: number;
       };
       err.status = response.status;
       err.rateLimited = data.rateLimited;
+      err.retryable = data.retryable;
       err.rateScope = data.rateScope;
       err.retryAfter = data.retryAfter;
       throw err;

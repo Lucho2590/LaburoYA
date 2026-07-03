@@ -594,6 +594,7 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
       return res.status(error.status).json({
         error: error.message,
         rateLimited: !!error.rateLimited,
+        retryable: !!error.retryable,
         rateScope: error.rateScope,
         retryAfter: error.retryAfter,
       });

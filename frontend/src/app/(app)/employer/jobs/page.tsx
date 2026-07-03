@@ -544,9 +544,10 @@ export default function EmployerJobsPage() {
       updateItem(item.id, { status: 'done', result });
       return { outcome: 'done' };
     } catch (error) {
-      const e = error as { rateLimited?: boolean; rateScope?: string; message?: string };
-      if (e?.rateLimited) {
-        // Límite de IA: dejamos el item pendiente para reintentar luego.
+      const e = error as { rateLimited?: boolean; retryable?: boolean; rateScope?: string; message?: string };
+      if (e?.rateLimited || e?.retryable) {
+        // Límite de IA o saturación transitoria del proveedor: dejamos el item
+        // pendiente para reintentar (el worker aplica backoff).
         updateItem(item.id, { status: 'pending', error: undefined });
         return { outcome: 'rate_limited', rateScope: e.rateScope };
       }
@@ -1427,7 +1428,7 @@ export default function EmployerJobsPage() {
 
                   {item.status === 'error' && (
                     <div className="mt-1 flex items-center justify-between gap-2">
-                      <p className="text-xs text-[#E10600]">No se pudo leer el CV</p>
+                      <p className="text-xs text-[#E10600]">{item.error || 'No se pudo evaluar el CV'}</p>
                       {!assessRunning && (
                         <button
                           onClick={() => retryAssessItem(item)}
