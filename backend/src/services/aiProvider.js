@@ -182,6 +182,14 @@ async function getAiConfigDoc() {
   return data;
 }
 
+// Proveedor de IA configurado ('claude' | 'openai' | 'gemini' | null). Lo usa el
+// orquestador para decidir si preprocesa a texto (OCR local) los CVs sin capa de
+// texto: OpenAI no tiene multimodal nativo acá, Claude/Gemini sí.
+async function getConfiguredProvider() {
+  const data = await getAiConfigDoc();
+  return data?.provider || null;
+}
+
 async function getAiConfigPublic() {
   const data = await getAiConfigDoc();
   if (!data) return { provider: null, apiKeyMasked: null, configured: false };
@@ -720,6 +728,7 @@ module.exports = {
   parseCvWithAi,
   parseCvFromPdf,
   assessCvFit,
+  getConfiguredProvider,
   estimateCostUsd,
   MODEL_PRICING,
   getAiConfigPublic,
