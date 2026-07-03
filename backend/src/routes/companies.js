@@ -3,6 +3,7 @@ const { getDb, getAuth } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const { resolveActingContext } = require('../utils/actingContext');
 const companyCandidates = require('../services/companyCandidates');
+const profileBlocks = require('../services/profileBlocks');
 const companyMembers = require('../services/companyMembers');
 const companySubscription = require('../utils/companySubscription');
 const matchingService = require('../services/matchingService');
@@ -83,7 +84,8 @@ router.get('/talent-pool', authMiddleware, async (req, res, next) => {
     }
     const db = getDb();
     await companySubscription.loadActiveCompanyOrThrow(db, organizationId);
-    const candidates = await companyCandidates.listForOrganization(db, organizationId);
+    const blockedKeys = await profileBlocks.listBlockedKeysForOrg(db, organizationId);
+    const candidates = await companyCandidates.listForOrganization(db, organizationId, blockedKeys);
     res.json({ candidates, total: candidates.length });
   } catch (error) {
     next(error);
@@ -117,7 +119,8 @@ router.get('/talent-pool/match', authMiddleware, async (req, res, next) => {
       return res.status(403).json({ error: 'La oferta no pertenece a tu empresa' });
     }
 
-    const pool = await companyCandidates.listForOrganization(db, organizationId);
+    const blockedKeys = await profileBlocks.listBlockedKeysForOrg(db, organizationId);
+    const pool = await companyCandidates.listForOrganization(db, organizationId, blockedKeys);
 
     const scored = pool.map(entry => {
       const candidate = entry.candidate || {};

@@ -387,6 +387,27 @@ class ApiService {
     return this.request<IAdminUserDetail>(`/admin/users/${uid}`);
   }
 
+  // Bloquear un perfil (desde un match/interesado o desde un CV analizado).
+  async blockProfile(payload: {
+    source: 'match' | 'cv';
+    workerUid?: string;
+    email?: string | null;
+    phone?: string | null;
+    candidateName?: string | null;
+    offerId?: string | null;
+    reason: string;
+    note?: string;
+  }) {
+    return this.request<{ ok: boolean; id: string }>(`/profile-blocks`, {
+      method: 'POST',
+      body: payload,
+    });
+  }
+
+  async unblockProfile(id: string) {
+    return this.request<{ ok: boolean }>(`/profile-blocks/${id}`, { method: 'DELETE' });
+  }
+
   async updateAdminUser(uid: string, data: { role?: EUserRole; disabled?: boolean; aiCvEnabled?: boolean }) {
     return this.request<{ message: string; user: IAdminUser }>(`/admin/users/${uid}`, {
       method: 'PATCH',

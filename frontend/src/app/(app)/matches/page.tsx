@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Ban } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMatches } from '@/hooks/useMatches';
 import { useReceivedContactRequests } from '@/hooks/useContactRequests';
@@ -10,6 +11,8 @@ import { usePageTitle } from '@/contexts/PageTitleContext';
 import { IMatch, IContactRequest } from '@/types';
 import { JOB_CATEGORIES, TRubro } from '@/config/constants';
 import { Badge } from '@/components/ui/badge';
+import { BlockProfileModal } from '@/components/BlockProfileModal';
+import { api } from '@/services/api';
 import { toast } from 'sonner';
 
 export default function MatchesPage() {
@@ -20,8 +23,13 @@ export default function MatchesPage() {
   const { setPageConfig } = usePageTitle();
   const [activeTab, setActiveTab] = useState<'pending' | 'accepted'>('pending');
   const [respondingTo, setRespondingTo] = useState<string | null>(null);
+  const [blockTarget, setBlockTarget] = useState<null | { workerUid: string; offerId: string; name: string }>(null);
+  const [blocking, setBlocking] = useState(false);
+  const [blockedWorkerIds, setBlockedWorkerIds] = useState<string[]>([]);
 
-  const acceptedMatches = matches.filter(m => m.status === 'accepted');
+  const acceptedMatches = matches.filter(
+    m => m.status === 'accepted' && !blockedWorkerIds.includes(m.workerId)
+  );
 
   // Set page config
   useEffect(() => {
@@ -68,6 +76,28 @@ export default function MatchesPage() {
       toast.error('Error al rechazar');
     } finally {
       setRespondingTo(null);
+    }
+  };
+
+  const handleBlock = async (reason: string, note: string) => {
+    if (!blockTarget) return;
+    setBlocking(true);
+    try {
+      await api.blockProfile({
+        source: 'match',
+        workerUid: blockTarget.workerUid,
+        offerId: blockTarget.offerId,
+        candidateName: blockTarget.name,
+        reason,
+        note,
+      });
+      setBlockedWorkerIds((prev) => [...prev, blockTarget.workerUid]);
+      toast.success('Perfil bloqueado');
+      setBlockTarget(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo bloquear');
+    } finally {
+      setBlocking(false);
     }
   };
 
@@ -260,11 +290,28 @@ export default function MatchesPage() {
 
         {/* Chat action */}
         {isEmployer ? (
-          <Link href={`/chat/${match.id}`}>
-            <div className="border-t theme-border py-4 text-center text-[#FF6A00] font-medium active:bg-[#FF6A00]/10 transition-colors cursor-pointer">
-              💬 Iniciar chat
-            </div>
-          </Link>
+          <div className="border-t theme-border flex items-center">
+            <Link href={`/chat/${match.id}`} className="flex-1">
+              <div className="py-4 text-center text-[#FF6A00] font-medium active:bg-[#FF6A00]/10 transition-colors cursor-pointer">
+                💬 Iniciar chat
+              </div>
+            </Link>
+            <div className="w-px self-stretch theme-border bg-current" />
+            <button
+              type="button"
+              onClick={() =>
+                setBlockTarget({
+                  workerUid: match.workerId,
+                  offerId: match.offerId,
+                  name: match.worker?.puesto || match.puesto || 'Trabajador',
+                })
+              }
+              className="flex items-center gap-1 px-4 py-4 text-sm text-[#E10600] active:bg-[#E10600]/10 transition-colors cursor-pointer"
+            >
+              <Ban className="w-4 h-4" />
+              Bloquear
+            </button>
+          </div>
         ) : (
           <div className="border-t theme-border p-4">
             <p className="text-center text-xs theme-text-muted mb-2">
@@ -341,6 +388,14 @@ export default function MatchesPage() {
           ))}
         </div>
       )}
+
+      <BlockProfileModal
+        open={!!blockTarget}
+        name={blockTarget?.name}
+        submitting={blocking}
+        onClose={() => setBlockTarget(null)}
+        onConfirm={handleBlock}
+      />
     </div>
   );
 }

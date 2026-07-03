@@ -13,6 +13,8 @@ const citiesService = require('../services/citiesService');
 const locationService = require('../services/locationService');
 const { normalizeZona } = require('../utils/constants');
 const { getDocMapByIds } = require('../utils/firestore');
+const profileBlocks = require('../services/profileBlocks');
+const { normEmail, normPhone } = require('../services/companyCandidates');
 
 const router = express.Router();
 
@@ -502,10 +504,19 @@ router.get('/users/:uid', async (req, res, next) => {
       stats.jobOffers = jobOffersSnapshot.size;
     }
 
+    // Reputación: bloqueos que empleadores hicieron sobre este perfil (por uid,
+    // email o teléfono). Sirve para detectar perfiles rechazados muchas veces.
+    const reputation = await profileBlocks.getBlocksForUser(db, {
+      uid,
+      emailNorm: normEmail(userData.email),
+      phoneNorm: normPhone(userData.phone || userData.phoneNumber),
+    });
+
     res.json({
       user: userData,
       profile,
-      stats
+      stats,
+      reputation
     });
   } catch (error) {
     next(error);

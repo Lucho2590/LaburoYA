@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { Ban } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageTitle } from "@/contexts/PageTitleContext";
 import { api } from "@/services/api";
 import { ICompanyCandidate, IJobOffer } from "@/types";
+import { BlockProfileModal } from "@/components/BlockProfileModal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function Stars({ value }: { value: number }) {
@@ -39,6 +42,8 @@ export default function CompanyTalentPoolPage() {
   const [selectedOfferId, setSelectedOfferId] = useState<string>("");
   const [fetching, setFetching] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [blockTarget, setBlockTarget] = useState<null | { id: string; email: string | null; phone: string | null; name: string }>(null);
+  const [blocking, setBlocking] = useState(false);
 
   useEffect(() => {
     setPageConfig({ title: "Talent pool", showBack: false, onBack: undefined });
@@ -98,6 +103,28 @@ export default function CompanyTalentPoolPage() {
     () => offers.find((o) => o.id === selectedOfferId) || null,
     [offers, selectedOfferId]
   );
+
+  const handleBlock = async (reason: string, note: string) => {
+    if (!blockTarget) return;
+    setBlocking(true);
+    try {
+      await api.blockProfile({
+        source: "cv",
+        email: blockTarget.email,
+        phone: blockTarget.phone,
+        candidateName: blockTarget.name,
+        reason,
+        note,
+      });
+      setCandidates((prev) => prev.filter((c) => c.id !== blockTarget.id));
+      toast.success("Perfil bloqueado");
+      setBlockTarget(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo bloquear");
+    } finally {
+      setBlocking(false);
+    }
+  };
 
   if (loading || (!isCompanyView && !userData?.role)) {
     return (
@@ -256,18 +283,43 @@ export default function CompanyTalentPoolPage() {
                       </span>
                     )}
                   </div>
-                  {c.sourceOfferIds && c.sourceOfferIds.length > 0 && (
-                    <span className="text-xs theme-text-muted">
-                      Visto en {c.sourceOfferIds.length}{" "}
-                      {c.sourceOfferIds.length === 1 ? "búsqueda" : "búsquedas"}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-3">
+                    {c.sourceOfferIds && c.sourceOfferIds.length > 0 && (
+                      <span className="text-xs theme-text-muted">
+                        Visto en {c.sourceOfferIds.length}{" "}
+                        {c.sourceOfferIds.length === 1 ? "búsqueda" : "búsquedas"}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBlockTarget({
+                          id: c.id,
+                          email: cand.email ?? null,
+                          phone: cand.phone ?? null,
+                          name,
+                        })
+                      }
+                      className="flex items-center gap-1 text-xs text-[#E10600] hover:underline"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                      Bloquear
+                    </button>
+                  </div>
                 </div>
               </li>
             );
           })}
         </ul>
       )}
+
+      <BlockProfileModal
+        open={!!blockTarget}
+        name={blockTarget?.name}
+        submitting={blocking}
+        onClose={() => setBlockTarget(null)}
+        onConfirm={handleBlock}
+      />
     </div>
   );
 }
