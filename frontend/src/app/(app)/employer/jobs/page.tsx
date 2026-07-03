@@ -4,15 +4,17 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePageTitle } from '@/contexts/PageTitleContext';
+import { useCvAnalysis, MAX_CVS } from '@/contexts/CvAnalysisContext';
 import { api } from '@/services/api';
 import { JOB_CATEGORIES, ZONAS_MDP, TRubro, getSuggestedSkills } from '@/config/constants';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate, IGeoLocation, ICity } from '@/types';
 import { scoreToStars, STAR_MAX, STAR_FILTERS } from '@/lib/stars';
 import { haversineKm, getBrowserLocation } from '@/lib/geo';
 import LocationPicker from '@/components/LocationPicker';
-import { Check, Plus, X, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, AlertTriangle, RotateCcw, MapPin } from 'lucide-react';
+import { Check, Plus, X, Minus, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, AlertTriangle, RotateCcw, MapPin } from 'lucide-react';
 
 interface InterestedWorker extends IWorkerProfile {
   firstName?: string;
@@ -48,36 +50,8 @@ interface DashboardOffer {
   };
 }
 
-interface AssessItem {
-  id: string;
-  file: File;
-  hash?: string;
-  status: 'pending' | 'running' | 'done' | 'error';
-  result?: IAssessCvResponse;
-  error?: string;
-}
-
-const MAX_CVS = 20;
-// Procesamiento de tandas de CV con IA. En el free tier de Gemini el techo es
-// ~15 req/min, así que espaciamos los arranques (throttle) para acercarnos a ese
-// techo sin gatillar 429 de más, con algo de concurrencia para solapar latencia.
-const AI_CONCURRENCY = 2; // CVs en vuelo simultáneos (IA)
-const AI_MIN_INTERVAL_MS = 4200; // ~14 req/min: arranque mínimo entre llamadas
-const AI_RATE_BACKOFF_MS = 20000; // espera al pegar contra el límite por minuto
-const AI_MAX_RETRIES = 4; // reintentos por CV ante 429 por minuto
-const BASIC_CONCURRENCY = 4; // modo básico (sin IA): sin rate-limit, más paralelo
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const formatUsd = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
-
-// SHA-256 hex of a file (Web Crypto) — used to detect the same file twice.
-async function hashFile(file: File): Promise<string> {
-  const buf = await file.arrayBuffer();
-  const digest = await crypto.subtle.digest('SHA-256', buf);
-  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
-}
 
 export default function EmployerJobsPage() {
   const router = useRouter();
@@ -94,10 +68,9 @@ export default function EmployerJobsPage() {
   const [loadingInterested, setLoadingInterested] = useState(false);
   const [contactingWorker, setContactingWorker] = useState<string | null>(null);
 
-  // CV assessment modal (up to 5 CVs, evaluated one by one)
-  const [assessModal, setAssessModal] = useState<{ job: DashboardOffer } | null>(null);
-  const [assessItems, setAssessItems] = useState<AssessItem[]>([]);
-  const [assessRunning, setAssessRunning] = useState(false);
+  // Análisis de CVs: el estado y el loop viven en CvAnalysisContext para que
+  // corran en segundo plano y sobrevivan a la navegación. Acá solo consumimos.
+  const cv = useCvAnalysis();
 
   // Pinned candidates modal
   const [pinnedModal, setPinnedModal] = useState<{ job: DashboardOffer; items: IPinnedCandidate[] } | null>(null);
@@ -443,189 +416,28 @@ export default function EmployerJobsPage() {
     }
   };
 
-  const openAssessModal = (job: DashboardOffer) => {
-    setAssessModal({ job });
-    setAssessItems([]);
-    setAssessRunning(false);
-  };
-
-  const closeAssessModal = () => {
-    setAssessModal(null);
-    setAssessItems([]);
-    setAssessRunning(false);
-  };
-
-  const isAllowedCvFile = (file: File) => {
-    const allowedMime = [
-      'application/pdf',
-      'image/jpeg',
-      'image/png',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    ];
-    const ext = file.name.toLowerCase().split('.').pop() || '';
-    const allowedExt = ['pdf', 'jpg', 'jpeg', 'png', 'docx'];
-    return allowedMime.includes(file.type) || allowedExt.includes(ext);
-  };
-
-  const handleAssessFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const picked = Array.from(e.target.files || []);
-    e.target.value = ''; // allow re-picking the same file
-    if (picked.length === 0) return;
-
-    const valid: File[] = [];
-    for (const file of picked) {
-      if (!isAllowedCvFile(file)) {
-        toast.error(`${file.name}: formato no soportado`);
-        continue;
+  // Abre el análisis para una oferta. MVP: un análisis a la vez — si ya hay uno
+  // en curso, reabrimos el existente en vez de pisarlo.
+  const handleEvaluar = (job: DashboardOffer) => {
+    if (cv.session) {
+      if (cv.session.job.id !== job.id) {
+        toast.error('Ya hay un análisis en curso. Terminalo o cerralo antes de empezar otro.');
       }
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error(`${file.name}: supera el límite de 5MB`);
-        continue;
-      }
-      valid.push(file);
+      cv.restore();
+      return;
     }
-    if (valid.length === 0) return;
-
-    // Hash each file to drop duplicates already queued in this batch.
-    const hashed = await Promise.all(
-      valid.map(async (file) => ({ file, hash: await hashFile(file) }))
+    cv.start(
+      { id: job.id, puesto: job.puesto, aiAssessEnabled: job.aiAssessEnabled },
+      aiOn && job.aiAssessEnabled !== false,
     );
-
-    setAssessItems((prev) => {
-      const seen = new Set(prev.map((it) => it.hash).filter(Boolean) as string[]);
-      const fresh: { file: File; hash: string }[] = [];
-      const dupeNames: string[] = [];
-      for (const h of hashed) {
-        if (seen.has(h.hash)) { dupeNames.push(h.file.name); continue; }
-        seen.add(h.hash);
-        fresh.push(h);
-      }
-      if (dupeNames.length > 0) {
-        toast.error(
-          dupeNames.length === 1
-            ? `Ese archivo ya lo agregaste: ${dupeNames[0]}`
-            : `${dupeNames.length} archivos repetidos se omitieron: ${dupeNames.join(', ')}`
-        );
-      }
-
-      const room = MAX_CVS - prev.length;
-      if (room <= 0) {
-        toast.error(`Máximo ${MAX_CVS} CVs`);
-        return prev;
-      }
-      if (fresh.length > room) {
-        toast.error(`Máximo ${MAX_CVS} CVs (se agregaron ${room})`);
-      }
-      const toAdd = fresh.slice(0, room).map(({ file, hash }, i) => ({
-        id: `${file.name}-${file.size}-${hash.slice(0, 8)}-${prev.length + i}`,
-        file,
-        hash,
-        status: 'pending' as const,
-      }));
-      return [...prev, ...toAdd];
-    });
   };
 
-  const removeAssessItem = (id: string) => {
-    setAssessItems((prev) => prev.filter((it) => it.id !== id));
-  };
-
-  const updateItem = (id: string, patch: Partial<AssessItem>) => {
-    setAssessItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
-  };
-
-  // Evalúa un único CV. Devuelve el resultado para que el llamador (lote o reintento)
-  // decida cómo seguir. El detalle técnico del error queda en el log de admin.
-  const assessOne = async (item: AssessItem): Promise<{ outcome: 'done' | 'error' | 'rate_limited'; rateScope?: string }> => {
-    if (!assessModal) return { outcome: 'error' };
-    updateItem(item.id, { status: 'running', error: undefined });
-    try {
-      const result = await api.assessOfferCv(assessModal.job.id, item.file);
-      updateItem(item.id, { status: 'done', result });
-      return { outcome: 'done' };
-    } catch (error) {
-      const e = error as { rateLimited?: boolean; retryable?: boolean; rateScope?: string; message?: string };
-      if (e?.rateLimited || e?.retryable) {
-        // Límite de IA o saturación transitoria del proveedor: dejamos el item
-        // pendiente para reintentar (el worker aplica backoff).
-        updateItem(item.id, { status: 'pending', error: undefined });
-        return { outcome: 'rate_limited', rateScope: e.rateScope };
-      }
-      updateItem(item.id, { status: 'error', error: e?.message || 'Error al evaluar el CV' });
-      return { outcome: 'error' };
-    }
-  };
-
-  const runAssessment = async () => {
-    if (!assessModal) return;
-    setAssessRunning(true);
-
-    // Snapshot de los CVs a procesar (pendientes o con error previo).
-    const pending = assessItems.filter((it) => it.status === 'pending' || it.status === 'error');
-    // Modo IA: llama a Gemini (rate-limited). Modo básico: sin IA, más paralelo.
-    const willUseAi = aiOn && assessModal.job.aiAssessEnabled !== false;
-
-    let index = 0;
-    let dayLimit = false;
-    let nextStart = 0; // throttle de arranques compartido entre workers
-
-    // Espacia los arranques de las llamadas de IA para respetar el rate-limit.
-    const throttle = async () => {
-      if (!willUseAi) return;
-      const now = Date.now();
-      const wait = Math.max(0, nextStart - now);
-      nextStart = Math.max(now, nextStart) + AI_MIN_INTERVAL_MS;
-      if (wait > 0) await sleep(wait);
-    };
-
-    // Un worker toma CVs de la cola hasta agotarla. Ante 429 por minuto, espera
-    // y reintenta el MISMO CV (no corta la tanda); ante 429 diario, se detiene.
-    const worker = async () => {
-      while (!dayLimit) {
-        const i = index++;
-        if (i >= pending.length) return;
-        const item = pending[i];
-        let attempts = 0;
-        while (!dayLimit) {
-          await throttle();
-          const r = await assessOne(item);
-          if (r.outcome !== 'rate_limited') break; // done o error → siguiente CV
-          if (r.rateScope === 'day') { dayLimit = true; break; }
-          attempts += 1;
-          if (attempts > AI_MAX_RETRIES) {
-            updateItem(item.id, { status: 'error', error: 'Límite de IA alcanzado. Reintentá con "Evaluar".' });
-            break;
-          }
-          await sleep(AI_RATE_BACKOFF_MS); // límite por minuto → esperar y reintentar
-        }
-      }
-    };
-
-    const workers = willUseAi ? AI_CONCURRENCY : BASIC_CONCURRENCY;
-    const n = Math.min(workers, pending.length || 1);
-    await Promise.all(Array.from({ length: n }, () => worker()));
-
-    setAssessRunning(false);
-    if (dayLimit) {
-      toast.error('Límite diario de la IA alcanzado. Reintentá mañana con "Evaluar".');
-    }
-    refreshJobsSilent(); // actualiza ranking + gasto de IA sin spinner de pantalla
-  };
-
-  // Reintenta la evaluación de un único CV (botón "Reintentar" del item).
-  const retryAssessItem = async (item: AssessItem) => {
-    setAssessRunning(true);
-    const r = await assessOne(item);
-    if (r.outcome === 'rate_limited') {
-      toast.error(
-        (r.rateScope === 'day'
-          ? 'Límite diario de la IA alcanzado. '
-          : 'Límite por minuto de la IA alcanzado. ') + 'Reintentá en unos minutos.'
-      );
-    }
-    setAssessRunning(false);
-    refreshJobsSilent();
-  };
+  // Al terminar una tanda/reintento, refrescamos ranking + gasto de IA (sin
+  // spinner). Solo corre cuando esta página está montada; si no, la página
+  // vuelve a traer datos frescos al montarse.
+  useEffect(() => {
+    if (cv.completedTick > 0) refreshJobsSilent();
+  }, [cv.completedTick, refreshJobsSilent]);
 
   const openPinnedModal = async (job: DashboardOffer) => {
     setPinnedModal({ job, items: [] });
@@ -1027,15 +839,16 @@ export default function EmployerJobsPage() {
             <label className="block text-sm font-medium theme-text-muted mb-2">
               Ciudad <span className="text-[#E10600]">*</span>
             </label>
-            <select
-              value={cityName}
-              onChange={(e) => setCityName(e.target.value)}
-              className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary focus:border-[#E10600] focus:outline-none"
-            >
-              {cities.map((c) => (
-                <option key={c.id} value={c.nombre}>{c.nombre}</option>
-              ))}
-            </select>
+            <Select value={cityName} onValueChange={setCityName}>
+              <SelectTrigger className="w-full data-[size=default]:h-auto px-4 py-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary">
+                <SelectValue placeholder="Elegí una ciudad" />
+              </SelectTrigger>
+              <SelectContent>
+                {cities.map((c) => (
+                  <SelectItem key={c.id} value={c.nombre}>{c.nombre}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
@@ -1051,16 +864,20 @@ export default function EmployerJobsPage() {
           <label className="block text-sm font-medium theme-text-muted mb-2">
             Barrio / Zona (opcional)
           </label>
-          <select
-            value={formData.zona}
-            onChange={(e) => setFormData({ ...formData, zona: e.target.value })}
-            className="w-full p-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary focus:border-[#E10600] focus:outline-none"
+          <Select
+            value={formData.zona || "__none__"}
+            onValueChange={(v) => setFormData({ ...formData, zona: v === "__none__" ? "" : v })}
           >
-            <option value="">Sin especificar</option>
-            {zonaOptions.map((zona) => (
-              <option key={zona} value={zona}>{zona}</option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full data-[size=default]:h-auto px-4 py-4 rounded-xl border-2 theme-border theme-bg-card theme-text-primary">
+              <SelectValue placeholder="Sin especificar" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">Sin especificar</SelectItem>
+              {zonaOptions.map((zona) => (
+                <SelectItem key={zona} value={zona}>{zona}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           {/* Ubicación del lugar de trabajo (para ordenar por cercanía) */}
           <div className="mt-3">
@@ -1318,7 +1135,7 @@ export default function EmployerJobsPage() {
 
                   {/* Evaluar CV (delicado, alineado a la derecha) */}
                   <button
-                    onClick={() => openAssessModal(job)}
+                    onClick={() => handleEvaluar(job)}
                     className={`${aiOn ? '' : 'ml-auto'} inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition active:scale-95 cursor-pointer ${
                       aiOn && job.aiAssessEnabled !== false
                         ? 'bg-[#7C3AED]/10 text-[#7C3AED] hover:bg-[#7C3AED]/15'
@@ -1363,22 +1180,36 @@ export default function EmployerJobsPage() {
         </div>
       )}
 
-      {/* Modal Evaluar CV */}
-      {assessModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
-          <div className="theme-bg-card w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col">
+      {/* Modal Evaluar CV (se renderiza acá pero el estado vive en CvAnalysisContext) */}
+      {cv.session && !cv.minimized && (() => {
+        const session = cv.session;
+        if (!session) return null;
+        const activeJob = session.job;
+        const fullJob = jobs.find((j) => j.id === activeJob.id);
+        const withAi = aiOn && activeJob.aiAssessEnabled !== false;
+        const pendingCount = cv.items.filter((i) => i.status === 'pending' || i.status === 'error').length;
+        const total = cv.items.length;
+        const doneCount = cv.items.filter((i) => i.status === 'done' || i.status === 'error').length;
+        return (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50" onClick={cv.minimize}>
+          <div className="theme-bg-card w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b theme-border">
               <div>
                 <h3 className="font-semibold theme-text-primary flex items-center gap-2">
-                  {aiOn && assessModal.job.aiAssessEnabled !== false ? <Sparkles className="h-5 w-5 text-[#7C3AED]" /> : <FileSearch className="h-5 w-5 text-[#7C3AED]" />}
-                  {aiOn && assessModal.job.aiAssessEnabled !== false ? 'Evaluar CV con IA' : 'Evaluar CV'}
+                  {withAi ? <Sparkles className="h-5 w-5 text-[#7C3AED]" /> : <FileSearch className="h-5 w-5 text-[#7C3AED]" />}
+                  {withAi ? 'Evaluar CV con IA' : 'Evaluar CV'}
                 </h3>
-                <p className="text-sm theme-text-muted">{assessModal.job.puesto}</p>
+                <p className="text-sm theme-text-muted">{activeJob.puesto}</p>
               </div>
-              <button onClick={closeAssessModal} className="p-1 active:theme-bg-secondary rounded-lg cursor-pointer">
-                <X className="h-5 w-5 theme-text-secondary" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button onClick={cv.minimize} title="Minimizar (sigue en segundo plano)" className="p-1 active:theme-bg-secondary rounded-lg cursor-pointer">
+                  <Minus className="h-5 w-5 theme-text-secondary" />
+                </button>
+                <button onClick={cv.close} title="Cerrar" className="p-1 active:theme-bg-secondary rounded-lg cursor-pointer">
+                  <X className="h-5 w-5 theme-text-secondary" />
+                </button>
+              </div>
             </div>
 
             {/* Body */}
@@ -1389,22 +1220,22 @@ export default function EmployerJobsPage() {
                   type="file"
                   multiple
                   accept=".pdf,.jpg,.jpeg,.png,.docx,application/pdf,image/jpeg,image/png,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  onChange={handleAssessFilesChange}
+                  onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ''; cv.addFiles(files); }}
                   className="hidden"
-                  disabled={assessRunning || assessItems.length >= MAX_CVS}
+                  disabled={cv.running || cv.items.length >= MAX_CVS}
                 />
-                <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed theme-border text-sm ${assessRunning || assessItems.length >= MAX_CVS ? 'opacity-50' : 'hover:border-[#7C3AED] cursor-pointer'} theme-text-secondary`}>
+                <div className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed theme-border text-sm ${cv.running || cv.items.length >= MAX_CVS ? 'opacity-50' : 'hover:border-[#7C3AED] cursor-pointer'} theme-text-secondary`}>
                   <Upload className="h-4 w-4" />
-                  {assessItems.length >= MAX_CVS
-                    ? `Máximo ${MAX_CVS} CVs (${assessItems.length}/${MAX_CVS})`
-                    : assessItems.length > 0
-                      ? `Agregar más CVs (${assessItems.length}/${MAX_CVS})`
+                  {cv.items.length >= MAX_CVS
+                    ? `Máximo ${MAX_CVS} CVs (${cv.items.length}/${MAX_CVS})`
+                    : cv.items.length > 0
+                      ? `Agregar más CVs (${cv.items.length}/${MAX_CVS})`
                       : `Subí hasta ${MAX_CVS} CVs (PDF, JPG/PNG o .docx) — máx 5MB c/u`}
                 </div>
               </label>
 
               {/* Items list (compacto: el detalle se ve en el Ranking) */}
-              {assessItems.map((item) => (
+              {cv.items.map((item) => (
                 <div key={item.id} className="border theme-border rounded-xl p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium theme-text-primary truncate">{item.file.name}</p>
@@ -1418,8 +1249,8 @@ export default function EmployerJobsPage() {
                         </span>
                       )}
                       {item.status === 'error' && <span className="text-xs text-[#E10600]">Error</span>}
-                      {!assessRunning && item.status !== 'running' && (
-                        <button onClick={() => removeAssessItem(item.id)} className="p-1 active:theme-bg-secondary rounded-lg cursor-pointer" title="Quitar">
+                      {!cv.running && item.status !== 'running' && (
+                        <button onClick={() => cv.removeItem(item.id)} className="p-1 active:theme-bg-secondary rounded-lg cursor-pointer" title="Quitar">
                           <X className="h-4 w-4 theme-text-secondary" />
                         </button>
                       )}
@@ -1429,9 +1260,9 @@ export default function EmployerJobsPage() {
                   {item.status === 'error' && (
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <p className="text-xs text-[#E10600]">{item.error || 'No se pudo evaluar el CV'}</p>
-                      {!assessRunning && (
+                      {!cv.running && (
                         <button
-                          onClick={() => retryAssessItem(item)}
+                          onClick={() => cv.retryItem(item)}
                           className="text-xs flex items-center gap-1 text-[#7C3AED] font-medium cursor-pointer shrink-0"
                         >
                           <RotateCcw className="h-3 w-3" /> Reintentar
@@ -1446,7 +1277,7 @@ export default function EmployerJobsPage() {
                         {item.result.duplicate === 'file' ? (
                           <span className="text-amber-600">Ya cargado (CV duplicado)</span>
                         ) : item.result.duplicate === 'person' ? (
-                          <button onClick={() => openPinnedModal(assessModal.job)} className="text-amber-600 underline cursor-pointer">
+                          <button onClick={() => fullJob && openPinnedModal(fullJob)} className="text-amber-600 underline cursor-pointer">
                             Perfil ya en el ranking — comparar
                           </button>
                         ) : (
@@ -1460,31 +1291,25 @@ export default function EmployerJobsPage() {
               ))}
 
               {/* Evaluar */}
-              {(() => {
-                const pendingCount = assessItems.filter((i) => i.status === 'pending' || i.status === 'error').length;
-                const total = assessItems.length;
-                const doneCount = assessItems.filter((i) => i.status === 'done' || i.status === 'error').length;
-                return (
-                  <button
-                    onClick={runAssessment}
-                    disabled={assessRunning || pendingCount === 0}
-                    className="w-full py-3 rounded-xl bg-[#7C3AED] text-white font-medium disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    {assessRunning ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Analizando {Math.min(doneCount + 1, total)} de {total}…
-                      </>
-                    ) : (
-                      `Evaluar${pendingCount > 0 ? ` (${pendingCount})` : ''}`
-                    )}
-                  </button>
-                );
-              })()}
+              <button
+                onClick={cv.run}
+                disabled={cv.running || pendingCount === 0}
+                className="w-full py-3 rounded-xl bg-[#7C3AED] text-white font-medium disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {cv.running ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Analizando {Math.min(doneCount + 1, total)} de {total}…
+                  </>
+                ) : (
+                  `Evaluar${pendingCount > 0 ? ` (${pendingCount})` : ''}`
+                )}
+              </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Modal Ranking de CVs */}
       {pinnedModal && (

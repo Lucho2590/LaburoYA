@@ -7,6 +7,7 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
 import { toast } from 'sonner';
 import { ArrowLeft, UserPlus, Mail, Send } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface FormState {
   email: string;
@@ -179,15 +180,18 @@ export default function CreateUserPage() {
 
               <div>
                 <label className="block text-sm font-medium theme-text-primary mb-2">Rol *</label>
-                <select
-                  name="role"
+                <Select
                   value={formData.role}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 rounded-xl border theme-border theme-bg-primary theme-text-primary focus:border-[#E10600] focus:outline-none cursor-pointer"
+                  onValueChange={(v) => setFormData((prev) => ({ ...prev, role: v as 'worker' | 'employer' }))}
                 >
-                  <option value="worker">Trabajador</option>
-                  <option value="employer">Empleador</option>
-                </select>
+                  <SelectTrigger className="w-full px-4 py-3 rounded-xl border theme-border theme-bg-primary theme-text-primary focus:border-[#E10600] cursor-pointer">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="worker">Trabajador</SelectItem>
+                    <SelectItem value="employer">Empleador</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div>

@@ -7,6 +7,7 @@ import { AdminPagination } from '@/components/AdminPagination';
 import { api } from '@/services/api';
 import { IAdminUser, EUserRole, IWorkerProfile, IEmployerProfile, ICompanyProfile, IJobOffer } from '@/types';
 import { Users, Filter, ChevronDown, ChevronUp, ExternalLink, UserPlus, Search } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<IAdminUser[]>([]);
@@ -209,17 +210,21 @@ export default function AdminUsersPage() {
             <span className="text-sm theme-text-secondary">Filtros:</span>
           </div>
 
-          <select
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value as EUserRole | '')}
-            className="px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm"
+          <Select
+            value={roleFilter || '__all__'}
+            onValueChange={(v) => setRoleFilter(v === '__all__' ? '' : (v as EUserRole))}
           >
-            <option value="">Todos los roles</option>
-            <option value="worker">Trabajadores</option>
-            <option value="employer">Empleadores</option>
-            <option value="company">Empresas</option>
-            <option value="superuser">Superusers</option>
-          </select>
+            <SelectTrigger className="px-3 py-2 rounded-lg border theme-border theme-bg-primary theme-text-primary text-sm">
+              <SelectValue placeholder="Todos los roles" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Todos los roles</SelectItem>
+              <SelectItem value="worker">Trabajadores</SelectItem>
+              <SelectItem value="employer">Empleadores</SelectItem>
+              <SelectItem value="company">Empresas</SelectItem>
+              <SelectItem value="superuser">Superusers</SelectItem>
+            </SelectContent>
+          </Select>
 
           <div className="relative">
             <Search className="w-4 h-4 theme-text-muted absolute left-3 top-1/2 -translate-y-1/2" />

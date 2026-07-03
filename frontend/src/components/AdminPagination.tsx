@@ -1,5 +1,7 @@
 'use client';
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 // Paginación client-side reutilizable para las tablas del panel de admin.
 // Mismo look & feel que la de /sudo/jobs.
 export function AdminPagination({
@@ -37,19 +39,23 @@ export function AdminPagination({
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
           <label className="theme-text-secondary text-sm">Mostrar:</label>
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              onPageSizeChange(Number(e.target.value));
+          <Select
+            value={String(pageSize)}
+            onValueChange={(v) => {
+              onPageSizeChange(Number(v));
               onPageChange(1);
             }}
-            className="theme-bg-secondary border theme-border rounded px-2 py-1 text-sm theme-text-primary"
           >
-            <option value={10}>10</option>
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-          </select>
+            <SelectTrigger className="theme-bg-secondary theme-border rounded px-2 py-1 text-sm theme-text-primary">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="25">25</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <span className="theme-text-muted text-sm">
           Mostrando {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalItems)} de {totalItems}

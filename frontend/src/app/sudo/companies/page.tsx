@@ -7,6 +7,7 @@ import { AdminLayout } from "@/components/AdminLayout";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/services/api";
 import { EUserRole, IAdminUser, ICompanyPlan } from "@/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function AdminCompaniesPage() {
   const router = useRouter();
@@ -148,20 +149,23 @@ export default function AdminCompaniesPage() {
               </div>
               <div>
                 <label className="block text-xs theme-text-muted mb-1">Plan *</label>
-                <select
-                  value={form.companyPlanId}
-                  onChange={(e) => setForm({ ...form, companyPlanId: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg theme-bg-secondary theme-text-primary border theme-border text-sm"
-                  required
+                <Select
+                  value={form.companyPlanId || "__none__"}
+                  onValueChange={(v) => setForm({ ...form, companyPlanId: v === "__none__" ? "" : v })}
                 >
-                  <option value="">Elegí un plan…</option>
-                  {plans.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} · {p.durationMonths}m · {p.aiCvEnabled ? "IA" : "sin IA"} ·{" "}
-                      {p.maxCvAnalyses === -1 ? "∞ CVs" : `${p.maxCvAnalyses} CVs`}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger className="w-full px-3 py-2 rounded-lg theme-bg-secondary theme-text-primary border theme-border text-sm">
+                    <SelectValue placeholder="Elegí un plan…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Elegí un plan…</SelectItem>
+                    {plans.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name} · {p.durationMonths}m · {p.aiCvEnabled ? "IA" : "sin IA"} ·{" "}
+                        {p.maxCvAnalyses === -1 ? "∞ CVs" : `${p.maxCvAnalyses} CVs`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {plans.length === 0 && (
                   <p className="text-xs text-amber-600 mt-1">
                     No hay planes de empresa. Creá uno en “Planes Empresa” primero.
