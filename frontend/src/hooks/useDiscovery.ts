@@ -95,12 +95,32 @@ export function useDiscoveryWorkers() {
     return result;
   };
 
+  // Saca un worker de la lista al instante (ej. al bloquearlo). El backend ya lo
+  // excluye en el próximo fetch; esto es para feedback inmediato en la UI.
+  const removeWorker = (workerId: string) => {
+    queryClient.setQueryData<IDiscoveryWorkersResponse>(queryKey, (prev) => {
+      if (!prev) return prev;
+      const f = (arr: IRelevantWorker[]) => arr.filter((w) => w.uid !== workerId);
+      const fullMatch = f(prev.fullMatch);
+      const partialMatch = f(prev.partialMatch);
+      const skillsMatch = f(prev.skillsMatch);
+      return {
+        ...prev,
+        fullMatch,
+        partialMatch,
+        skillsMatch,
+        total: fullMatch.length + partialMatch.length + skillsMatch.length,
+      };
+    });
+  };
+
   return {
     workers: data ?? null,
     loading: !enabled || isLoading,
     error: error ? (error as Error).message : null,
     refetch,
     requestWorker,
+    removeWorker,
   };
 }
 

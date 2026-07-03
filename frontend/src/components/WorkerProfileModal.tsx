@@ -11,13 +11,14 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MapPin, Briefcase, Star, Video, Check, Clock } from 'lucide-react';
+import { MapPin, Briefcase, Star, Video, Check, Clock, Ban } from 'lucide-react';
 
 interface WorkerProfileModalProps {
   worker: IRelevantWorker | null;
   open: boolean;
   onClose: () => void;
   onContact?: (worker: IRelevantWorker) => void;
+  onBlock?: (worker: IRelevantWorker) => void;
   isRequesting?: boolean;
 }
 
@@ -26,6 +27,7 @@ export function WorkerProfileModal({
   open,
   onClose,
   onContact,
+  onBlock,
   isRequesting = false,
 }: WorkerProfileModalProps) {
   if (!worker) return null;
@@ -191,6 +193,16 @@ export function WorkerProfileModal({
           <Button variant="outline" onClick={onClose}>
             Cerrar
           </Button>
+          {onBlock && (
+            <Button
+              variant="outline"
+              onClick={() => onBlock(worker)}
+              className="text-[#E10600] border-[#E10600]/40 hover:bg-[#E10600]/10"
+            >
+              <Ban className="h-4 w-4 mr-2" />
+              Bloquear
+            </Button>
+          )}
           {onContact && !worker.hasRequested && (
             <Button
               onClick={() => onContact(worker)}

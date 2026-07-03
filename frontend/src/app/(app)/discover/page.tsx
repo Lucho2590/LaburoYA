@@ -10,6 +10,8 @@ import { scoreToStars, STAR_MAX, STAR_FILTERS } from "@/lib/stars";
 import { JOB_CATEGORIES, TRubro } from "@/config/constants";
 import { OfferDetailModal } from "@/components/OfferDetailModal";
 import { WorkerProfileModal } from "@/components/WorkerProfileModal";
+import { BlockProfileModal } from "@/components/BlockProfileModal";
+import { api } from "@/services/api";
 import { toast } from "sonner";
 import { MapPin, Video } from "lucide-react";
 
@@ -43,7 +45,37 @@ export default function DiscoverPage() {
     workers,
     loading: workersLoading,
     requestWorker,
+    removeWorker,
   } = useDiscoveryWorkers();
+
+  // Bloqueo de un candidato (worker) desde el detalle. No vuelve a aparecer.
+  const [blockTarget, setBlockTarget] = useState<
+    null | { workerUid: string; offerId: string | null; name: string }
+  >(null);
+  const [blocking, setBlocking] = useState(false);
+
+  const handleBlockWorker = async (reason: string, note: string) => {
+    if (!blockTarget) return;
+    setBlocking(true);
+    try {
+      await api.blockProfile({
+        source: "match",
+        workerUid: blockTarget.workerUid,
+        offerId: blockTarget.offerId,
+        candidateName: blockTarget.name,
+        reason,
+        note,
+      });
+      removeWorker(blockTarget.workerUid);
+      setBlockTarget(null);
+      setSelectedWorker(null);
+      toast.success("Perfil bloqueado");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo bloquear");
+    } finally {
+      setBlocking(false);
+    }
+  };
 
   // Set page config based on role
   useEffect(() => {
@@ -326,7 +358,20 @@ export default function DiscoverPage() {
           open={!!selectedWorker}
           onClose={() => setSelectedWorker(null)}
           onContact={handleContactWorker}
+          onBlock={(w) => setBlockTarget({
+            workerUid: w.uid!,
+            offerId: w.bestOffer?.id ?? null,
+            name: (w.firstName && w.lastName ? `${w.firstName} ${w.lastName}` : (w.puesto || 'Candidato')),
+          })}
           isRequesting={isRequesting}
+        />
+
+        <BlockProfileModal
+          open={!!blockTarget}
+          name={blockTarget?.name}
+          submitting={blocking}
+          onClose={() => setBlockTarget(null)}
+          onConfirm={handleBlockWorker}
         />
       </>
     );
