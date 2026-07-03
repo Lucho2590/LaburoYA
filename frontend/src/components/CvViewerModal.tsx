@@ -1,30 +1,46 @@
 'use client';
 
-import { X, ExternalLink, FileText } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { X, ExternalLink, FileText, Loader2 } from 'lucide-react';
 
-// Popup para ver un CV (PDF/imagen) sin salir de la página. El fileUrl es una URL
-// de Firebase Storage que sirve el archivo inline y cuyo path incluye la extensión.
-// PDF → <iframe>, imagen → <img>, otros (docx) → fallback a abrir en pestaña.
-function cvKind(url: string): 'pdf' | 'image' | 'other' {
+// El visor de Word (docx-preview) se carga sólo en el cliente y on-demand.
+const CvDocxViewer = dynamic(() => import('./CvDocxViewer'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-full gap-2 text-sm theme-text-muted">
+      <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
+    </div>
+  ),
+});
+
+// Popup para ver un CV en la misma página. Prioriza las imágenes de preview
+// (previewUrls, generadas server-side para PDFs) para mostrarlo limpio "como
+// imagen". Si no hay, cae por extensión: imagen → <img>, docx → docx-preview,
+// pdf viejo sin preview → <iframe>, otros → link.
+function cvKind(url: string): 'pdf' | 'image' | 'docx' | 'other' {
   const path = decodeURIComponent(url.split('?')[0]);
   const ext = (path.split('.').pop() || '').toLowerCase();
   if (ext === 'pdf') return 'pdf';
   if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) return 'image';
+  if (['docx', 'doc'].includes(ext)) return 'docx';
   return 'other';
 }
 
 export function CvViewerModal({
   open,
   fileUrl,
+  previewUrls,
   name,
   onClose,
 }: {
   open: boolean;
   fileUrl: string | null;
+  previewUrls?: string[] | null;
   name?: string | null;
   onClose: () => void;
 }) {
   if (!open || !fileUrl) return null;
+  const hasPreviews = Array.isArray(previewUrls) && previewUrls.length > 0;
   const kind = cvKind(fileUrl);
 
   return (
@@ -58,16 +74,24 @@ export function CvViewerModal({
 
         {/* Body */}
         <div className="flex-1 min-h-0 theme-bg-secondary">
-          {kind === 'pdf' && (
-            <iframe src={fileUrl} title="CV" className="w-full h-full border-0" />
-          )}
-          {kind === 'image' && (
+          {hasPreviews ? (
+            // PDF (u otros) ya rasterizado a imágenes: se muestra limpio, sin chrome.
+            <div className="w-full h-full overflow-auto flex flex-col items-center gap-3 p-3">
+              {previewUrls!.map((u, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={i} src={u} alt={`${name || 'CV'} - página ${i + 1}`} className="max-w-full w-auto shadow-sm rounded" />
+              ))}
+            </div>
+          ) : kind === 'image' ? (
             <div className="w-full h-full overflow-auto flex items-center justify-center p-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={fileUrl} alt={name || 'CV'} className="max-w-full max-h-full object-contain" />
             </div>
-          )}
-          {kind === 'other' && (
+          ) : kind === 'docx' ? (
+            <CvDocxViewer fileUrl={fileUrl} />
+          ) : kind === 'pdf' ? (
+            <iframe src={fileUrl} title="CV" className="w-full h-full border-0" />
+          ) : (
             <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
               <FileText className="h-10 w-10 theme-text-muted" />
               <p className="text-sm theme-text-secondary">No se puede previsualizar este formato acá.</p>

@@ -44,6 +44,36 @@ async function uploadCv({ buffer, contentType, originalname, organizationId, fil
   }
 }
 
+// Sube las imágenes de preview (PNG por página) de un CV y devuelve sus URLs.
+// Se usan para mostrar el CV "como imagen" en el front. Best-effort.
+async function uploadPreviewImages(buffers, { organizationId, fileHash }) {
+  const previewUrls = [];
+  const previewPaths = [];
+  try {
+    if (!Array.isArray(buffers) || buffers.length === 0 || !organizationId || !fileHash) {
+      return { previewUrls, previewPaths };
+    }
+    const bucket = getBucket();
+    for (let i = 0; i < buffers.length; i++) {
+      const previewPath = `talent-pool/${organizationId}/${fileHash}-p${i}.png`;
+      const token = crypto.randomUUID();
+      await bucket.file(previewPath).save(buffers[i], {
+        resumable: false,
+        contentType: 'image/png',
+        metadata: {
+          contentType: 'image/png',
+          metadata: { firebaseStorageDownloadTokens: token },
+        },
+      });
+      previewUrls.push(`https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(previewPath)}?alt=media&token=${token}`);
+      previewPaths.push(previewPath);
+    }
+  } catch (e) {
+    console.error('[cvStorage] no se pudieron subir los previews:', e.message);
+  }
+  return { previewUrls, previewPaths };
+}
+
 // Borra el archivo (best-effort) por su path de Storage.
 async function deleteCv(filePath) {
   if (!filePath) return;
@@ -54,4 +84,4 @@ async function deleteCv(filePath) {
   }
 }
 
-module.exports = { uploadCv, deleteCv };
+module.exports = { uploadCv, uploadPreviewImages, deleteCv };

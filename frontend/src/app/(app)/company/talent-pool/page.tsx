@@ -45,7 +45,7 @@ export default function CompanyTalentPoolPage() {
   const [error, setError] = useState<string | null>(null);
   const [blockTarget, setBlockTarget] = useState<null | { id: string; email: string | null; phone: string | null; name: string }>(null);
   const [blocking, setBlocking] = useState(false);
-  const [cvView, setCvView] = useState<null | { url: string; name: string }>(null);
+  const [cvView, setCvView] = useState<null | { url: string; name: string; previewUrls?: string[] | null }>(null);
 
   useEffect(() => {
     setPageConfig({ title: "Talent pool", showBack: false, onBack: undefined });
@@ -242,7 +242,7 @@ export default function CompanyTalentPoolPage() {
                     <p className="text-xs theme-text-muted mt-0.5">{score} pts</p>
                     {c.fileUrl && (
                       <button
-                        onClick={() => setCvView({ url: c.fileUrl!, name })}
+                        onClick={() => setCvView({ url: c.fileUrl!, name, previewUrls: c.previewUrls })}
                         className="inline-flex items-center gap-1 mt-1 text-xs text-[#E10600] hover:underline cursor-pointer"
                       >
                         <Eye className="h-3.5 w-3.5" /> Ver CV
@@ -324,6 +324,7 @@ export default function CompanyTalentPoolPage() {
       <CvViewerModal
         open={!!cvView}
         fileUrl={cvView?.url ?? null}
+        previewUrls={cvView?.previewUrls}
         name={cvView?.name}
         onClose={() => setCvView(null)}
       />
