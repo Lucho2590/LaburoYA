@@ -69,6 +69,10 @@ export default function AiSettingsPage() {
   const [newApiKey, setNewApiKey] = useState('');
   const [savingProvider, setSavingProvider] = useState(false);
 
+  // Feature: análisis público de CV (/evaluar-cv)
+  const [cvCheckEnabled, setCvCheckEnabled] = useState(true);
+  const [savingFeature, setSavingFeature] = useState(false);
+
   // Prompt tab state
   const [prompts, setPrompts] = useState<AiPrompts | null>(null);
   const [editingPrompt, setEditingPrompt] = useState<PromptKey | null>(null);
@@ -123,15 +127,17 @@ export default function AiSettingsPage() {
 
   const load = async () => {
     try {
-      const [configRes, pinRes, promptsRes] = await Promise.all([
+      const [configRes, pinRes, promptsRes, featuresRes] = await Promise.all([
         api.getAdminAiConfig(),
         api.getAdminPinStatus(),
         api.getAdminAiPrompts(),
+        api.getAdminFeatures(),
       ]);
       setProvider(configRes.provider);
       setApiKeyMasked(configRes.apiKeyMasked);
       setPinSet(pinRes.isSet);
       setPrompts(promptsRes);
+      setCvCheckEnabled(featuresRes.cvCheckEnabled);
     } catch (error) {
       const err = error as Error;
       toast.error(err.message || 'Error al cargar configuración');
@@ -171,6 +177,21 @@ export default function AiSettingsPage() {
     );
     // setSavingProvider stays true until modal completes; reset on cancel:
     setTimeout(() => setSavingProvider(false), 100);
+  };
+
+  const handleToggleCvCheck = async () => {
+    const next = !cvCheckEnabled;
+    setSavingFeature(true);
+    setCvCheckEnabled(next); // optimista
+    try {
+      await api.updateAdminFeatures({ cvCheckEnabled: next });
+      toast.success(next ? 'Evaluación de CV habilitada' : 'Evaluación de CV oculta');
+    } catch (error) {
+      setCvCheckEnabled(!next); // revertir
+      toast.error((error as Error).message || 'No se pudo actualizar');
+    } finally {
+      setSavingFeature(false);
+    }
   };
 
   const handleReveal = () => {
@@ -445,6 +466,36 @@ export default function AiSettingsPage() {
                   </div>
                 </>
               )}
+            </div>
+
+            <div className="theme-bg-card rounded-xl p-6 border theme-border">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold theme-text-primary">Evaluación pública de CV</h2>
+                  <p className="text-sm theme-text-secondary mt-1">
+                    Muestra u oculta el botón <span className="font-medium">“Evaluá tu CV”</span> de la web pública
+                    (landing y página <code>/evaluar-cv</code>). Al apagarlo, nadie puede iniciar una evaluación.
+                  </p>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={cvCheckEnabled}
+                  onClick={handleToggleCvCheck}
+                  disabled={savingFeature}
+                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors cursor-pointer disabled:opacity-50 ${
+                    cvCheckEnabled ? 'bg-[#E10600]' : 'bg-gray-300 dark:bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                      cvCheckEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="text-xs theme-text-muted mt-3">
+                Estado actual: <span className="font-medium">{cvCheckEnabled ? 'Visible' : 'Oculto'}</span>.
+              </p>
             </div>
           </>
         ) : tab === 'prompt' ? (

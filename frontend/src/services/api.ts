@@ -32,7 +32,10 @@ import {
   ICreateLeadData,
   ILeadStats,
   ITermsAndConditions,
+  IAppFeatures,
   IAssessCvResponse,
+  ICvCheck,
+  ICvCheckAssessment,
   IPinnedCandidate,
   ICompanyCandidate,
   ICompanyMember,
@@ -802,12 +805,28 @@ class ApiService {
     return this.request<ITermsAndConditions>('/settings/terms', { requireAuth: false });
   }
 
+  // Feature flags públicos (ej. si el análisis de CV está habilitado).
+  async getPublicFeatures() {
+    return this.request<IAppFeatures>('/settings/features', { requireAuth: false });
+  }
+
   // ============================================
   // Admin - Settings
   // ============================================
 
   async getAdminTerms() {
     return this.request<ITermsAndConditions>('/admin/settings/terms');
+  }
+
+  async getAdminFeatures() {
+    return this.request<IAppFeatures>('/admin/settings/features');
+  }
+
+  async updateAdminFeatures(features: Partial<IAppFeatures>) {
+    return this.request<IAppFeatures & { message: string }>('/admin/settings/features', {
+      method: 'PUT',
+      body: features,
+    });
   }
 
   async updateAdminTerms(content: string, confirmUpdate: boolean) {
@@ -1002,6 +1021,48 @@ class ApiService {
       method: 'POST',
       formData,
     });
+  }
+
+  // Análisis de CV público. Autoriza con el JWT propio de CV-check (no la sesión
+  // de Firebase), así no logea en la app.
+  async analyzeCvPublic(rubro: string, file: File, token: string) {
+    const formData = new FormData();
+    formData.append('cv', file);
+    formData.append('rubro', rubro);
+    return this.request<{ puesto: string; rubro: string; assessment: ICvCheckAssessment }>(`/cv-check/analyze`, {
+      method: 'POST',
+      formData,
+      requireAuth: false,
+      extraHeaders: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  async getMyCvCheck(token: string) {
+    return this.request<{ check: ICvCheck | null }>(`/cv-check/me`, {
+      requireAuth: false,
+      extraHeaders: { Authorization: `Bearer ${token}` },
+    });
+  }
+
+  // Registro passwordless por código (valida el email).
+  async requestCvCheckCode(email: string) {
+    return this.request<{ ok: boolean }>(`/cv-check/request-code`, {
+      method: 'POST',
+      body: { email },
+      requireAuth: false,
+    });
+  }
+
+  async verifyCvCheckCode(email: string, code: string) {
+    return this.request<{ token: string }>(`/cv-check/verify-code`, {
+      method: 'POST',
+      body: { email, code },
+      requireAuth: false,
+    });
+  }
+
+  async resetUserCvCheck(uid: string) {
+    return this.request<{ ok: boolean }>(`/admin/users/${uid}/cv-check`, { method: 'DELETE' });
   }
 
   async setCandidateSelected(offerId: string, id: string, selected: boolean) {
