@@ -123,21 +123,26 @@ export default function AiSettingsPage() {
 
   useEffect(() => {
     load();
+    // Las features van aparte: si el endpoint no está desplegado aún (404) o
+    // falla, NO debe romper la carga crítica (config + PIN + prompts).
+    // `cvCheckEnabled` ya arranca en true, así que queda el default.
+    api
+      .getAdminFeatures()
+      .then((f) => setCvCheckEnabled(f.cvCheckEnabled))
+      .catch(() => {});
   }, []);
 
   const load = async () => {
     try {
-      const [configRes, pinRes, promptsRes, featuresRes] = await Promise.all([
+      const [configRes, pinRes, promptsRes] = await Promise.all([
         api.getAdminAiConfig(),
         api.getAdminPinStatus(),
         api.getAdminAiPrompts(),
-        api.getAdminFeatures(),
       ]);
       setProvider(configRes.provider);
       setApiKeyMasked(configRes.apiKeyMasked);
       setPinSet(pinRes.isSet);
       setPrompts(promptsRes);
-      setCvCheckEnabled(featuresRes.cvCheckEnabled);
     } catch (error) {
       const err = error as Error;
       toast.error(err.message || 'Error al cargar configuración');
