@@ -182,10 +182,34 @@ async function getAiConfigDoc() {
   return data;
 }
 
+// Override por variables de entorno (pensado para local/dev): si AI_PROVIDER y
+// AI_API_KEY están seteadas, se usan en vez de la config cifrada en Firestore.
+// En prod no se setean → se sigue leyendo de Firestore.
+function getEnvAiOverride() {
+  const provider = process.env.AI_PROVIDER;
+  const apiKey = process.env.AI_API_KEY;
+  if (provider && apiKey && SUPPORTED_PROVIDERS.includes(provider)) {
+    return { provider, apiKey };
+  }
+  return null;
+}
+
+// Credenciales efectivas de IA: primero el override de env, si no la config
+// cifrada de Firestore (desencriptada). Devuelve { provider, apiKey } o null.
+async function getResolvedAiCredentials() {
+  const override = getEnvAiOverride();
+  if (override) return override;
+  const data = await getAiConfigDoc();
+  if (!data || !data.provider || !data.apiKeyEncrypted) return null;
+  return { provider: data.provider, apiKey: decrypt(data.apiKeyEncrypted) };
+}
+
 // Proveedor de IA configurado ('claude' | 'openai' | 'gemini' | null). Lo usa el
 // orquestador para decidir si preprocesa a texto (OCR local) los CVs sin capa de
 // texto: OpenAI no tiene multimodal nativo acá, Claude/Gemini sí.
 async function getConfiguredProvider() {
+  const override = getEnvAiOverride();
+  if (override) return override.provider;
   const data = await getAiConfigDoc();
   return data?.provider || null;
 }
@@ -375,24 +399,24 @@ async function parseWithGemini(pdfText, apiKey, rubros, systemPrompt) {
 }
 
 async function parseCvWithAi(pdfText) {
-  const data = await getAiConfigDoc();
-  if (!data || !data.provider || !data.apiKeyEncrypted) {
+  const creds = await getResolvedAiCredentials();
+  if (!creds) {
     const err = new Error('La IA no está configurada. Configurala en /sudo/ai-settings antes de usarla.');
     err.status = 400;
     throw err;
   }
-  const apiKey = decrypt(data.apiKeyEncrypted);
+  const { provider, apiKey } = creds;
   const rubros = await getRubroNames();
   const { parse: systemPrompt } = await getResolvedPrompts();
 
   try {
     return await withAiRetry(() => {
-      switch (data.provider) {
+      switch (provider) {
         case 'claude': return parseWithClaude(pdfText, apiKey, rubros, systemPrompt);
         case 'openai': return parseWithOpenAI(pdfText, apiKey, rubros, systemPrompt);
         case 'gemini': return parseWithGemini(pdfText, apiKey, rubros, systemPrompt);
         default:
-          throw new Error(`Provider desconocido: ${data.provider}`);
+          throw new Error(`Provider desconocido: ${provider}`);
       }
     });
   } catch (error) {
@@ -476,20 +500,20 @@ async function parseWithGeminiPdf(base64, mimeType, apiKey, rubros, systemPrompt
  * support. Used for scanned/image PDFs that have no extractable text layer.
  */
 async function parseCvFromPdf(buffer, mimeType) {
-  const data = await getAiConfigDoc();
-  if (!data || !data.provider || !data.apiKeyEncrypted) {
+  const creds = await getResolvedAiCredentials();
+  if (!creds) {
     const err = new Error('La IA no está configurada. Configurala en /sudo/ai-settings antes de usarla.');
     err.status = 400;
     throw err;
   }
-  const apiKey = decrypt(data.apiKeyEncrypted);
+  const { provider, apiKey } = creds;
   const rubros = await getRubroNames();
   const { parse: systemPrompt } = await getResolvedPrompts();
   const base64 = buffer.toString('base64');
 
   try {
     return await withAiRetry(() => {
-      switch (data.provider) {
+      switch (provider) {
         case 'claude': return parseWithClaudePdf(base64, mimeType, apiKey, rubros, systemPrompt);
         case 'gemini': return parseWithGeminiPdf(base64, mimeType, apiKey, rubros, systemPrompt);
         case 'openai': {
@@ -498,7 +522,7 @@ async function parseCvFromPdf(buffer, mimeType) {
           throw err;
         }
         default:
-          throw new Error(`Provider desconocido: ${data.provider}`);
+          throw new Error(`Provider desconocido: ${provider}`);
       }
     });
   } catch (error) {
@@ -663,14 +687,13 @@ async function assessWithGemini(parts, apiKey, systemPrompt) {
  *   recommendation, summary, strengths[], gaps[], matchingSkills[], missingSkills[] }
  */
 async function assessCvFit({ offer, cvText, fileBuffer, mimeType }) {
-  const data = await getAiConfigDoc();
-  if (!data || !data.provider || !data.apiKeyEncrypted) {
+  const creds = await getResolvedAiCredentials();
+  if (!creds) {
     const err = new Error('La IA no está configurada. Configurala en /sudo/ai-settings antes de usarla.');
     err.status = 400;
     throw err;
   }
-  const apiKey = decrypt(data.apiKeyEncrypted);
-  const provider = data.provider;
+  const { provider, apiKey } = creds;
   const { assess: systemPrompt } = await getResolvedPrompts();
 
   try {

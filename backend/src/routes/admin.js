@@ -512,11 +512,26 @@ router.get('/users/:uid', async (req, res, next) => {
       phoneNorm: normPhone(userData.phone || userData.phoneNumber),
     });
 
+    // Análisis de CV público (1 por cuenta): estado para poder resetearlo.
+    const cvCheckEmail = normEmail(userData.email);
+    const cvCheckDoc = cvCheckEmail
+      ? await db.collection('cvChecks').doc(cvCheckEmail).get()
+      : { exists: false };
+    const cvCheck = cvCheckDoc.exists
+      ? {
+          used: true,
+          rubro: cvCheckDoc.data().rubro || null,
+          puesto: cvCheckDoc.data().puesto || null,
+          createdAt: cvCheckDoc.data().createdAt?.toDate?.() || cvCheckDoc.data().createdAt || null,
+        }
+      : { used: false };
+
     res.json({
       user: userData,
       profile,
       stats,
-      reputation
+      reputation,
+      cvCheck
     });
   } catch (error) {
     next(error);
@@ -524,6 +539,20 @@ router.get('/users/:uid', async (req, res, next) => {
 });
 
 // PATCH /api/admin/users/:uid - Update user (role, disabled status)
+// Resetea el análisis de CV público (por email) para que pueda volver a usarlo.
+router.delete('/users/:uid/cv-check', async (req, res, next) => {
+  try {
+    const { uid } = req.params;
+    const db = getDb();
+    const userDoc = await db.collection('users').doc(uid).get();
+    const email = normEmail(userDoc.exists ? userDoc.data().email : null);
+    if (email) await db.collection('cvChecks').doc(email).delete();
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.patch('/users/:uid', async (req, res, next) => {
   try {
     const { uid } = req.params;

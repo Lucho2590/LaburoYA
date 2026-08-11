@@ -582,6 +582,32 @@ export interface IAdminUserDetail {
     count: number;
     blocks: IProfileBlock[];
   };
+  cvCheck?: {
+    used: boolean;
+    rubro?: string | null;
+    puesto?: string | null;
+    createdAt?: string | null;
+  };
+}
+
+export interface ICvCheckAssessment {
+  fitScore: number;
+  recommendation: 'yes' | 'maybe' | 'no';
+  summary: string;
+  strengths: string[];
+  gaps: string[];
+  matchingSkills: string[];
+  missingSkills: string[];
+  firstName?: string | null;
+  lastName?: string | null;
+}
+
+export interface ICvCheck {
+  rubro: string | null;
+  rubroKey?: string | null;
+  puesto: string | null;
+  assessment: ICvCheckAssessment;
+  createdAt: string | null;
 }
 
 export interface IProfileBlock {

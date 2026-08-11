@@ -206,8 +206,70 @@ async function sendNotificationEmail({ to, subject, heading, message, ctaText, c
   return data;
 }
 
+/**
+ * Mail de bienvenida con el código de validación para evaluar el CV (herramienta
+ * pública). El código valida la autenticidad del email.
+ */
+async function sendCvCheckCodeEmail({ to, code }) {
+  const { data, error } = await resend.emails.send({
+    from: `LaburoYA <${FROM_EMAIL}>`,
+    to,
+    subject: `Tu código para evaluar tu CV: ${code}`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
+            <div style="background: white; border-radius: 16px; padding: 40px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+
+              <!-- Logo -->
+              <div style="text-align: center; margin-bottom: 32px;">
+                <h1 style="margin: 0; font-size: 32px; font-weight: bold; background: linear-gradient(to right, #E10600, #FF6A00); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+                  LaburoYA
+                </h1>
+              </div>
+
+              <h2 style="color: #1a1a1a; font-size: 24px; margin: 0 0 16px 0;">¡Bienvenido/a a LaburoYA!</h2>
+
+              <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
+                Usá este código para validar tu email y ver el análisis de tu CV:
+              </p>
+
+              <!-- Código -->
+              <div style="text-align: center; margin: 32px 0;">
+                <div style="display: inline-block; background: #f5f5f5; border-radius: 12px; padding: 20px 40px; font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #1a1a1a;">
+                  ${code}
+                </div>
+              </div>
+
+              <p style="color: #888; font-size: 13px; line-height: 1.6; margin: 0;">
+                El código vence en 15 minutos. Si no pediste este código, podés ignorar este mail.
+              </p>
+
+            </div>
+            <p style="text-align: center; color: #888; font-size: 12px; margin-top: 24px;">
+              © ${new Date().getFullYear()} LaburoYA
+            </p>
+          </div>
+        </body>
+      </html>
+    `
+  });
+
+  if (error) {
+    console.error('Error sending cv-check code email:', error);
+    throw new Error(`Error enviando email: ${error.message}`);
+  }
+  return data;
+}
+
 module.exports = {
   sendInvitationEmail,
   sendPasswordResetEmail,
-  sendNotificationEmail
+  sendNotificationEmail,
+  sendCvCheckCodeEmail
 };

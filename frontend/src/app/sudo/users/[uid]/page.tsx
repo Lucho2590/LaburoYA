@@ -37,6 +37,15 @@ export default function AdminUserDetailPage() {
     }
   }, [uid]);
 
+  const handleResetCvCheck = async () => {
+    try {
+      await api.resetUserCvCheck(uid);
+      setUserDetail((prev) => prev ? { ...prev, cvCheck: { used: false } } : prev);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al resetear el análisis');
+    }
+  };
+
   const handleUnblock = async (blockId: string) => {
     if (!userDetail?.reputation) return;
     try {
@@ -165,7 +174,7 @@ export default function AdminUserDetailPage() {
     );
   }
 
-  const { user, profile, stats, reputation } = userDetail;
+  const { user, profile, stats, reputation, cvCheck } = userDetail;
   const blockCount = reputation?.count ?? 0;
   const repBadge = blockCount === 0
     ? { cls: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200', text: 'Sin bloqueos' }
@@ -550,6 +559,31 @@ export default function AdminUserDetailPage() {
             </ul>
           </>
         )}
+      </div>
+
+      {/* Análisis de CV público (1 por cuenta) */}
+      <div className="mt-6 theme-bg-card rounded-xl p-6 border theme-border">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="text-lg font-semibold theme-text-primary">Análisis de CV</h2>
+            {cvCheck?.used ? (
+              <p className="text-sm theme-text-muted mt-1">
+                Usado{cvCheck.rubro ? ` · ${cvCheck.rubro}` : ''}{cvCheck.puesto ? ` · ${cvCheck.puesto}` : ''}
+                {cvCheck.createdAt ? ` · ${new Date(cvCheck.createdAt).toLocaleDateString('es-AR')}` : ''}
+              </p>
+            ) : (
+              <p className="text-sm theme-text-muted mt-1">Todavía no analizó su CV.</p>
+            )}
+          </div>
+          {cvCheck?.used && (
+            <button
+              onClick={handleResetCvCheck}
+              className="text-sm px-3 py-1.5 rounded-lg theme-bg-secondary theme-text-primary font-medium hover:opacity-80 cursor-pointer"
+            >
+              Resetear análisis
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Danger Zone */}

@@ -23,6 +23,7 @@ import {
   FileText,
   Loader2,
   LogIn,
+  Sparkles,
 } from "lucide-react";
 
 export default function LandingPage() {
@@ -119,6 +120,12 @@ export default function LandingPage() {
               />
             </Link>
             <div className="flex items-center gap-3">
+              <Link href="/evaluar-cv" className="hidden sm:block">
+                <button className="px-4 py-2 text-gray-700 rounded-lg font-medium hover:bg-gray-100 transition-colors flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-[#7C3AED]" />
+                  Evaluá tu CV
+                </button>
+              </Link>
               {loading ? (
                 <div className="w-8 h-8 animate-spin rounded-full border-2 border-gray-300 border-t-[#E10600]"></div>
               ) : isAuthed ? (
@@ -187,6 +194,16 @@ export default function LandingPage() {
                     </button>
                   </Link>
                 )}
+              </div>
+
+              {/* CTA análisis de CV gratis */}
+              <div className="mt-4 flex justify-center lg:justify-start">
+                <Link href="/evaluar-cv">
+                  <button className="w-full sm:w-auto px-8 py-4 bg-[#7C3AED] text-white rounded-xl font-semibold text-lg hover:bg-[#6D28D9] transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2">
+                    <Sparkles className="h-5 w-5" />
+                    Evaluá tu CV gratis con IA
+                  </button>
+                </Link>
               </div>
 
               <div className="flex items-center justify-center lg:justify-start gap-6 mt-8 text-sm text-gray-500">
@@ -492,9 +509,10 @@ export default function LandingPage() {
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {Object.entries(JOB_CATEGORIES).map(([key, value]) => (
-              <div
+              <Link
                 key={key}
-                className="bg-white border border-gray-200 rounded-2xl p-6 text-center hover:border-[#E10600] hover:shadow-md transition-all cursor-pointer group"
+                href={`/evaluar-cv?rubro=${key}`}
+                className="bg-white border border-gray-200 rounded-2xl p-6 text-center hover:border-[#E10600] hover:shadow-md transition-all cursor-pointer group block"
               >
                 <span className="text-4xl mb-3 block group-hover:scale-110 transition-transform">
                   {rubrosEmojis[key]}
@@ -502,7 +520,7 @@ export default function LandingPage() {
                 <span className="font-medium text-gray-700 group-hover:text-[#E10600] transition-colors">
                   {value.label}
                 </span>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -735,6 +753,14 @@ export default function LandingPage() {
                     className="hover:text-white transition-colors"
                   >
                     Ingresar
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    href="/evaluar-cv"
+                    className="hover:text-white transition-colors"
+                  >
+                    Evaluá tu CV
                   </Link>
                 </li>
                 <li>
