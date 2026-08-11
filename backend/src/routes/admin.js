@@ -14,6 +14,7 @@ const locationService = require('../services/locationService');
 const { normalizeZona } = require('../utils/constants');
 const { getDocMapByIds } = require('../utils/firestore');
 const profileBlocks = require('../services/profileBlocks');
+const appFeatures = require('../services/appFeatures');
 const { normEmail, normPhone } = require('../services/companyCandidates');
 
 const router = express.Router();
@@ -2267,6 +2268,30 @@ router.put('/settings/terms', async (req, res, next) => {
       updatedAt: data.updatedAt?.toDate?.() || data.updatedAt,
       updatedBy: data.updatedBy
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/admin/settings/features - Feature flags de la app
+router.get('/settings/features', async (req, res, next) => {
+  try {
+    const features = await appFeatures.getFeatures();
+    res.json(features);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /api/admin/settings/features - Prender/apagar feature flags
+router.put('/settings/features', async (req, res, next) => {
+  try {
+    const { cvCheckEnabled } = req.body;
+    if (typeof cvCheckEnabled !== 'boolean') {
+      return res.status(400).json({ error: 'cvCheckEnabled debe ser booleano' });
+    }
+    const features = await appFeatures.setFeatures({ cvCheckEnabled, updatedBy: req.user.uid });
+    res.json({ message: 'Configuración actualizada', ...features });
   } catch (error) {
     next(error);
   }

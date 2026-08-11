@@ -103,6 +103,8 @@ function EvaluarCvContent() {
   const [result, setResult] = useState<{ puesto: string | null; assessment: ICvCheckAssessment } | null>(null);
   const [alreadyUsed, setAlreadyUsed] = useState(false);
   const [checking, setChecking] = useState(true);
+  // Feature flag: null = cargando, false = deshabilitado por el admin.
+  const [enabled, setEnabled] = useState<boolean | null>(null);
 
   const runAnalyze = useCallback(async (rubroKey: string, cv: File, token: string) => {
     setStep("analyzing");
@@ -129,6 +131,14 @@ function EvaluarCvContent() {
 
   // Al cargar: si hay un token de CV-check guardado (NO es sesión de app) y ya
   // había un análisis, mostramos el resultado previo.
+  // Chequeo del feature flag: si el admin lo apagó, mostramos "no disponible".
+  useEffect(() => {
+    api
+      .getPublicFeatures()
+      .then((f) => setEnabled(f.cvCheckEnabled))
+      .catch(() => setEnabled(false));
+  }, []);
+
   useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
     if (!token) { setChecking(false); return; }
@@ -216,9 +226,21 @@ function EvaluarCvContent() {
         </div>
 
         <div className="theme-bg-card border theme-border rounded-2xl p-5 sm:p-6">
-          {checking ? (
+          {enabled === null || checking ? (
             <div className="flex justify-center py-10">
               <Loader2 className="h-6 w-6 animate-spin text-[#7C3AED]" />
+            </div>
+          ) : enabled === false ? (
+            <div className="text-center py-8">
+              <p className="font-semibold theme-text-primary">La evaluación de CV no está disponible</p>
+              <p className="text-sm theme-text-secondary mt-1">
+                Esta función está desactivada por el momento. Volvé a intentarlo más tarde.
+              </p>
+              <div className="mt-6">
+                <Link href="/" className="text-sm text-[#7C3AED] font-medium hover:underline">
+                  Volver al inicio
+                </Link>
+              </div>
             </div>
           ) : step === "result" && result ? (
             <>

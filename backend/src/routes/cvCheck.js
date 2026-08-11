@@ -10,9 +10,23 @@ const { getDb } = require('../config/firebase');
 const cvAssessment = require('../services/cvAssessment');
 const { normEmail } = require('../services/companyCandidates');
 const { sendCvCheckCodeEmail } = require('../services/emailService');
+const appFeatures = require('../services/appFeatures');
 const { JOB_CATEGORIES, getSuggestedSkills } = require('../utils/constants');
 
 const router = express.Router();
+
+// Guard: si el admin apagó el análisis público de CV, ninguna acción del flujo
+// (pedir código, validarlo o analizar) queda disponible, ni con la URL directa.
+async function requireCvCheckEnabled(req, res, next) {
+  try {
+    if (!(await appFeatures.isCvCheckEnabled())) {
+      return res.status(403).json({ error: 'La evaluación de CV no está disponible por el momento.' });
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
 
 const CODE_TTL_MS = 15 * 60 * 1000; // el código vence a los 15 min
 const CODE_RESEND_COOLDOWN_MS = 60 * 1000; // no reenviar antes de 60s
@@ -97,7 +111,7 @@ router.get('/me', cvCheckAuth, async (req, res, next) => {
 });
 
 // Analiza el CV. 1 sola vez por email.
-router.post('/analyze', cvCheckAuth, cvUpload.single('cv'), async (req, res, next) => {
+router.post('/analyze', requireCvCheckEnabled, cvCheckAuth, cvUpload.single('cv'), async (req, res, next) => {
   try {
     const email = req.cvEmail;
     const db = getDb();
@@ -151,7 +165,7 @@ router.post('/analyze', cvCheckAuth, cvUpload.single('cv'), async (req, res, nex
 // --- Registro passwordless por código (valida la autenticidad del email) ---
 
 // Pide un código: lo genera, lo guarda y lo manda por mail.
-router.post('/request-code', async (req, res, next) => {
+router.post('/request-code', requireCvCheckEnabled, async (req, res, next) => {
   try {
     const email = normEmail(req.body.email);
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -197,7 +211,7 @@ router.post('/request-code', async (req, res, next) => {
 });
 
 // Verifica el código y devuelve un JWT corto de CV-check (NO logea en la app).
-router.post('/verify-code', async (req, res, next) => {
+router.post('/verify-code', requireCvCheckEnabled, async (req, res, next) => {
   try {
     const email = normEmail(req.body.email);
     const code = String(req.body.code || '').trim();

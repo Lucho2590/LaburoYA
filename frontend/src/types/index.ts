@@ -807,6 +807,10 @@ export interface ITermsAndConditions {
   updatedBy?: string;
 }
 
+export interface IAppFeatures {
+  cvCheckEnabled: boolean;
+}
+
 export interface IWhatsAppTemplate {
   template: string;
   updatedAt?: string;

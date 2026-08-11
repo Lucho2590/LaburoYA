@@ -32,6 +32,7 @@ import {
   ICreateLeadData,
   ILeadStats,
   ITermsAndConditions,
+  IAppFeatures,
   IAssessCvResponse,
   ICvCheck,
   ICvCheckAssessment,
@@ -804,12 +805,28 @@ class ApiService {
     return this.request<ITermsAndConditions>('/settings/terms', { requireAuth: false });
   }
 
+  // Feature flags públicos (ej. si el análisis de CV está habilitado).
+  async getPublicFeatures() {
+    return this.request<IAppFeatures>('/settings/features', { requireAuth: false });
+  }
+
   // ============================================
   // Admin - Settings
   // ============================================
 
   async getAdminTerms() {
     return this.request<ITermsAndConditions>('/admin/settings/terms');
+  }
+
+  async getAdminFeatures() {
+    return this.request<IAppFeatures>('/admin/settings/features');
+  }
+
+  async updateAdminFeatures(features: Partial<IAppFeatures>) {
+    return this.request<IAppFeatures & { message: string }>('/admin/settings/features', {
+      method: 'PUT',
+      body: features,
+    });
   }
 
   async updateAdminTerms(content: string, confirmUpdate: boolean) {
