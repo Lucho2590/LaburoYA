@@ -5,8 +5,22 @@ const FieldValue = admin.firestore.FieldValue;
 const { authMiddleware } = require('../middleware/auth');
 const notificationService = require('../services/notificationService');
 const { getAllByIds } = require('../utils/firestore');
+const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
+const { loadOwnerProfile, ownerDisplayName } = require('../utils/ownerProfile');
 
 const router = express.Router();
+
+/**
+ * Quién ejecutó la acción, además de a nombre de quién quedó. Para una empresa,
+ * `fromUid`/`employerId` son el uid de la organización; esto guarda si detrás
+ * hubo un miembro del equipo o un superuser impersonando, para poder auditarlo.
+ */
+function auditFields(req, { actingUid, isImpersonating }) {
+  return {
+    actorUid: req.user.uid,
+    ...(req.user.uid !== actingUid ? { onBehalfOf: actingUid, impersonated: !!isImpersonating } : {}),
+  };
+}
 
 /**
  * Helper: Check if a reverse contact request exists (mutual interest)
@@ -94,7 +108,9 @@ async function createMutualMatch(db, workerId, employerId, offerId, jobOfferData
  */
 router.post('/worker-to-offer', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    // Para un worker actingUid === req.user.uid; se usa igual para no dejar
+    // este archivo con dos formas distintas de resolver la identidad.
+    const { actingUid: uid, effectiveRole, userData } = await resolveActingContext(req);
     const { offerId } = req.body;
 
     if (!offerId) {
@@ -103,15 +119,10 @@ router.post('/worker-to-offer', authMiddleware, async (req, res, next) => {
 
     const db = getDb();
 
-    // Verify user is a worker
-    const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists) {
+    if (!userData) {
       return res.status(403).json({ error: 'User not found' });
     }
-    const userData = userDoc.data();
-    const isWorker = userData.role === 'worker' ||
-      (userData.role === 'superuser' && userData.secondaryRole === 'worker');
-    if (!isWorker) {
+    if (effectiveRole !== 'worker') {
       return res.status(403).json({ error: 'Only workers can request offers' });
     }
 
@@ -275,10 +286,15 @@ router.post('/worker-to-offer', authMiddleware, async (req, res, next) => {
  */
 router.post('/employer-to-worker', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    // Las ofertas se guardan con employerId = uid de la ORGANIZACIÓN, y discovery
+    // devuelve candidatos resolviendo el mismo actingUid. Usar req.user.uid acá
+    // hacía fallar con 403 a un miembro del equipo o a un superuser impersonando,
+    // porque su uid no es el dueño de la oferta.
+    const ctx = await resolveActingContext(req);
+    const { actingUid: uid, effectiveRole, userData } = ctx;
     const { workerId, offerId } = req.body;
 
-    console.log('[ContactRequests] employer-to-worker:', { uid, workerId, offerId });
+    console.log('[ContactRequests] employer-to-worker:', { uid, actorUid: req.user.uid, workerId, offerId });
 
     if (!workerId || !offerId) {
       return res.status(400).json({ error: 'workerId and offerId are required' });
@@ -286,15 +302,12 @@ router.post('/employer-to-worker', authMiddleware, async (req, res, next) => {
 
     const db = getDb();
 
-    // Verify user is an employer
-    const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists) {
+    if (!userData) {
       return res.status(403).json({ error: 'User not found' });
     }
-    const userData = userDoc.data();
-    const isEmployer = userData.role === 'employer' ||
-      (userData.role === 'superuser' && userData.secondaryRole === 'employer');
-    if (!isEmployer) {
+    // isEmployerLike acepta 'company': con el chequeo literal contra 'employer',
+    // el dueño de una empresa ni siquiera llegaba al chequeo de la oferta.
+    if (!isEmployerLike(effectiveRole)) {
       return res.status(403).json({ error: 'Only employers can request workers' });
     }
 
@@ -352,8 +365,7 @@ router.post('/employer-to-worker', authMiddleware, async (req, res, next) => {
       // Send match notifications if it's a new match
       if (!match.alreadyExisted) {
         const workerData = workerDoc.data();
-        const employerDoc2 = await db.collection('employers').doc(uid).get();
-        const employerData = employerDoc2.exists ? employerDoc2.data() : {};
+        const ownerProfile = await loadOwnerProfile(db, uid);
 
         // Get worker user info for better name
         const workerUserDoc = await db.collection('users').doc(workerId).get();
@@ -366,7 +378,7 @@ router.post('/employer-to-worker', authMiddleware, async (req, res, next) => {
           workerId,
           employerId: uid,
           workerName,
-          employerName: employerData.businessName || 'Empresa',
+          employerName: ownerDisplayName(ownerProfile),
           offerTitle: jobOfferData.puesto || 'oferta',
           matchId: match.id
         }).catch(err => console.error('Match notification error:', err));
@@ -390,19 +402,19 @@ router.post('/employer-to-worker', authMiddleware, async (req, res, next) => {
       offerId,
       status: 'pending',
       createdAt: new Date(),
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      ...auditFields(req, ctx)
     };
 
     const requestRef = await db.collection('contactRequests').add(requestData);
 
     // Get employer info for notification
-    const employerDoc = await db.collection('employers').doc(uid).get();
-    const employerData = employerDoc.exists ? employerDoc.data() : {};
+    const ownerProfile = await loadOwnerProfile(db, uid);
 
     // Send notification to worker
     notificationService.notifyContactRequestReceived({
       recipientId: workerId,
-      senderName: employerData.businessName || 'Una empresa',
+      senderName: ownerDisplayName(ownerProfile, 'Una empresa'),
       offerTitle: jobOfferData.puesto || 'una oferta',
       requestId: requestRef.id,
       senderType: 'employer'
@@ -427,7 +439,9 @@ router.post('/employer-to-worker', authMiddleware, async (req, res, next) => {
  */
 router.get('/received', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    // Las postulaciones a una oferta de empresa llegan con toUid = uid de la
+    // organización: con req.user.uid, un miembro del equipo no veía ninguna.
+    const { actingUid: uid } = await resolveActingContext(req);
     const db = getDb();
 
     const requestsSnapshot = await db.collection('contactRequests')
@@ -517,7 +531,7 @@ router.get('/received', authMiddleware, async (req, res, next) => {
  */
 router.get('/sent', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const db = getDb();
 
     const requestsSnapshot = await db.collection('contactRequests')
@@ -606,7 +620,8 @@ router.get('/sent', authMiddleware, async (req, res, next) => {
  */
 router.patch('/:id/respond', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const ctx = await resolveActingContext(req);
+    const { actingUid: uid } = ctx;
     const { id } = req.params;
     const { response } = req.body;
 
@@ -637,7 +652,8 @@ router.patch('/:id/respond', authMiddleware, async (req, res, next) => {
     if (response === 'rejected') {
       await requestRef.update({
         status: 'rejected',
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        respondedBy: auditFields(req, ctx)
       });
 
       return res.json({
@@ -661,15 +677,15 @@ router.patch('/:id/respond', authMiddleware, async (req, res, next) => {
     await requestRef.update({
       status: 'accepted',
       matchId: match.id,
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      respondedBy: auditFields(req, ctx)
     });
 
     // Send match notification if it's a new match
     if (!match.alreadyExisted) {
       const workerDoc = await db.collection('workers').doc(requestData.workerId).get();
-      const employerDoc = await db.collection('employers').doc(requestData.employerId).get();
       const workerData = workerDoc.exists ? workerDoc.data() : {};
-      const employerData = employerDoc.exists ? employerDoc.data() : {};
+      const employerData = (await loadOwnerProfile(db, requestData.employerId)) || {};
 
       notificationService.notifyMatchCreated({
         workerId: requestData.workerId,
@@ -697,7 +713,7 @@ router.patch('/:id/respond', authMiddleware, async (req, res, next) => {
  */
 router.get('/status/:offerId', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const { offerId } = req.params;
     const db = getDb();
 

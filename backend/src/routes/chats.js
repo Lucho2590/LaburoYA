@@ -1,41 +1,34 @@
 const express = require('express');
 const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
+const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
+const { loadOwnerProfile } = require('../utils/ownerProfile');
 
 const router = express.Router();
 
-// Helper to check if user is employer
-function isUserEmployer(userData) {
-  return userData.role === 'employer' ||
-    (userData.role === 'superuser' && userData.secondaryRole === 'employer');
-}
-
-// Helper to check if user is worker
-function isUserWorker(userData) {
-  return userData.role === 'worker' ||
-    (userData.role === 'superuser' && userData.secondaryRole === 'worker');
-}
+// El rol sale de resolveActingContext, que ya contempla empresa, miembro de
+// equipo e impersonación. Antes se calculaba acá comparando contra el literal
+// 'employer', que dejaba afuera a las cuentas de empresa.
+const isEmployerRole = isEmployerLike;
+const isWorkerRole = (effectiveRole) => effectiveRole === 'worker';
 
 // Get or create chat for a match
 // Both employer and worker can initiate chats if there's a match
 router.post('/:matchId', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid, effectiveRole, userData } = await resolveActingContext(req);
     const { matchId } = req.params;
 
     console.log('[Chats] POST /:matchId - Starting:', { uid, matchId });
     const db = getDb();
 
-    // Get user role
-    const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists) {
-      console.log('[Chats] User not found:', uid);
+    if (!userData) {
+      console.log('[Chats] User not found:', req.user.uid);
       return res.status(404).json({ error: 'User not found' });
     }
-    const userData = userDoc.data();
-    const isWorker = isUserWorker(userData);
-    const isEmployer = isUserEmployer(userData);
-    console.log('[Chats] User role:', { role: userData.role, secondaryRole: userData.secondaryRole, isWorker, isEmployer });
+    const isWorker = isWorkerRole(effectiveRole);
+    const isEmployer = isEmployerRole(effectiveRole);
+    console.log('[Chats] User role:', { effectiveRole, isWorker, isEmployer });
 
     // Verify match exists and user is part of it
     const matchDoc = await db.collection('matches').doc(matchId).get();
@@ -60,11 +53,13 @@ router.post('/:matchId', authMiddleware, async (req, res, next) => {
 
     console.log('[Chats] Existing chat found:', !existingChat.empty);
 
-    // Get participant info
+    // Get participant info. Del lado del worker la contraparte puede ser un
+    // employer individual o una empresa: loadOwnerProfile cubre las dos
+    // colecciones, buscar sólo en `employers` dejaba el participante en null.
     const otherUid = isWorker ? matchData.employerId : matchData.workerId;
-    const otherCollection = isWorker ? 'employers' : 'workers';
-    const otherDoc = await db.collection(otherCollection).doc(otherUid).get();
-    const participant = otherDoc.exists ? otherDoc.data() : null;
+    const participant = isWorker
+      ? await loadOwnerProfile(db, otherUid)
+      : (await db.collection('workers').doc(otherUid).get()).data() || null;
 
     // Get participant user info (name, email)
     const otherUserDoc = await db.collection('users').doc(otherUid).get();
@@ -116,7 +111,7 @@ router.post('/:matchId', authMiddleware, async (req, res, next) => {
 // Get chat messages
 router.get('/:chatId/messages', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const { chatId } = req.params;
     const { limit = 50, before } = req.query;
 
@@ -159,7 +154,8 @@ router.get('/:chatId/messages', authMiddleware, async (req, res, next) => {
 // Send message
 router.post('/:chatId/messages', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const ctx = await resolveActingContext(req);
+    const { actingUid: uid } = ctx;
     const { chatId } = req.params;
     const { text } = req.body;
 
@@ -180,10 +176,14 @@ router.post('/:chatId/messages', authMiddleware, async (req, res, next) => {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
+    // senderId es la organización (es quien figura en el chat del otro lado);
+    // quién lo escribió realmente queda en los campos de auditoría.
     const messageData = {
       senderId: uid,
       text: text.trim(),
-      createdAt: new Date()
+      createdAt: new Date(),
+      actorUid: req.user.uid,
+      ...(req.user.uid !== uid ? { impersonated: !!ctx.isImpersonating } : {})
     };
 
     // Add message
@@ -208,20 +208,17 @@ router.post('/:chatId/messages', authMiddleware, async (req, res, next) => {
 // Get user's chats
 router.get('/', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid, effectiveRole, userData } = await resolveActingContext(req);
     const db = getDb();
 
     console.log('[Chats] GET / - Fetching chats for user:', uid);
 
-    // Get user role
-    const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists) {
-      console.log('[Chats] GET / - User not found:', uid);
+    if (!userData) {
+      console.log('[Chats] GET / - User not found:', req.user.uid);
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const userData = userDoc.data();
-    const isWorker = isUserWorker(userData);
+    const isWorker = isWorkerRole(effectiveRole);
     const field = isWorker ? 'workerId' : 'employerId';
 
     console.log('[Chats] GET / - Querying chats with field:', field, 'uid:', uid);
@@ -251,13 +248,16 @@ router.get('/', authMiddleware, async (req, res, next) => {
       };
     });
 
-    // Batch fetch all participants and their user info in parallel
-    const otherCollection = isWorker ? 'employers' : 'workers';
+    // Batch fetch all participants and their user info in parallel. Del lado
+    // del worker la contraparte puede ser employer o empresa (colecciones
+    // distintas), de ahí el loadOwnerProfile en vez de una colección fija.
     const participantIdsArray = Array.from(participantIds);
 
     const [profileDocs, userDocs] = await Promise.all([
       Promise.all(participantIdsArray.map(id =>
-        db.collection(otherCollection).doc(id).get()
+        isWorker
+          ? loadOwnerProfile(db, id).then((data) => ({ exists: !!data, data: () => data }))
+          : db.collection('workers').doc(id).get()
       )),
       Promise.all(participantIdsArray.map(id =>
         db.collection('users').doc(id).get()
