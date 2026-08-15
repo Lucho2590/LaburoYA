@@ -10,6 +10,7 @@ import { JOB_CATEGORIES, ZONAS_MDP, TRubro, getSuggestedSkills } from '@/config/
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { BlockProfileModal } from '@/components/BlockProfileModal';
+import { ShareJobModal } from '@/components/ShareJobModal';
 import { toast } from 'sonner';
 import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate, IGeoLocation, ICity } from '@/types';
 import { scoreToStars, STAR_MAX, STAR_FILTERS } from '@/lib/stars';
@@ -63,6 +64,9 @@ export default function EmployerJobsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingJob, setEditingJob] = useState<IJobOffer | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Compartir búsqueda (link + QR)
+  const [shareJob, setShareJob] = useState<DashboardOffer | null>(null);
 
   // Interested workers modal
   const [interestedModal, setInterestedModal] = useState<{ job: DashboardOffer; workers: InterestedWorker[] } | null>(null);
@@ -1188,15 +1192,22 @@ export default function EmployerJobsPage() {
               {/* Actions */}
               <div className="flex border-t theme-border">
                 <button
+                  onClick={() => setShareJob(job)}
+                  className="flex-1 py-3 theme-text-secondary text-xs font-medium active:theme-bg-secondary cursor-pointer"
+                >
+                  🔗 Compartir
+                </button>
+                <div className="w-px theme-bg-secondary" />
+                <button
                   onClick={() => handleEdit(job)}
-                  className="flex-1 py-3 theme-text-secondary text-sm font-medium active:theme-bg-secondary cursor-pointer"
+                  className="flex-1 py-3 theme-text-secondary text-xs font-medium active:theme-bg-secondary cursor-pointer"
                 >
                   ✏️ Editar
                 </button>
                 <div className="w-px theme-bg-secondary" />
                 <button
                   onClick={() => toggleJobStatus(job.id, job.active)}
-                  className="flex-1 py-3 theme-text-secondary text-sm font-medium active:theme-bg-secondary cursor-pointer"
+                  className="flex-1 py-3 theme-text-secondary text-xs font-medium active:theme-bg-secondary cursor-pointer"
                 >
                   {job.active ? '⏸️ Pausar' : '▶️ Activar'}
                 </button>
@@ -1207,7 +1218,7 @@ export default function EmployerJobsPage() {
                       deleteJob(job.id);
                     }
                   }}
-                  className="flex-1 py-3 text-[#E10600] text-sm font-medium active:bg-[#E10600]/10 cursor-pointer"
+                  className="flex-1 py-3 text-[#E10600] text-xs font-medium active:bg-[#E10600]/10 cursor-pointer"
                 >
                   🗑️ Eliminar
                 </button>
@@ -1723,6 +1734,14 @@ export default function EmployerJobsPage() {
         submitting={blocking}
         onClose={() => setBlockTarget(null)}
         onConfirm={handleBlock}
+      />
+
+      <ShareJobModal
+        open={!!shareJob}
+        offerId={shareJob?.id ?? null}
+        puesto={shareJob?.puesto}
+        rubro={shareJob?.rubro}
+        onClose={() => setShareJob(null)}
       />
     </div>
   );

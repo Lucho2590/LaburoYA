@@ -46,6 +46,14 @@ function writeCachedUserData(data: IUserData | null) {
   }
 }
 
+// Los mails de auth (verificación, reseteo) los manda el backend por Resend con
+// el diseño de la app. Si el backend contesta 4xx, es una respuesta con sentido
+// y hay que mostrarla; si se cayó, conviene caer al envío nativo de Firebase.
+function isBackendRejection(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  return typeof status === 'number' && status >= 400 && status < 500;
+}
+
 interface AuthContextType {
   user: User | null;
   userData: IUserData | null;
@@ -214,8 +222,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string) => {
     if (!auth) throw new Error('Firebase not configured');
     const result = await createUserWithEmailAndPassword(auth as Auth, email, password);
-    // Send verification email
-    await sendEmailVerification(result.user);
+    const idToken = await result.user.getIdToken();
+
+    // Verificación por Resend (mail con botón). Recién creada la cuenta,
+    // auth.currentUser puede no haber propagado: pasamos el token a mano.
+    try {
+      await api.sendVerificationEmail(idToken);
+    } catch {
+      // Si el backend no responde, que Firebase mande el suyo antes que dejar
+      // a alguien sin poder verificar. Acá no distinguimos 4xx: sobre una
+      // cuenta recién creada no hay ni cooldown ni email ya verificado.
+      await sendEmailVerification(result.user);
+    }
+
+    await persistReferralIntent();
+  };
+
+  // Si la persona llegó por un QR/link (rol y oferta guardados por /register en
+  // localStorage), lo dejamos asentado en el backend AHORA, que es cuando ya
+  // existe el uid. Antes esto se resolvía sólo con localStorage al llegar a
+  // /onboarding, y se perdía en cuanto el flujo cambiaba de origen o de
+  // dispositivo: el link de verificación de Firebase apunta siempre al dominio
+  // de producción, así que quien se registraba en local (o abría el mail en el
+  // teléfono) volvía sin nada y le aparecía el selector de rol igual.
+  const persistReferralIntent = async () => {
+    const referralRole = localStorage.getItem('referralRole');
+    if (referralRole !== 'worker' && referralRole !== 'employer') return;
+
+    try {
+      await api.registerUser(referralRole as EUserRole);
+      localStorage.removeItem('referralRole');
+
+      // pendingOfferId NO se borra: /home lo usa para llevar a la persona
+      // directo a la oferta con el detalle abierto. Volver a setearla desde
+      // ahí es idempotente.
+      const pendingOfferId = localStorage.getItem('pendingOfferId');
+      if (pendingOfferId && referralRole === 'worker') {
+        await api.setSharedOffer(pendingOfferId);
+      }
+    } catch {
+      // Si falla, quedan los valores en localStorage y /onboarding y /home los
+      // levantan como antes. Se pierde sólo si además se cambia de origen.
+    }
   };
 
   const signInWithGoogle = async () => {
@@ -258,7 +306,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resendVerificationEmail = async () => {
     if (!user) throw new Error('No user logged in');
-    await sendEmailVerification(user);
+    try {
+      await api.sendVerificationEmail();
+    } catch (err) {
+      // Un 4xx del backend es una respuesta con sentido (cooldown, o el email
+      // ya verificado): se propaga para mostrarla. Sólo caemos a Firebase si
+      // el backend está caído.
+      if (isBackendRejection(err)) throw err;
+      await sendEmailVerification(user);
+    }
   };
 
   const reloadUser = async (): Promise<boolean> => {
@@ -271,7 +327,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const sendPasswordResetEmail = async (email: string) => {
     if (!auth) throw new Error('Firebase not configured');
-    await firebaseSendPasswordResetEmail(auth as Auth, email);
+    try {
+      await api.sendPasswordResetEmail(email);
+    } catch (err) {
+      if (isBackendRejection(err)) throw err;
+      await firebaseSendPasswordResetEmail(auth as Auth, email);
+    }
   };
 
   const getEffectiveAppRole = (): EAppRole | undefined => {
