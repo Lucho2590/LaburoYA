@@ -171,6 +171,23 @@ router.patch('/basic-info', authMiddleware, async (req, res, next) => {
   }
 });
 
+// Marca que el worker ya pasó por el onboarding del perfil laboral, lo haya
+// completado o no. Sirve para mandarlo una sola vez: insistir en cada login
+// sería peor que el problema que resuelve.
+router.patch('/profile-wizard-seen', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    await getDb().collection('users').doc(uid).set({
+      profileWizardSeenAt: new Date(),
+      updatedAt: new Date()
+    }, { merge: true });
+
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Set secondary role for superusers
 router.patch('/secondary-role', authMiddleware, async (req, res, next) => {
   try {

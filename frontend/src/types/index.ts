@@ -37,6 +37,10 @@ export interface IUserData {
   age?: number;
   nickname?: string;
   onboardingCompleted?: boolean;
+  // Ya pasó por el onboarding del perfil laboral, lo haya completado o no. Sin
+  // esto no se distingue "todavía no lo vio" de "lo salteó", y el guard lo
+  // mandaría al wizard en cada login.
+  profileWizardSeenAt?: string | null;
   aiCvEnabled?: boolean; // Admin-controlled: AI CV-assessment module enabled
 }
 

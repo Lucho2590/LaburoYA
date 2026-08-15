@@ -187,12 +187,19 @@ class ApiService {
         age?: number;
         nickname?: string;
         onboardingCompleted?: boolean;
+        profileWizardSeenAt?: string | null;
         aiCvEnabled?: boolean;
       };
       profile: unknown;
       impersonating?: { companyId: string; businessName?: string | null };
       companySubscription?: ICompanySubscriptionSummary;
     }>('/auth/me');
+  }
+
+  // Deja marcado que el worker ya pasó por el onboarding del perfil, para no
+  // volver a interrumpirlo en cada login.
+  async markProfileWizardSeen() {
+    return this.request<{ ok: true }>('/auth/profile-wizard-seen', { method: 'PATCH' });
   }
 
   async setSecondaryRole(secondaryRole: 'worker' | 'employer') {

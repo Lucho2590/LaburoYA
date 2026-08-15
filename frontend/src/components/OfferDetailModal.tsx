@@ -110,7 +110,7 @@ export function OfferDetailModal({
           {/* Description */}
           {offer.description && (
             <div className="space-y-1">
-              <h4 className="text-sm font-medium">Descripcion</h4>
+              <h4 className="text-sm font-medium">Descripción</h4>
               <p className="text-sm text-muted-foreground">
                 {offer.description}
               </p>
@@ -153,48 +153,49 @@ export function OfferDetailModal({
               </div>
               {offer.relevance.details.matchingSkills.length > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Tienes {offer.relevance.details.matchingSkills.length} de{" "}
+                  Tenés {offer.relevance.details.matchingSkills.length} de{" "}
                   {offer.requiredSkills.length} skills requeridos
                 </p>
               )}
             </div>
           )}
 
-          {/* Match Details */}
-          <div className=" my-2 bg-muted/50 rounded-lg p-3 space-y-1">
-            <h4 className="text-sm font-medium">Por que es un buen match</h4>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="flex items-center gap-1">
-                {offer.relevance.details.rubroMatch ? (
-                  <Check className="h-3 w-3 text-green-500" />
-                ) : (
-                  <Clock className="h-3 w-3 text-muted-foreground" />
-                )}
-                <span>Tu rubro</span>
-              </div>
-              <div className="flex items-center gap-1">
-                {offer.relevance.details.puestoMatch ? (
-                  <Check className="h-3 w-3 text-green-500" />
-                ) : (
-                  <Clock className="h-3 w-3 text-muted-foreground" />
-                )}
-                <span>Tu puesto</span>
-              </div>
-              <div className="flex items-center gap-1">
-                {offer.relevance.details.zonaMatch ? (
-                  <Check className="h-3 w-3 text-green-500" />
-                ) : (
-                  <Clock className="h-3 w-3 text-muted-foreground" />
-                )}
-                <span>Tu zona</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-muted-foreground">
-                  {offer.relevance.details.matchingSkills.length} skills
-                </span>
+          {/* Por qué matchea. Sólo si hay match real: en una oferta compartida
+              con el perfil vacío, este bloque se titulaba "Por qué es un buen
+              match" y mostraba tres relojes grises y "0 skills", o sea decía
+              justo lo contrario. */}
+          {offer.relevance.matchType ? (
+            <div className="my-2 bg-muted/50 rounded-lg p-3 space-y-1">
+              <h4 className="text-sm font-medium">Por qué es un buen match</h4>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {[
+                  { label: "Tu rubro", ok: offer.relevance.details.rubroMatch },
+                  { label: "Tu puesto", ok: offer.relevance.details.puestoMatch },
+                  { label: "Tu zona", ok: offer.relevance.details.zonaMatch },
+                  {
+                    label: `${offer.relevance.details.matchingSkills.length} skills en común`,
+                    ok: offer.relevance.details.matchingSkills.length > 0,
+                  },
+                ].map(({ label, ok }) => (
+                  <div key={label} className="flex items-center gap-1">
+                    {ok ? (
+                      <Check className="h-3 w-3 text-green-500" />
+                    ) : (
+                      <Clock className="h-3 w-3 text-muted-foreground" />
+                    )}
+                    <span>{label}</span>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="my-2 rounded-lg bg-muted/50 p-3">
+              <p className="text-xs text-muted-foreground">
+                Completá tu perfil para que te aparezcan más búsquedas como esta y
+                para que el empleador sepa quién sos.
+              </p>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="flex-col sm:flex-row gap-2">

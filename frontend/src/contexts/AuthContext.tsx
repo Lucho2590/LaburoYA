@@ -115,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         age: data.user?.age,
         nickname: data.user?.nickname,
         onboardingCompleted: data.user?.onboardingCompleted,
+        profileWizardSeenAt: data.user?.profileWizardSeenAt ?? null,
         aiCvEnabled: data.user?.aiCvEnabled,
       });
     } catch {
@@ -184,6 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             age: data.user?.age,
             nickname: data.user?.nickname,
             onboardingCompleted: data.user?.onboardingCompleted,
+        profileWizardSeenAt: data.user?.profileWizardSeenAt ?? null,
             aiCvEnabled: data.user?.aiCvEnabled,
           });
 
