@@ -508,7 +508,9 @@ export default function AdminJobsPage() {
                       <div className="flex items-center gap-3">
                         <button
                           onClick={() => setShareJob(job)}
-                          className="text-xs text-[#E10600] hover:underline cursor-pointer"
+                          disabled={isExpired(job.expiresAt)}
+                          title={isExpired(job.expiresAt) ? 'La búsqueda venció: el link no sirve' : undefined}
+                          className="text-xs text-[#E10600] hover:underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
                         >
                           Compartir
                         </button>

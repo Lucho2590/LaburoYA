@@ -46,12 +46,28 @@ export default function DashboardPage() {
     setPageConfig({ title: "", showBack: false, onBack: undefined });
   }, [setPageConfig]);
 
+  const needsOnboarding = !!user && !!userData?.role && !userData?.onboardingCompleted && !isSuperuser;
+  // Worker que nunca pasó por el onboarding del perfil: se lo mostramos UNA vez.
+  // Si ya lo vio (lo haya completado o salteado), de acá en más sólo ve el
+  // banner de abajo — insistir en cada login sería peor que el problema.
+  const needsProfileWizard =
+    !!user &&
+    !needsOnboarding &&
+    effectiveRole === "worker" &&
+    !userData?.profileWizardSeenAt &&
+    !(userData?.profile as IWorkerProfile | undefined)?.rubro;
+
   // Búsqueda compartida por link/QR: /register la dejó en localStorage. La
   // registramos en el backend (para que quede fijada arriba del feed aunque el
   // perfil todavía no matchee) y llevamos a la persona directo a verla. /home es
   // el punto de paso común de los dos caminos: login directo y fin del onboarding.
   useEffect(() => {
     if (loading || !user || effectiveRole !== "worker") return;
+    // Si estamos por mandarlo al onboarding, no tocar todavía el pendingOfferId:
+    // borrarlo acá se comería el ?offer= y el detalle no se abriría nunca al
+    // volver. La oferta igual quedaría fijada (sharedOfferId ya está en
+    // Firestore desde el registro), pero se pierde la apertura automática.
+    if (needsOnboarding || needsProfileWizard) return;
 
     const pendingOfferId = localStorage.getItem("pendingOfferId");
     if (!pendingOfferId) return;
@@ -72,7 +88,7 @@ export default function DashboardPage() {
             : "La búsqueda que te compartieron ya no está disponible",
         );
       });
-  }, [loading, user, effectiveRole, router, refetchOffers]);
+  }, [loading, user, effectiveRole, router, refetchOffers, needsOnboarding, needsProfileWizard]);
 
   useEffect(() => {
     // No rebotar a /login si Firebase todavía tiene sesión resolviéndose
@@ -85,15 +101,18 @@ export default function DashboardPage() {
     }
     // Si tiene rol pero no completó onboarding, ir al form de datos básicos
     // (los superusers no completan onboarding; se encaminan a /sudo más abajo)
-    if (!loading && user && userData?.role && !userData?.onboardingCompleted && !isSuperuser) {
+    if (!loading && needsOnboarding) {
       router.push("/onboarding/basic-info");
+    }
+    if (!loading && needsProfileWizard) {
+      router.push("/onboarding/perfil");
     }
     // Superuser without secondaryRole should go to admin panel to set it
     // (salvo que esté impersonando una empresa: ahí se queda en la app).
     if (!loading && user && isSuperuser && !userData?.secondaryRole && !userData?.impersonating?.companyId) {
       router.push("/sudo");
     }
-  }, [loading, user, userData, router, isSuperuser]);
+  }, [loading, user, userData, router, isSuperuser, needsOnboarding, needsProfileWizard]);
 
   // Calculate worker profile completion (must be before early returns)
   const workerProfileCompletion = useMemo(() => {
@@ -339,6 +358,14 @@ export default function DashboardPage() {
                       {employerDashboard?.summary.totalCandidates ?? 0}
                     </p>
                     <p className="theme-text-secondary text-sm">Candidatos</p>
+                    {/* Los de búsquedas vencidas o pausadas no entran en el
+                        número de arriba: se avisan aparte para que el total
+                        siempre coincida con lo que se ve en /discover. */}
+                    {(employerDashboard?.summary.totalCandidatesLocked ?? 0) > 0 && (
+                      <p className="theme-text-muted text-xs mt-1">
+                        +{employerDashboard!.summary.totalCandidatesLocked} bloqueados
+                      </p>
+                    )}
                   </div>
                 </Link>
               </>

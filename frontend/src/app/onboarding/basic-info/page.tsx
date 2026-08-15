@@ -86,7 +86,9 @@ export default function BasicInfoPage() {
 
       await refreshUserData();
       toast.success('¡Datos guardados!');
-      router.push('/home');
+      // El worker sigue al perfil laboral: sin rubro, puesto y skills el
+      // matching no tiene con qué trabajar y ningún empleador lo encuentra.
+      router.push(isEmployer ? '/home' : '/onboarding/perfil');
     } catch (error) {
       toast.error('Error al guardar los datos');
       console.error(error);

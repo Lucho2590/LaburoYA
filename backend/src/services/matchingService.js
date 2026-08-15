@@ -118,6 +118,14 @@ async function getActiveOffers(db) {
   return data;
 }
 
+// Fuerza el refresco del cache. Lo usa republicar una oferta, donde esperar el
+// TTL dejaría la oferta invisible en discovery hasta un minuto después de que
+// el empleador la revivió.
+function invalidateActiveCache() {
+  _activeCache.offers = null;
+  _activeCache.workers = null;
+}
+
 async function getActiveWorkers(db) {
   const now = Date.now();
   if (_activeCache.workers && now - _activeCache.workers.ts < ACTIVE_TTL_MS) {
@@ -372,33 +380,35 @@ class MatchingService {
     const db = getDb();
     await citiesService.ensureLoaded();
 
-    // Get all employer's active offers
+    // Todas las ofertas del empleador, incluidas pausadas y vencidas: los
+    // candidatos de esas se devuelven aparte, bloqueados, en vez de
+    // desaparecer sin explicación (el dashboard los sigue contando).
     const offersSnapshot = await db.collection('jobOffers')
       .where('employerId', '==', employerId)
-      .where('active', '==', true)
       .get();
 
     if (offersSnapshot.empty) {
-      return { fullMatch: [], partialMatch: [], skillsMatch: [] };
+      return { fullMatch: [], partialMatch: [], skillsMatch: [], locked: [] };
     }
 
     // Get all active workers (cacheado, TTL corto)
     const activeWorkers = await getActiveWorkers(db);
 
     const workerScores = new Map(); // uid -> { worker, bestScore, bestMatchType, bestOffer }
+    const lockedScores = new Map(); // idem, para ofertas no vigentes
 
     for (const offerDoc of offersSnapshot.docs) {
       const offer = { id: offerDoc.id, ...offerDoc.data() };
-      // Ignorar ofertas vencidas al armar el listado de candidatos.
-      if (isOfferExpired(offer)) continue;
+      const isLive = offer.active !== false && !isOfferExpired(offer);
+      const target = isLive ? workerScores : lockedScores;
 
       for (const worker of activeWorkers) {
         const relevance = this.calculateRelevanceScore(worker, offer);
 
         if (relevance.matchType) {
-          const existing = workerScores.get(worker.uid);
+          const existing = target.get(worker.uid);
           if (!existing || relevance.score > existing.bestScore) {
-            workerScores.set(worker.uid, {
+            target.set(worker.uid, {
               ...worker,
               bestScore: relevance.score,
               bestStars: relevance.stars,
@@ -410,6 +420,10 @@ class MatchingService {
         }
       }
     }
+
+    // Un worker que ya es visible por una oferta vigente no se muestra además
+    // como bloqueado.
+    for (const uid of workerScores.keys()) lockedScores.delete(uid);
 
     // Batch fetch user info (name, email) for all workers at once
     const workerUids = Array.from(workerScores.keys());
@@ -466,6 +480,24 @@ class MatchingService {
     Object.keys(result).forEach(key => {
       result[key].sort((a, b) => b.bestScore - a.bestScore);
     });
+
+    // Bloqueados: se REDACTAN acá, en el servidor. Difuminarlos sólo con CSS
+    // dejaría nombre, email, foto y video en el payload y en el DOM, o sea
+    // que no bloquearía nada. Se conserva lo que da contexto sin identificar.
+    result.locked = Array.from(lockedScores.values())
+      .sort((a, b) => b.bestScore - a.bestScore)
+      .map(w => ({
+        uid: w.uid,
+        rubro: w.rubro,
+        puesto: w.puesto,
+        zona: w.zona,
+        skills: w.skills || [],
+        hasVideo: !!w.videoUrl,
+        bestStars: w.bestStars,
+        bestMatchType: w.bestMatchType,
+        bestOffer: { id: w.bestOffer.id, puesto: w.bestOffer.puesto },
+        locked: true
+      }));
 
     return result;
   }
@@ -646,3 +678,4 @@ module.exports.isOfferExpired = isOfferExpired;
 // el full-scan de workers/ofertas.
 module.exports.getActiveWorkers = getActiveWorkers;
 module.exports.getActiveOffers = getActiveOffers;
+module.exports.invalidateActiveCache = invalidateActiveCache;
