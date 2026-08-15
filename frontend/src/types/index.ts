@@ -366,6 +366,12 @@ export interface IDiscoveryOffersResponse {
   partialMatch: IRelevantOffer[];
   skillsMatch: IRelevantOffer[];
   total: number;
+  // Búsqueda que le compartieron por link/QR: va fijada arriba del feed aunque
+  // no matchee, hasta que se postule o la descarte.
+  pinned?: IRelevantOffer | null;
+  // false mientras no haya cargado el perfil laboral (rubro, puesto, skills):
+  // el feed viene vacío porque el matching no tiene con qué matchear.
+  hasWorkerProfile?: boolean;
 }
 
 export interface IDiscoveryWorkersResponse {

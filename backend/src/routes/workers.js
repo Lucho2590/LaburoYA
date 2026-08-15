@@ -152,4 +152,39 @@ router.patch('/status', authMiddleware, async (req, res, next) => {
   }
 });
 
+// Guarda la oferta que le compartieron por link/QR, para fijarla arriba de
+// discovery. Se llama al entrar a la app con el ref job_<offerId>. No exige
+// tener perfil laboral: el objetivo es justamente que el recién registrado la
+// vea aunque todavía no matchee con nada.
+router.post('/shared-offer', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid } = req.user;
+    const { offerId } = req.body || {};
+
+    if (!offerId || typeof offerId !== 'string') {
+      return res.status(400).json({ error: 'offerId is required' });
+    }
+
+    const db = getDb();
+    const offerDoc = await db.collection('jobOffers').doc(offerId).get();
+    if (!offerDoc.exists) {
+      return res.status(404).json({ error: 'Job offer not found' });
+    }
+
+    const offer = offerDoc.data();
+    if (offer.active === false || matchingService.isOfferExpired(offer)) {
+      return res.status(410).json({ error: 'Esta búsqueda ya no está disponible' });
+    }
+
+    await db.collection('users').doc(uid).set({
+      sharedOfferId: offerId,
+      updatedAt: new Date()
+    }, { merge: true });
+
+    res.json({ message: 'Shared offer saved', offerId });
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

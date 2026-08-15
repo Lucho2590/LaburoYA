@@ -1,13 +1,16 @@
 const express = require('express');
+const admin = require('firebase-admin');
 const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const matchingService = require('../services/matchingService');
 const { MATCH_TYPES } = require('../services/matchingService');
+const citiesService = require('../services/citiesService');
 const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
 const companySubscription = require('../utils/companySubscription');
 const profileBlocks = require('../services/profileBlocks');
 
 const router = express.Router();
+const FieldValue = admin.firestore.FieldValue;
 
 // Una solicitud de contacto cuenta como "ya solicitada" sólo si sigue activa:
 // pendiente vigente o ya matcheada. Las rechazadas/vencidas permiten re-postularse.
@@ -40,7 +43,17 @@ router.get('/offers', authMiddleware, async (req, res, next) => {
       return res.status(403).json({ error: 'Only workers can discover offers' });
     }
 
-    const relevantOffers = await matchingService.getRelevantOffersForWorker(uid);
+    // El perfil laboral (workers/{uid}) se crea recién en /worker/profile, así que
+    // un recién registrado todavía no lo tiene. En vez de cortar con 404, seguimos
+    // con el feed vacío: igual puede haber una oferta compartida para fijar.
+    let relevantOffers = [];
+    let hasWorkerProfile = true;
+    try {
+      relevantOffers = await matchingService.getRelevantOffersForWorker(uid);
+    } catch (err) {
+      if (err.message !== 'Worker not found') throw err;
+      hasWorkerProfile = false;
+    }
 
     // Get offers marked as "not interested" by this worker
     const notInterestedSnapshot = await db.collection('offerInteractions')
@@ -83,19 +96,76 @@ router.get('/offers', authMiddleware, async (req, res, next) => {
       hasRequested: requestedOfferIds.has(offer.id)
     }));
 
+    // Oferta compartida por link/QR: se fija arriba del feed aunque no matchee,
+    // hasta que el worker se postule o la descarte (ahí se limpia el campo).
+    const pinned = await resolveSharedOffer(db, uid, userData.sharedOfferId, {
+      notInterestedOfferIds,
+      requestedOfferIds
+    });
+
     res.json({
-      fullMatch: markRequested(grouped.fullMatch),
-      partialMatch: markRequested(grouped.partialMatch),
-      skillsMatch: markRequested(grouped.skillsMatch),
+      pinned,
+      hasWorkerProfile,
+      fullMatch: markRequested(grouped.fullMatch).filter(o => o.id !== pinned?.id),
+      partialMatch: markRequested(grouped.partialMatch).filter(o => o.id !== pinned?.id),
+      skillsMatch: markRequested(grouped.skillsMatch).filter(o => o.id !== pinned?.id),
       total: filteredOffers.length
     });
   } catch (error) {
-    if (error.message === 'Worker not found') {
-      return res.status(404).json({ error: 'Worker profile not found. Please complete your profile first.' });
-    }
     next(error);
   }
 });
+
+/**
+ * Devuelve la oferta compartida a fijar, o null. Si dejó de ser fijable (borrada,
+ * pausada, vencida, ya postulada o descartada) limpia sharedOfferId del usuario
+ * para no volver a mirarla en cada carga del feed.
+ */
+async function resolveSharedOffer(db, uid, sharedOfferId, { notInterestedOfferIds, requestedOfferIds }) {
+  if (!sharedOfferId) return null;
+
+  const clear = async () => {
+    await db.collection('users').doc(uid).update({
+      sharedOfferId: FieldValue.delete()
+    });
+    return null;
+  };
+
+  if (notInterestedOfferIds.has(sharedOfferId) || requestedOfferIds.has(sharedOfferId)) {
+    return clear();
+  }
+
+  const offerDoc = await db.collection('jobOffers').doc(sharedOfferId).get();
+  if (!offerDoc.exists) return clear();
+
+  const offer = { id: offerDoc.id, ...offerDoc.data() };
+  if (offer.active === false || matchingService.isOfferExpired(offer)) return clear();
+
+  // calculateRelevanceScore resuelve ciudades de forma síncrona; si el worker no
+  // tenía perfil no pasamos por getRelevantOffersForWorker, que es quien las carga.
+  await citiesService.ensureLoaded();
+
+  // El dueño puede ser un employer individual o una empresa; mismo lookup que
+  // matchingService al armar el feed.
+  let owner = await db.collection('employers').doc(offer.employerId).get();
+  if (!owner.exists) owner = await db.collection('companies').doc(offer.employerId).get();
+
+  // El worker puede no tener perfil todavía: la relevancia da matchType null y
+  // la card se muestra igual, sin estrellas.
+  const workerDoc = await db.collection('workers').doc(uid).get();
+  const relevance = matchingService.calculateRelevanceScore(
+    workerDoc.exists ? workerDoc.data() : {},
+    offer
+  );
+
+  return {
+    ...offer,
+    employer: owner.exists ? owner.data() : null,
+    relevance,
+    createdAt: offer.createdAt?.toDate?.() || offer.createdAt,
+    hasRequested: false
+  };
+}
 
 /**
  * GET /workers

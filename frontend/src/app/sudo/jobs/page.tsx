@@ -6,6 +6,7 @@ import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
 import { IAdminJobOffer, IAdminMatch } from '@/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ShareJobModal } from '@/components/ShareJobModal';
 
 interface MatchesModalData {
   offerId: string;
@@ -34,6 +35,9 @@ export default function AdminJobsPage() {
   const [rubroFilter, setRubroFilter] = useState<string>('');
   const [puestoFilter, setPuestoFilter] = useState<string>('');
   const [searchText, setSearchText] = useState<string>('');
+
+  // Compartir búsqueda (link + QR)
+  const [shareJob, setShareJob] = useState<IAdminJobOffer | null>(null);
 
   // Listas para filtros
   const [employers, setEmployers] = useState<{ id: string; name: string }[]>([]);
@@ -501,7 +505,13 @@ export default function AdminJobsPage() {
                       </button>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setShareJob(job)}
+                          className="text-xs text-[#E10600] hover:underline cursor-pointer"
+                        >
+                          Compartir
+                        </button>
                         <Link
                           href={`/sudo/users/${job.employerId}`}
                           className="text-xs theme-text-secondary hover:theme-text-primary"
@@ -719,6 +729,14 @@ export default function AdminJobsPage() {
           </div>
         </div>
       )}
+
+      <ShareJobModal
+        open={!!shareJob}
+        offerId={shareJob?.id ?? null}
+        puesto={shareJob?.puesto}
+        rubro={shareJob?.rubro}
+        onClose={() => setShareJob(null)}
+      />
     </AdminLayout>
   );
 }

@@ -28,6 +28,9 @@ export function useDiscoveryOffers() {
         offer.id === offerId ? { ...offer, hasRequested: true } : offer;
       return {
         ...prev,
+        // La oferta compartida se despina al postularse (el backend limpia
+        // sharedOfferId en la próxima carga del feed).
+        pinned: prev.pinned?.id === offerId ? null : prev.pinned,
         fullMatch: prev.fullMatch.map(updateOffer),
         partialMatch: prev.partialMatch.map(updateOffer),
         skillsMatch: prev.skillsMatch.map(updateOffer),
@@ -41,12 +44,14 @@ export function useDiscoveryOffers() {
     queryClient.setQueryData<IDiscoveryOffersResponse>(queryKey, (prev) => {
       if (!prev) return prev;
       const filterOffer = (offer: IRelevantOffer) => offer.id !== offerId;
+      const wasPinned = prev.pinned?.id === offerId;
       return {
         ...prev,
+        pinned: wasPinned ? null : prev.pinned,
         fullMatch: prev.fullMatch.filter(filterOffer),
         partialMatch: prev.partialMatch.filter(filterOffer),
         skillsMatch: prev.skillsMatch.filter(filterOffer),
-        total: prev.total - 1,
+        total: wasPinned ? prev.total : prev.total - 1,
       };
     });
     return { success: true };

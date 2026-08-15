@@ -28,8 +28,12 @@ export default function ForgotPasswordPage() {
       toast.success("Email enviado correctamente");
     } catch (error: unknown) {
       const apiError = error as { message?: string };
+      const apiStatus = (error as { status?: number }).status;
       if (apiError.message?.includes("No existe una cuenta")) {
         toast.error("No existe una cuenta con ese email");
+      } else if (apiStatus === 429) {
+        // Cooldown del backend: mostramos su mensaje tal cual.
+        toast.error(apiError.message || "Esperá un momento antes de pedir otro email.");
       } else {
         const firebaseError = error as { code?: string };
         if (firebaseError.code === "auth/invalid-email") {

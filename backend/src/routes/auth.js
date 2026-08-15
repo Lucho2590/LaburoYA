@@ -3,6 +3,7 @@ const { getDb, getAuth } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const { isSuperuserEmail } = require('../utils/superuser');
 const { lookupIp } = require('../services/ipGeolocation');
+const { sendNotificationEmail, sendPasswordResetEmail } = require('../services/emailService');
 const companySubscription = require('../utils/companySubscription');
 
 const router = express.Router();
@@ -319,6 +320,110 @@ router.post('/check-email', async (req, res, next) => {
       }
       throw error;
     }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Mails de verificación y de reseteo de contraseña.
+//
+// Firebase Auth los mandaba por su cuenta (sendEmailVerification del SDK
+// cliente), pero su plantilla de consola sólo acepta texto plano con %LINK%:
+// no se puede meter un botón, y el usuario recibía la URL cruda con el oobCode
+// a la vista. Acá generamos el MISMO link con firebase-admin (mismo oobCode,
+// mismo /auth/action de destino) y lo mandamos por Resend con las plantillas
+// de emailService, que ya tienen el botón con la identidad de la app.
+
+const EMAIL_RESEND_COOLDOWN_MS = 60 * 1000;
+
+// Cooldown compartido por ambos endpoints. `key` es el uid (verificación) o
+// `pwd:<email>` (reseteo, donde no hay sesión). Devuelve true si hay que frenar.
+// Sólo consulta: el cooldown se marca DESPUÉS de que el envío salió bien, para
+// que un fallo de Resend no deje al usuario 60s sin poder reintentar.
+async function isOnCooldown(db, key) {
+  const snap = await db.collection('emailSendCooldowns').doc(key).get();
+  if (!snap.exists) return false;
+  const lastSentAt = snap.data().lastSentAt?.toDate?.() || snap.data().lastSentAt;
+  return !!lastSentAt && Date.now() - new Date(lastSentAt).getTime() < EMAIL_RESEND_COOLDOWN_MS;
+}
+
+async function markEmailSent(db, key) {
+  await db.collection('emailSendCooldowns').doc(key).set({ lastSentAt: new Date() });
+}
+
+// Reenvío del mail de verificación. Requiere sesión y usa el email del token:
+// no acepta un destinatario por body, así nadie puede mandarle mails a terceros.
+router.post('/send-verification-email', authMiddleware, async (req, res, next) => {
+  try {
+    const { uid, email } = req.user;
+    if (!email) {
+      return res.status(400).json({ error: 'La cuenta no tiene email asociado' });
+    }
+
+    const auth = getAuth();
+    const userRecord = await auth.getUser(uid);
+    if (userRecord.emailVerified) {
+      return res.status(400).json({ error: 'Tu email ya está verificado' });
+    }
+
+    const db = getDb();
+    if (await isOnCooldown(db, uid)) {
+      return res.status(429).json({ error: 'Esperá un momento antes de pedir otro email.' });
+    }
+
+    // Sin actionCodeSettings: el link sale apuntando al action URL configurado
+    // en la consola, igual que el mail que mandaba Firebase.
+    const link = await auth.generateEmailVerificationLink(email);
+
+    await sendNotificationEmail({
+      to: email,
+      subject: 'Verificá tu email - LaburoYA',
+      heading: '¡Bienvenido a LaburoYA!',
+      message: 'Confirmá tu dirección de correo para empezar a usar tu cuenta.',
+      ctaText: 'Verificar mi email',
+      ctaLink: link
+    });
+    await markEmailSent(db, uid);
+
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reseteo de contraseña. Público: el usuario está deslogueado. Responde ok
+// aunque la cuenta no exista, para no confirmar por acá qué emails están
+// registrados (el form de /forgot-password ya avisa vía /auth/check-email).
+router.post('/send-password-reset-email', async (req, res, next) => {
+  try {
+    const email = (req.body?.email || '').trim().toLowerCase();
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const auth = getAuth();
+    const db = getDb();
+
+    let userRecord;
+    try {
+      userRecord = await auth.getUserByEmail(email);
+    } catch (error) {
+      if (error.code === 'auth/user-not-found') return res.json({ ok: true });
+      throw error;
+    }
+
+    if (await isOnCooldown(db, `pwd:${email}`)) {
+      return res.status(429).json({ error: 'Esperá un momento antes de pedir otro email.' });
+    }
+
+    const userDoc = await db.collection('users').doc(userRecord.uid).get();
+    const firstName = userDoc.exists ? userDoc.data().firstName : null;
+
+    const link = await auth.generatePasswordResetLink(email);
+    await sendPasswordResetEmail({ to: email, firstName, resetLink: link });
+    await markEmailSent(db, `pwd:${email}`);
+
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }

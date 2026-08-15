@@ -41,7 +41,10 @@ export default function VerifyEmailPage() {
       toast.success("Email de verificación reenviado");
       setCooldown(60); // 60 seconds cooldown
     } catch (error) {
-      toast.error("Error al reenviar. Intentá de nuevo en unos minutos.");
+      // El backend explica el motivo (cooldown, email ya verificado); si no
+      // hay mensaje, caemos al genérico.
+      const message = error instanceof Error ? error.message : "";
+      toast.error(message || "Error al reenviar. Intentá de nuevo en unos minutos.");
     } finally {
       setResending(false);
     }

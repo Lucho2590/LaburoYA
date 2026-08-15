@@ -144,6 +144,27 @@ class ApiService {
     });
   }
 
+  // Mail de verificación con el diseño de la app (vía Resend), en vez del que
+  // mandaba Firebase con su plantilla de texto plano. El idToken se puede pasar
+  // explícito justo después de crear la cuenta, cuando auth.currentUser todavía
+  // puede no haber propagado.
+  async sendVerificationEmail(idToken?: string) {
+    return this.request<{ ok: true }>('/auth/send-verification-email', {
+      method: 'POST',
+      ...(idToken
+        ? { requireAuth: false, extraHeaders: { Authorization: `Bearer ${idToken}` } }
+        : {}),
+    });
+  }
+
+  async sendPasswordResetEmail(email: string) {
+    return this.request<{ ok: true }>('/auth/send-password-reset-email', {
+      method: 'POST',
+      body: { email },
+      requireAuth: false,
+    });
+  }
+
   async updateBasicInfo(data: { firstName: string; lastName: string; phone?: string; age?: number; nickname?: string; businessName?: string; contactName?: string }) {
     return this.request<{ message: string; firstName: string; lastName: string; phone?: string; age?: number; nickname?: string; businessName?: string; contactName?: string }>(
       '/auth/basic-info',
@@ -537,6 +558,14 @@ class ApiService {
       `/workers/skills/${encodeURIComponent(rubro)}/${encodeURIComponent(puesto)}`,
       { requireAuth: false }
     );
+  }
+
+  // Guarda la oferta que le compartieron por link/QR para fijarla en discovery.
+  async setSharedOffer(offerId: string) {
+    return this.request<{ message: string; offerId: string }>('/workers/shared-offer', {
+      method: 'POST',
+      body: { offerId },
+    });
   }
 
   async getSkillsForRubro(rubro: string) {

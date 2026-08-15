@@ -11,6 +11,9 @@ import { useDiscoveryOffers } from "@/hooks/useDiscovery";
 import { useReceivedContactRequests } from "@/hooks/useContactRequests";
 import { useEmployerDashboard } from "@/hooks/useEmployerDashboard";
 import { Badge } from "@/components/ui/badge";
+import { api } from "@/services/api";
+import { toast } from "sonner";
+import { getWorkerProfileCompletion } from "@/lib/workerProfile";
 import { IWorkerProfile } from "@/types";
 import { Users, UserCheck, Clock, Eye, Briefcase, MessageCircle } from "lucide-react";
 
@@ -19,7 +22,7 @@ export default function DashboardPage() {
   const { user, userData, loading, signOut, getEffectiveAppRole } = useAuth();
   const { matches, loading: matchesLoading } = useMatches();
   const { setPageConfig } = usePageTitle();
-  const { offers, loading: offersLoading } = useDiscoveryOffers();
+  const { offers, loading: offersLoading, refetch: refetchOffers } = useDiscoveryOffers();
   const { requests: receivedRequests, loading: requestsLoading } = useReceivedContactRequests();
 
   const effectiveRole = getEffectiveAppRole();
@@ -42,6 +45,34 @@ export default function DashboardPage() {
   useEffect(() => {
     setPageConfig({ title: "", showBack: false, onBack: undefined });
   }, [setPageConfig]);
+
+  // Búsqueda compartida por link/QR: /register la dejó en localStorage. La
+  // registramos en el backend (para que quede fijada arriba del feed aunque el
+  // perfil todavía no matchee) y llevamos a la persona directo a verla. /home es
+  // el punto de paso común de los dos caminos: login directo y fin del onboarding.
+  useEffect(() => {
+    if (loading || !user || effectiveRole !== "worker") return;
+
+    const pendingOfferId = localStorage.getItem("pendingOfferId");
+    if (!pendingOfferId) return;
+    localStorage.removeItem("pendingOfferId");
+
+    api
+      .setSharedOffer(pendingOfferId)
+      // El feed está cacheado 60s y todavía no trae la oferta fijada: forzamos
+      // la revalidación antes de navegar, si no tardaría un minuto en aparecer.
+      .then(() => refetchOffers())
+      .then(() => router.replace(`/discover?offer=${pendingOfferId}`))
+      .catch((err) => {
+        // Oferta pausada, vencida o borrada entre que se compartió y se escaneó:
+        // no cortamos el ingreso, sólo avisamos.
+        toast.error(
+          err instanceof Error && err.message
+            ? err.message
+            : "La búsqueda que te compartieron ya no está disponible",
+        );
+      });
+  }, [loading, user, effectiveRole, router, refetchOffers]);
 
   useEffect(() => {
     // No rebotar a /login si Firebase todavía tiene sesión resolviéndose
@@ -66,25 +97,8 @@ export default function DashboardPage() {
 
   // Calculate worker profile completion (must be before early returns)
   const workerProfileCompletion = useMemo(() => {
-    const isWorkerRole = effectiveRole === "worker";
-    if (!isWorkerRole || !userData?.profile) return null;
-
-    const profile = userData.profile as IWorkerProfile;
-    const fields = [
-      { filled: !!profile.rubro },
-      { filled: !!profile.puesto },
-      { filled: !!profile.zona },
-      { filled: !!profile.localidad },
-      { filled: !!profile.experience },
-      { filled: !!profile.description },
-      { filled: profile.skills && profile.skills.length > 0 },
-      { filled: !!profile.videoUrl },
-    ];
-
-    const filledCount = fields.filter((f) => f.filled).length;
-    const percentage = Math.round((filledCount / fields.length) * 100);
-
-    return percentage;
+    if (effectiveRole !== "worker") return null;
+    return getWorkerProfileCompletion(userData?.profile as IWorkerProfile | undefined);
   }, [effectiveRole, userData?.profile]);
 
   if (loading || !userData?.role) {

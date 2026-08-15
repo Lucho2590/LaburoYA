@@ -1,23 +1,26 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, memo } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useMemo, useCallback, useRef, memo, Suspense } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePageTitle } from "@/contexts/PageTitleContext";
 import { useDiscoveryOffers, useDiscoveryWorkers } from "@/hooks/useDiscovery";
-import { IRelevantOffer, IRelevantWorker } from "@/types";
+import { IRelevantOffer, IRelevantWorker, IWorkerProfile } from "@/types";
 import { scoreToStars, STAR_MAX, STAR_FILTERS } from "@/lib/stars";
+import { getWorkerProfileCompletion } from "@/lib/workerProfile";
 import { JOB_CATEGORIES, TRubro } from "@/config/constants";
 import { OfferDetailModal } from "@/components/OfferDetailModal";
 import { WorkerProfileModal } from "@/components/WorkerProfileModal";
 import { BlockProfileModal } from "@/components/BlockProfileModal";
 import { api } from "@/services/api";
 import { toast } from "sonner";
-import { MapPin, Video } from "lucide-react";
+import { MapPin, Video, Share2 } from "lucide-react";
 
 
-export default function DiscoverPage() {
+function DiscoverContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, userData, loading } = useAuth();
   const { setPageConfig } = usePageTitle();
   const [selectedOffer, setSelectedOffer] = useState<IRelevantOffer | null>(
@@ -203,6 +206,28 @@ export default function DiscoverPage() {
   const handleSelectOffer = useCallback((o: IRelevantOffer) => setSelectedOffer(o), []);
   const handleSelectWorker = useCallback((w: IRelevantWorker) => setSelectedWorker(w), []);
 
+  const pinnedOffer = offers?.pinned ?? null;
+
+  // Perfil laboral incompleto: sugerimos completarlo (no bloquea postularse).
+  const profileCompletion = isWorker
+    ? getWorkerProfileCompletion(userData?.profile as IWorkerProfile | undefined)
+    : null;
+  const shouldSuggestProfile =
+    isWorker && (offers?.hasWorkerProfile === false || (profileCompletion ?? 0) < 100);
+
+  // Al venir del link/QR (/home redirige con ?offer=<id>) abrimos el detalle
+  // directo, así la persona ve la búsqueda que la trajo sin buscarla. El ref
+  // evita que un refetch lo reabra después de que lo cerró.
+  const autoOpenedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const offerId = searchParams.get("offer");
+    if (!offerId || !pinnedOffer || pinnedOffer.id !== offerId) return;
+    if (autoOpenedRef.current === offerId) return;
+    autoOpenedRef.current = offerId;
+    setSelectedOffer(pinnedOffer);
+    router.replace("/discover");
+  }, [searchParams, pinnedOffer, router]);
+
   // Empresa con plan vencido: no se muestran candidatos.
   if (isEmployer && userData?.companySubscription?.expired) {
     return (
@@ -234,6 +259,34 @@ export default function DiscoverPage() {
     return (
       <>
         <div className="px-4 py-4">
+          {/* Búsqueda compartida por link/QR: va fijada arriba, aunque todavía
+              no matchee con el perfil. */}
+          {pinnedOffer && (
+            <div className="mb-4">
+              <div className="flex items-center gap-1.5 mb-2 text-xs font-medium text-[#E10600]">
+                <Share2 className="h-3.5 w-3.5" />
+                Te compartieron esta búsqueda
+              </div>
+              <div className="rounded-xl ring-2 ring-[#E10600]">
+                <OfferCard
+                  offer={pinnedOffer}
+                  matchLevel={pinnedOffer.relevance.stars ?? scoreToStars(pinnedOffer.relevance.score)}
+                  onSelect={handleSelectOffer}
+                />
+              </div>
+              {shouldSuggestProfile && (
+                <Link
+                  href="/worker/profile"
+                  className="mt-2 block rounded-xl theme-bg-secondary px-3 py-2.5 text-xs theme-text-secondary"
+                >
+                  Antes de postularte, completá tu perfil para que el empleador
+                  sepa quién sos.{" "}
+                  <span className="text-[#E10600] font-medium">Completar ahora →</span>
+                </Link>
+              )}
+            </div>
+          )}
+
           {/* Filtro + leyenda de estrellas (1 a 5) */}
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs theme-text-muted">
@@ -261,15 +314,18 @@ export default function DiscoverPage() {
 
           {/* Offers List */}
           {allOffers.length === 0 ? (
-            <div className="text-center py-16">
-              <span className="text-5xl">💼</span>
-              <p className="theme-text-primary font-medium mt-4">
-                No hay ofertas disponibles
-              </p>
-              <p className="theme-text-muted text-sm mt-1">
-                Completá tu perfil para encontrar oportunidades
-              </p>
-            </div>
+            // Con una búsqueda compartida arriba no tiene sentido el vacío grande.
+            !pinnedOffer && (
+              <div className="text-center py-16">
+                <span className="text-5xl">💼</span>
+                <p className="theme-text-primary font-medium mt-4">
+                  No hay ofertas disponibles
+                </p>
+                <p className="theme-text-muted text-sm mt-1">
+                  Completá tu perfil para encontrar oportunidades
+                </p>
+              </div>
+            )
           ) : (
             <div className="space-y-3">
               {allOffers.map((offer) => (
@@ -383,6 +439,22 @@ export default function DiscoverPage() {
         Completá tu perfil para empezar a descubrir
       </p>
     </div>
+  );
+}
+
+// useSearchParams (para el ?offer= del link compartido) necesita un límite de
+// Suspense; mismo patrón que /register y /evaluar-cv.
+export default function DiscoverPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center theme-bg-primary">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#E10600]"></div>
+        </div>
+      }
+    >
+      <DiscoverContent />
+    </Suspense>
   );
 }
 

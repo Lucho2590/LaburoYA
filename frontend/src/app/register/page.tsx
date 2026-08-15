@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthLayout } from "@/components/AuthLayout";
+import { parseJobRef } from "@/lib/shareJob";
 import { toast } from "sonner";
 import { Eye, EyeOff } from "lucide-react";
 
@@ -28,6 +29,15 @@ function RegisterContent() {
     if (role && (role === "worker" || role === "employer")) {
       localStorage.setItem("referralRole", role);
     }
+
+    // Si el ref viene de compartir una búsqueda, guardamos la oferta para
+    // fijarla apenas la persona entra a la app (lo consume /home). Se escribe
+    // acá y no en /login porque el QR siempre cae en /register, incluso cuando
+    // la persona ya tiene cuenta y de acá se va a iniciar sesión.
+    const sharedOfferId = parseJobRef(ref);
+    if (sharedOfferId) {
+      localStorage.setItem("pendingOfferId", sharedOfferId);
+    }
   }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -44,7 +54,18 @@ function RegisterContent() {
       toast.success("Te enviamos un email de verificación");
       router.push("/verify-email");
     } catch (error) {
-      toast.error("Error al crear la cuenta");
+      // Sin esto, un "ese email ya está registrado" se veía igual que una caída
+      // real y no había forma de saber qué pasó.
+      const code = (error as { code?: string }).code;
+      if (code === "auth/email-already-in-use") {
+        toast.error("Ese email ya está registrado. Iniciá sesión.");
+      } else if (code === "auth/invalid-email") {
+        toast.error("El email no es válido");
+      } else if (code === "auth/weak-password") {
+        toast.error("La contraseña es muy débil");
+      } else {
+        toast.error("Error al crear la cuenta");
+      }
     } finally {
       setLoading(false);
     }
