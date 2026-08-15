@@ -12,6 +12,11 @@ import { IMatch, IContactRequest } from '@/types';
 import { JOB_CATEGORIES, TRubro } from '@/config/constants';
 import { Badge } from '@/components/ui/badge';
 import { BlockProfileModal } from '@/components/BlockProfileModal';
+import {
+  IVideoTarget,
+  VideoPlayerModal,
+  videoTargetFromEvent,
+} from '@/components/VideoPlayerModal';
 import { api } from '@/services/api';
 import { toast } from 'sonner';
 
@@ -26,6 +31,7 @@ export default function MatchesPage() {
   const [blockTarget, setBlockTarget] = useState<null | { workerUid: string; offerId: string; name: string }>(null);
   const [blocking, setBlocking] = useState(false);
   const [blockedWorkerIds, setBlockedWorkerIds] = useState<string[]>([]);
+  const [video, setVideo] = useState<IVideoTarget | null>(null);
 
   const acceptedMatches = matches.filter(
     m => m.status === 'accepted' && !blockedWorkerIds.includes(m.workerId)
@@ -114,6 +120,23 @@ export default function MatchesPage() {
   const isEmployer = userData?.role === 'employer' ||
     (userData?.role === 'superuser' && userData?.secondaryRole === 'employer');
 
+  // Badge clickeable: abre el video en la misma pantalla, creciendo desde el badge
+  const WatchVideoBadge = ({
+    videoUrl,
+    name,
+    className = '',
+  }: { videoUrl: string; name?: string; className?: string }) => (
+    <Badge
+      asChild
+      variant="secondary"
+      className={`bg-[#FF6A00]/20 text-[#FF6A00] border-0 cursor-pointer active:scale-95 transition-transform ${className}`}
+    >
+      <button type="button" onClick={(e) => setVideo(videoTargetFromEvent(e, videoUrl, name))}>
+        🎥 Ver video
+      </button>
+    </Badge>
+  );
+
   const RequestCard = ({ request }: { request: IContactRequest }) => {
     const isResponding = respondingTo === request.id;
     const fromEmployer = request.fromType === 'employer';
@@ -185,9 +208,10 @@ export default function MatchesPage() {
                 <p className="theme-text-muted text-sm line-clamp-2">{request.worker.description}</p>
               )}
               {request.worker.videoUrl && (
-                <Badge variant="secondary" className="bg-[#FF6A00]/20 text-[#FF6A00] border-0">
-                  🎥 Tiene video
-                </Badge>
+                <WatchVideoBadge
+                  videoUrl={request.worker.videoUrl}
+                  name={request.worker.puesto}
+                />
               )}
             </>
           )}
@@ -280,9 +304,11 @@ export default function MatchesPage() {
                 <p className="theme-text-muted text-sm line-clamp-2">{match.worker.description}</p>
               )}
               {match.worker?.videoUrl && (
-                <Badge variant="secondary" className="mt-2 bg-[#FF6A00]/20 text-[#FF6A00] border-0">
-                  🎥 Tiene video
-                </Badge>
+                <WatchVideoBadge
+                  videoUrl={match.worker.videoUrl}
+                  name={match.worker.puesto || match.puesto}
+                  className="mt-2"
+                />
               )}
             </>
           )}
@@ -396,6 +422,8 @@ export default function MatchesPage() {
         onClose={() => setBlockTarget(null)}
         onConfirm={handleBlock}
       />
+
+      <VideoPlayerModal target={video} onClose={() => setVideo(null)} />
     </div>
   );
 }

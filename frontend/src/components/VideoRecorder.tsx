@@ -162,10 +162,12 @@ export function VideoRecorder({
   if (mode === 'idle' && existingVideoUrl) {
     return (
       <div className="space-y-3">
+        {/* Vertical por defecto (se graba del celular) y object-contain para no
+            recortar si el video quedó horizontal */}
         <video
           src={existingVideoUrl}
           controls
-          className="w-full rounded-xl bg-black"
+          className="mx-auto w-full max-w-[33.75vh] aspect-[9/16] max-h-[60vh] object-contain rounded-xl bg-black"
           playsInline
         />
         <div className="flex gap-3">

@@ -11,7 +11,13 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MapPin, Briefcase, Star, Video, Check, Clock, Ban } from 'lucide-react';
+import { MapPin, Briefcase, Star, Video, Check, Clock, Ban, Play } from 'lucide-react';
+import { useState } from 'react';
+import {
+  IVideoTarget,
+  VideoPlayerModal,
+  videoTargetFromEvent,
+} from '@/components/VideoPlayerModal';
 
 interface WorkerProfileModalProps {
   worker: IRelevantWorker | null;
@@ -30,7 +36,14 @@ export function WorkerProfileModal({
   onBlock,
   isRequesting = false,
 }: WorkerProfileModalProps) {
+  const [video, setVideo] = useState<IVideoTarget | null>(null);
+
   if (!worker) return null;
+
+  const workerName =
+    worker.firstName && worker.lastName
+      ? `${worker.firstName} ${worker.lastName}`
+      : worker.puesto;
 
   const matchTypeLabel = {
     full_match: 'Match Completo',
@@ -45,6 +58,7 @@ export function WorkerProfileModal({
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -80,19 +94,45 @@ export function WorkerProfileModal({
             </div>
           )}
 
-          {/* Video */}
+          {/* Video: miniatura vertical que se expande al visor en la misma pantalla */}
           {worker.videoUrl && (
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <Video className="h-4 w-4" />
                 <span>Video de presentacion</span>
               </div>
-              <video
-                src={worker.videoUrl}
-                controls
-                className="w-full rounded-lg"
-                poster="/video-placeholder.png"
-              />
+              <button
+                type="button"
+                onClick={(e) =>
+                  setVideo(videoTargetFromEvent(e, worker.videoUrl!, workerName))
+                }
+                className="relative block w-28 aspect-[9/16] overflow-hidden rounded-xl bg-black cursor-pointer active:scale-95 transition-transform"
+                title="Ver video de presentacion"
+              >
+                {/* El propio video (mudo, sin controles) hace de poster real */}
+                <video
+                  src={`${worker.videoUrl}#t=0.1`}
+                  muted
+                  playsInline
+                  preload="metadata"
+                  tabIndex={-1}
+                  className="pointer-events-none h-full w-full object-cover"
+                  onLoadedMetadata={(e) => {
+                    // Algunos navegadores ignoran el #t=0.1: forzamos el seek
+                    // para que la miniatura muestre un frame y no negro.
+                    try {
+                      e.currentTarget.currentTime = 0.1;
+                    } catch {
+                      /* noop */
+                    }
+                  }}
+                />
+                <span className="absolute inset-0 flex items-center justify-center bg-black/25">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/90 shadow">
+                    <Play className="h-4 w-4 translate-x-[1px] fill-[#E10600] text-[#E10600]" />
+                  </span>
+                </span>
+              </button>
             </div>
           )}
 
@@ -220,5 +260,8 @@ export function WorkerProfileModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <VideoPlayerModal target={video} onClose={() => setVideo(null)} />
+    </>
   );
 }

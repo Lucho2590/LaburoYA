@@ -8,6 +8,11 @@ import { Ban } from 'lucide-react';
 import { api } from '@/services/api';
 import { IAdminUserDetail, EUserRole, IWorkerProfile, IEmployerProfile, ICompanyProfile } from '@/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  IVideoTarget,
+  VideoPlayerModal,
+  videoTargetFromEvent,
+} from '@/components/VideoPlayerModal';
 
 export default function AdminUserDetailPage() {
   const params = useParams();
@@ -19,6 +24,7 @@ export default function AdminUserDetailPage() {
   const [error, setError] = useState('');
   const [updating, setUpdating] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [video, setVideo] = useState<IVideoTarget | null>(null);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -388,18 +394,25 @@ export default function AdminUserDetailPage() {
               {profile.videoUrl && (
                 <div>
                   <label className="block text-xs theme-text-muted mb-1">Video</label>
-                  <a
-                    href={profile.videoUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#E10600] hover:underline text-sm inline-flex items-center gap-1"
+                  <button
+                    type="button"
+                    onClick={(e) =>
+                      setVideo(
+                        videoTargetFromEvent(
+                          e,
+                          profile.videoUrl!,
+                          userDetail.user.displayName || userDetail.user.email || 'Video de presentacion',
+                        ),
+                      )
+                    }
+                    className="text-[#E10600] hover:underline text-sm inline-flex items-center gap-1 cursor-pointer"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     Ver video de presentacion
-                  </a>
+                  </button>
                 </div>
               )}
             </div>
@@ -645,6 +658,8 @@ export default function AdminUserDetailPage() {
           )}
         </div>
       )}
+
+      <VideoPlayerModal target={video} onClose={() => setVideo(null)} />
     </AdminLayout>
   );
 }
