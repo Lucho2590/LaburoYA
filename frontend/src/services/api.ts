@@ -255,6 +255,8 @@ class ApiService {
         totalInterested: number;
         interestedNotContacted: number;
         totalCandidates: number;
+        // Candidatos que quedaron detrás de una búsqueda pausada o vencida.
+        totalCandidatesLocked: number;
         totalMatches: number;
       };
       offers: {
@@ -276,6 +278,7 @@ class ApiService {
           interested: number;
           interestedNotContacted: number;
           candidates: number;
+          candidatesLocked: number;
           matches: number;
         };
       }[];
@@ -305,6 +308,14 @@ class ApiService {
     return this.request(`/job-offers/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  // Vuelve a poner a correr una búsqueda vencida, desde ahora.
+  async republishJobOffer(id: string, durationDays?: number) {
+    return this.request<{ message: string; id: string; expiresAt: string; durationDays: number }>(
+      `/job-offers/${id}/republish`,
+      { method: 'POST', body: durationDays ? { durationDays } : {} },
+    );
   }
 
   async markOfferNotInterested(offerId: string) {

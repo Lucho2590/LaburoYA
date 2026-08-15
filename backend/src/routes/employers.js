@@ -3,6 +3,8 @@ const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
 const matchingService = require('../services/matchingService');
+const profileBlocks = require('../services/profileBlocks');
+const citiesService = require('../services/citiesService');
 
 const router = express.Router();
 
@@ -112,6 +114,7 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
           totalInterested: 0,
           interestedNotContacted: 0,
           totalCandidates: 0,
+          totalCandidatesLocked: 0,
           totalMatches: 0
         },
         offers: []
@@ -130,7 +133,8 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
       matchesSnapshot,
       interactionChunks,
       pinnedSnapshot,
-      activeWorkers
+      activeWorkers,
+      blocked
     ] = await Promise.all([
       db.collection('contactRequests')
         .where('fromUid', '==', uid)
@@ -150,8 +154,16 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
       db.collection('pinnedCandidates')
         .where('employerId', '==', uid)
         .get(),
-      matchingService.getActiveWorkers(db)
+      matchingService.getActiveWorkers(db),
+      // Mismos bloqueados que descuenta /discovery/workers, para que el número
+      // del dashboard no cuente gente que la lista nunca va a mostrar.
+      profileBlocks.listBlockedKeysForOrg(db, uid)
     ]);
+
+    // El matching real necesita las ciudades cargadas (calculateRelevanceScore
+    // las resuelve de forma síncrona).
+    await citiesService.ensureLoaded();
+    const blockedUids = blocked.uids;
 
     const contactedWorkersByOffer = new Map();
     sentRequestsSnapshot.docs.forEach(doc => {
@@ -195,9 +207,13 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
     // Process each offer
     let totalInterested = 0;
     let interestedNotContacted = 0;
-    let totalCandidates = 0;
     let totalMatches = 0;
     let activeOffers = 0;
+    // Los totales del resumen se acumulan como sets de uid: un mismo worker que
+    // matchea con varias ofertas es UN candidato, no uno por oferta. Se separan
+    // vigentes de bloqueados para poder mostrar los dos números.
+    const candidateUids = new Set();
+    const lockedCandidateUids = new Set();
 
     const offers = offersSnapshot.docs.map(doc => {
       const data = doc.data();
@@ -224,21 +240,21 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
       const acceptedMatches = offerMatches.filter(m => m.status === 'accepted');
       totalMatches += acceptedMatches.length;
 
-      // Candidate count (workers that match rubro/puesto)
+      // Candidatos: el MISMO criterio que usa /discovery/workers para armar la
+      // lista (calculateRelevanceScore + matchType real), en vez de la lógica
+      // propia que había acá. Antes bastaba con que coincidiera el rubro, no
+      // deduplicaba y no descontaba bloqueados: por eso el dashboard decía 10
+      // y la pantalla de candidatos mostraba 0.
+      const offerForMatch = { ...data, id: offerId };
       const candidates = activeWorkers.filter(worker => {
-        // Full match: same rubro AND puesto
-        if (worker.rubro === data.rubro && worker.puesto === data.puesto) return true;
-        // Partial match: same rubro
-        if (worker.rubro === data.rubro) return true;
-        // Skills match
-        if (data.requiredSkills && data.requiredSkills.length > 0 && worker.skills) {
-          const matchingSkills = data.requiredSkills.filter(s => worker.skills.includes(s));
-          if (matchingSkills.length > 0) return true;
-        }
-        return false;
+        if (blockedUids.has(worker.uid)) return false;
+        return matchingService.calculateRelevanceScore(worker, offerForMatch).matchType !== null;
       });
 
-      totalCandidates += candidates.length;
+      // Una oferta vencida o pausada sigue teniendo candidatos, pero no se
+      // pueden ver hasta republicarla: van contados aparte.
+      const bucket = isActive ? candidateUids : lockedCandidateUids;
+      candidates.forEach(w => bucket.add(w.uid));
 
       return {
         id: offerId,
@@ -261,7 +277,10 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
         stats: {
           interested: interested.length,
           interestedNotContacted: interestedNotContactedCount,
-          candidates: candidates.length,
+          // candidates son los visibles; candidatesLocked, los que quedaron
+          // detrás de una oferta vencida o pausada.
+          candidates: isActive ? candidates.length : 0,
+          candidatesLocked: isActive ? 0 : candidates.length,
           matches: acceptedMatches.length,
           pinned: pinnedByOffer.get(offerId) || 0
         }
@@ -281,7 +300,10 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
         activeOffers,
         totalInterested,
         interestedNotContacted,
-        totalCandidates,
+        totalCandidates: candidateUids.size,
+        // Sólo los que no están ya contados como visibles: si un worker matchea
+        // con una oferta vigente y otra vencida, cuenta como visible.
+        totalCandidatesLocked: [...lockedCandidateUids].filter(u => !candidateUids.has(u)).length,
         totalMatches
       },
       offers

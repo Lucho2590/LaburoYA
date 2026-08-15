@@ -16,7 +16,7 @@ import { IJobOffer, IWorkerProfile, IAssessCvResponse, IPinnedCandidate, IGeoLoc
 import { scoreToStars, STAR_MAX, STAR_FILTERS } from '@/lib/stars';
 import { haversineKm, getBrowserLocation } from '@/lib/geo';
 import LocationPicker from '@/components/LocationPicker';
-import { Check, Plus, X, Minus, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, AlertTriangle, RotateCcw, MapPin, Ban } from 'lucide-react';
+import { Check, Plus, X, Minus, Users, Eye, MessageCircle, Clock, FileSearch, Upload, Loader2, Sparkles, Trophy, Trash2, Star, ChevronDown, ChevronUp, Columns2, AlertTriangle, RotateCcw, MapPin, Ban, Lock } from 'lucide-react';
 
 interface InterestedWorker extends IWorkerProfile {
   firstName?: string;
@@ -47,6 +47,9 @@ interface DashboardOffer {
     interested: number;
     interestedNotContacted: number;
     candidates: number;
+    // Candidatos que matchean pero no se pueden ver porque la búsqueda está
+    // pausada o vencida.
+    candidatesLocked: number;
     matches: number;
     pinned?: number;
   };
@@ -67,6 +70,7 @@ export default function EmployerJobsPage() {
 
   // Compartir búsqueda (link + QR)
   const [shareJob, setShareJob] = useState<DashboardOffer | null>(null);
+  const [republishing, setRepublishing] = useState<string | null>(null);
 
   // Interested workers modal
   const [interestedModal, setInterestedModal] = useState<{ job: DashboardOffer; workers: InterestedWorker[] } | null>(null);
@@ -431,6 +435,22 @@ export default function EmployerJobsPage() {
       toast.success(currentStatus ? 'Oferta pausada' : 'Oferta activada');
     } catch {
       toast.error('Error al actualizar');
+    }
+  };
+
+  // Republicar: la búsqueda vuelve a correr desde ahora, con la misma duración
+  // que tenía. Refrescamos del backend porque cambian expiresAt, isExpired y el
+  // conteo de candidatos (pasan de bloqueados a visibles).
+  const republishJob = async (job: DashboardOffer) => {
+    setRepublishing(job.id);
+    try {
+      await api.republishJobOffer(job.id);
+      await refreshJobsSilent();
+      toast.success(`"${job.puesto}" volvió a estar activa`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo republicar');
+    } finally {
+      setRepublishing(null);
     }
   };
 
@@ -1131,11 +1151,23 @@ export default function EmployerJobsPage() {
                     </div>
                   )}
 
-                  {/* Candidates */}
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 theme-text-muted">
-                    <Eye className="h-4 w-4" />
-                    <span>{job.stats.candidates} candidato{job.stats.candidates !== 1 ? 's' : ''}</span>
-                  </div>
+                  {/* Candidates. Si la búsqueda no está vigente, los candidatos
+                      siguen existiendo pero no se pueden ver: se dice así, en
+                      vez de mostrar un número que no lleva a ninguna lista. */}
+                  {job.stats.candidatesLocked > 0 ? (
+                    <div
+                      className="flex items-center gap-1.5 px-2.5 py-1 theme-text-muted"
+                      title="Republicá la búsqueda para ver estos candidatos"
+                    >
+                      <Lock className="h-4 w-4" />
+                      <span>{job.stats.candidatesLocked} bloqueado{job.stats.candidatesLocked !== 1 ? 's' : ''}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 theme-text-muted">
+                      <Eye className="h-4 w-4" />
+                      <span>{job.stats.candidates} candidato{job.stats.candidates !== 1 ? 's' : ''}</span>
+                    </div>
+                  )}
 
                   {/* Matches */}
                   {job.stats.matches > 0 && (
@@ -1191,9 +1223,13 @@ export default function EmployerJobsPage() {
 
               {/* Actions */}
               <div className="flex border-t theme-border">
+                {/* Compartir una oferta vencida lleva a un link muerto: el
+                    backend rechaza fijarla con un 410. */}
                 <button
                   onClick={() => setShareJob(job)}
-                  className="flex-1 py-3 theme-text-secondary text-xs font-medium active:theme-bg-secondary cursor-pointer"
+                  disabled={job.isExpired}
+                  title={job.isExpired ? 'Republicá la búsqueda para poder compartirla' : undefined}
+                  className="flex-1 py-3 theme-text-secondary text-xs font-medium active:theme-bg-secondary cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:active:bg-transparent"
                 >
                   🔗 Compartir
                 </button>
@@ -1205,12 +1241,24 @@ export default function EmployerJobsPage() {
                   ✏️ Editar
                 </button>
                 <div className="w-px theme-bg-secondary" />
-                <button
-                  onClick={() => toggleJobStatus(job.id, job.active)}
-                  className="flex-1 py-3 theme-text-secondary text-xs font-medium active:theme-bg-secondary cursor-pointer"
-                >
-                  {job.active ? '⏸️ Pausar' : '▶️ Activar'}
-                </button>
+                {/* Vencida: pausar o activar no cambia nada, lo único que la
+                    revive es volver a publicarla. */}
+                {job.isExpired ? (
+                  <button
+                    onClick={() => republishJob(job)}
+                    disabled={republishing === job.id}
+                    className="flex-1 py-3 text-[#12B76A] text-xs font-medium active:bg-[#12B76A]/10 cursor-pointer disabled:opacity-50"
+                  >
+                    {republishing === job.id ? 'Republicando...' : '🔄 Republicar'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => toggleJobStatus(job.id, job.active)}
+                    className="flex-1 py-3 theme-text-secondary text-xs font-medium active:theme-bg-secondary cursor-pointer"
+                  >
+                    {job.active ? '⏸️ Pausar' : '▶️ Activar'}
+                  </button>
+                )}
                 <div className="w-px theme-bg-secondary" />
                 <button
                   onClick={() => {
