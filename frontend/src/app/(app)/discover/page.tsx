@@ -13,6 +13,7 @@ import { JOB_CATEGORIES, TRubro } from "@/config/constants";
 import { OfferDetailModal } from "@/components/OfferDetailModal";
 import { WorkerProfileModal } from "@/components/WorkerProfileModal";
 import { BlockProfileModal } from "@/components/BlockProfileModal";
+import { LockedWorkerList } from "@/components/LockedWorkerList";
 import { api } from "@/services/api";
 import { toast } from "sonner";
 import { MapPin, Video, Share2 } from "lucide-react";
@@ -207,6 +208,8 @@ function DiscoverContent() {
   const handleSelectWorker = useCallback((w: IRelevantWorker) => setSelectedWorker(w), []);
 
   const pinnedOffer = offers?.pinned ?? null;
+  // Candidatos de búsquedas vencidas o pausadas. Vienen redactados del backend.
+  const lockedWorkers = useMemo(() => workers?.locked ?? [], [workers]);
 
   // Perfil laboral incompleto: sugerimos completarlo (no bloquea postularse).
   const profileCompletion = isWorker
@@ -386,15 +389,19 @@ function DiscoverContent() {
 
           {/* Workers List */}
           {allWorkers.length === 0 ? (
-            <div className="text-center py-16">
-              <span className="text-5xl">👥</span>
-              <p className="theme-text-primary font-medium mt-4">
-                No hay candidatos aún
-              </p>
-              <p className="theme-text-muted text-sm mt-1">
-                Publicá ofertas con skills para encontrar candidatos
-              </p>
-            </div>
+            // Con candidatos bloqueados abajo, el vacío grande sobra: la
+            // explicación de por qué no hay nadie visible ya la da esa sección.
+            lockedWorkers.length === 0 && (
+              <div className="text-center py-16">
+                <span className="text-5xl">👥</span>
+                <p className="theme-text-primary font-medium mt-4">
+                  No hay candidatos aún
+                </p>
+                <p className="theme-text-muted text-sm mt-1">
+                  Publicá ofertas con skills para encontrar candidatos
+                </p>
+              </div>
+            )
           ) : (
             <div className="space-y-3">
               {allWorkers.map((worker) => (
@@ -407,6 +414,8 @@ function DiscoverContent() {
               ))}
             </div>
           )}
+
+          <LockedWorkerList workers={lockedWorkers} />
         </div>
 
         <WorkerProfileModal

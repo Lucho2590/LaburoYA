@@ -374,10 +374,27 @@ export interface IDiscoveryOffersResponse {
   hasWorkerProfile?: boolean;
 }
 
+// Candidato de una búsqueda pausada o vencida. El backend lo devuelve YA
+// redactado: no trae nombre, apellido, email, foto ni video. Difuminar sólo con
+// CSS dejaría los datos reales en el payload y en el DOM.
+export interface ILockedWorker {
+  uid: string;
+  rubro?: string;
+  puesto?: string;
+  zona?: string;
+  skills: string[];
+  hasVideo: boolean;
+  bestStars?: number;
+  bestMatchType?: string;
+  bestOffer: { id: string; puesto?: string };
+  locked: true;
+}
+
 export interface IDiscoveryWorkersResponse {
   fullMatch: IRelevantWorker[];
   partialMatch: IRelevantWorker[];
   skillsMatch: IRelevantWorker[];
+  locked?: ILockedWorker[];
   total: number;
 }
 

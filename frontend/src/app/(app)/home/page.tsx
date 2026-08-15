@@ -339,6 +339,14 @@ export default function DashboardPage() {
                       {employerDashboard?.summary.totalCandidates ?? 0}
                     </p>
                     <p className="theme-text-secondary text-sm">Candidatos</p>
+                    {/* Los de búsquedas vencidas o pausadas no entran en el
+                        número de arriba: se avisan aparte para que el total
+                        siempre coincida con lo que se ve en /discover. */}
+                    {(employerDashboard?.summary.totalCandidatesLocked ?? 0) > 0 && (
+                      <p className="theme-text-muted text-xs mt-1">
+                        +{employerDashboard!.summary.totalCandidatesLocked} bloqueados
+                      </p>
+                    )}
                   </div>
                 </Link>
               </>

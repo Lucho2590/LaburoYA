@@ -24,6 +24,16 @@ const router = express.Router();
 // Default duration for job offers in days
 const DEFAULT_DURATION_DAYS = 3;
 
+const daysToMs = (days) => days * 24 * 60 * 60 * 1000;
+
+// Vencimiento medido desde la última publicación. `publishedAt` sólo existe en
+// ofertas republicadas; para el resto el ancla sigue siendo createdAt.
+function expiresAtFrom(offer, durationDays) {
+  const raw = offer.publishedAt || offer.createdAt;
+  const anchor = raw?.toDate?.() || raw || new Date();
+  return new Date(new Date(anchor).getTime() + daysToMs(durationDays));
+}
+
 // CV upload for assessment (in-memory, 5MB cap). Accepts PDF, JPG/PNG and .docx.
 const ALLOWED_CV_MIME = new Set([
   'application/pdf',
@@ -109,6 +119,8 @@ router.post('/', authMiddleware, async (req, res, next) => {
       durationDays: duration,
       expiresAt,
       createdAt: now,
+      // Ancla del vencimiento. Se mueve al republicar; createdAt no.
+      publishedAt: now,
       updatedAt: now
     };
 
@@ -213,11 +225,11 @@ router.patch('/:id', authMiddleware, async (req, res, next) => {
       }
     }
 
-    // If durationDays is updated, recalculate expiresAt from createdAt
+    // Si cambió durationDays, recalcular expiresAt desde la última publicación.
+    // El ancla es publishedAt (createdAt para las ofertas previas a republicar):
+    // usar createdAt acá dejaría vencida al instante una oferta republicada.
     if (filteredUpdates.durationDays !== undefined && !filteredUpdates.expiresAt) {
-      const jobData = jobDoc.data();
-      const createdAt = jobData.createdAt?.toDate?.() || jobData.createdAt || new Date();
-      filteredUpdates.expiresAt = new Date(new Date(createdAt).getTime() + filteredUpdates.durationDays * 24 * 60 * 60 * 1000);
+      filteredUpdates.expiresAt = expiresAtFrom(jobDoc.data(), filteredUpdates.durationDays);
     }
 
     filteredUpdates.updatedAt = new Date();
@@ -378,6 +390,59 @@ router.get('/:id/interested', authMiddleware, async (req, res, next) => {
       total: filteredInterested.length
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+// Republicar una oferta vencida: la pone a correr de nuevo desde ahora.
+// Es una publicación nueva sobre el mismo documento (se conservan interesados,
+// stats y ranking de CVs), así que valida el plan igual que POST / — cosa que
+// el PATCH no hace.
+router.post('/:id/republish', authMiddleware, async (req, res, next) => {
+  try {
+    const { actingUid: uid, effectiveRole } = await resolveActingContext(req);
+    const { id } = req.params;
+
+    const db = getDb();
+    const jobRef = db.collection('jobOffers').doc(id);
+    const jobDoc = await jobRef.get();
+
+    if (!jobDoc.exists) {
+      return res.status(404).json({ error: 'Job offer not found' });
+    }
+    if (jobDoc.data().employerId !== uid) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+    if (!isEmployerLike(effectiveRole)) {
+      return res.status(403).json({ error: 'User must be registered as employer or company' });
+    }
+    if (effectiveRole === 'company') {
+      await companySubscription.loadActiveCompanyOrThrow(db, uid);
+    }
+
+    const data = jobDoc.data();
+    // Se puede pedir otra duración; si no, se repite la que tenía.
+    const requested = Number(req.body?.durationDays);
+    const durationDays = requested > 0 ? requested : (data.durationDays || DEFAULT_DURATION_DAYS);
+
+    const now = new Date();
+    const updates = {
+      active: true,
+      publishedAt: now,
+      durationDays,
+      expiresAt: new Date(now.getTime() + daysToMs(durationDays)),
+      updatedAt: now
+    };
+
+    await jobRef.update(updates);
+
+    // getActiveOffers cachea 60s: sin esto la oferta republicada tarda hasta un
+    // minuto en volver a aparecer en discovery.
+    matchingService.invalidateActiveCache();
+
+    res.json({ message: 'Job offer republished', id, ...updates });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: error.message, code: error.code });
     next(error);
   }
 });

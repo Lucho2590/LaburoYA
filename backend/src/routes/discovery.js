@@ -193,6 +193,7 @@ router.get('/workers', authMiddleware, async (req, res, next) => {
     const fullMatch = filterBlocked(grouped.fullMatch);
     const partialMatch = filterBlocked(grouped.partialMatch);
     const skillsMatch = filterBlocked(grouped.skillsMatch);
+    const locked = filterBlocked(grouped.locked || []);
 
     // Check which workers the employer has already requested
     const sentRequestsSnapshot = await db.collection('contactRequests')
@@ -215,6 +216,9 @@ router.get('/workers', authMiddleware, async (req, res, next) => {
       fullMatch: markRequested(fullMatch),
       partialMatch: markRequested(partialMatch),
       skillsMatch: markRequested(skillsMatch),
+      // Candidatos de búsquedas pausadas o vencidas: vienen ya redactados
+      // desde matchingService y se muestran bloqueados.
+      locked,
       total: fullMatch.length + partialMatch.length + skillsMatch.length
     });
   } catch (error) {

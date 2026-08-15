@@ -1080,11 +1080,14 @@ router.patch('/job-offers/:id', async (req, res, next) => {
       }
     }
 
-    // If durationDays is updated, recalculate expiresAt from createdAt
+    // Si cambió durationDays, recalcular expiresAt desde la última publicación
+    // (publishedAt, o createdAt para las ofertas que nunca se republicaron).
+    // Usar createdAt acá dejaba vencida al instante una oferta republicada.
     if (updates.durationDays !== undefined && !updates.expiresAt) {
       const jobData = jobDoc.data();
-      const createdAt = jobData.createdAt?.toDate?.() || jobData.createdAt || new Date();
-      updates.expiresAt = new Date(new Date(createdAt).getTime() + updates.durationDays * 24 * 60 * 60 * 1000);
+      const raw = jobData.publishedAt || jobData.createdAt;
+      const anchor = raw?.toDate?.() || raw || new Date();
+      updates.expiresAt = new Date(new Date(anchor).getTime() + updates.durationDays * 24 * 60 * 60 * 1000);
     }
 
     await jobRef.update(updates);
