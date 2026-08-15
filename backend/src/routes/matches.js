@@ -1,30 +1,23 @@
 const express = require('express');
-const { getDb } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const matchingService = require('../services/matchingService');
+const { resolveActingContext } = require('../utils/actingContext');
 
 const router = express.Router();
 
 // Get matches for current user
 router.get('/', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
-    const db = getDb();
+    // Los matches se guardan con employerId = uid de la organización. El cálculo
+    // de rol que había acá no contemplaba impersonación ni organizationId, así
+    // que una empresa no veía sus propios matches.
+    const { actingUid: uid, effectiveRole, userData } = await resolveActingContext(req);
 
-    // Get user role
-    const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists) {
+    if (!userData) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const userData = userDoc.data();
-    // Handle superusers - use their secondaryRole for app functionality
-    let effectiveRole = userData.role;
-    if (userData.role === 'superuser' && userData.secondaryRole) {
-      effectiveRole = userData.secondaryRole;
-    }
-
-    console.log('[Matches] GET / - User:', uid, 'Role:', userData.role, 'EffectiveRole:', effectiveRole);
+    console.log('[Matches] GET / - Acting:', uid, 'EffectiveRole:', effectiveRole);
 
     const matches = await matchingService.getMatchesForUser(uid, effectiveRole);
 
@@ -38,7 +31,9 @@ router.get('/', authMiddleware, async (req, res, next) => {
 // Update match status (accept/reject)
 router.patch('/:id/status', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    // updateMatchStatus valida contra workerId/employerId del match, que para
+    // una empresa es el uid de la organización.
+    const { actingUid: uid } = await resolveActingContext(req);
     const { id } = req.params;
     const { status } = req.body;
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const { authMiddleware } = require('../middleware/auth');
 const notificationService = require('../services/notificationService');
+const { resolveActingContext } = require('../utils/actingContext');
 
 const router = express.Router();
 
@@ -10,7 +11,9 @@ const router = express.Router();
  */
 router.get('/', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    // Las notificaciones se dirigen al uid de la organización: con req.user.uid
+    // un miembro del equipo o un superuser impersonando no veía ninguna.
+    const { actingUid: uid } = await resolveActingContext(req);
     const { limit = 50, unreadOnly = false } = req.query;
 
     const notifications = await notificationService.getNotifications(uid, {
@@ -30,7 +33,7 @@ router.get('/', authMiddleware, async (req, res, next) => {
  */
 router.get('/unread-count', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const count = await notificationService.getUnreadCount(uid);
 
     res.json({ count });
@@ -45,7 +48,7 @@ router.get('/unread-count', authMiddleware, async (req, res, next) => {
  */
 router.patch('/:id/read', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const { id } = req.params;
 
     const result = await notificationService.markAsRead(id, uid);
@@ -67,7 +70,7 @@ router.patch('/:id/read', authMiddleware, async (req, res, next) => {
  */
 router.post('/read-all', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { actingUid: uid } = await resolveActingContext(req);
     const count = await notificationService.markAllAsRead(uid);
 
     res.json({ markedAsRead: count });
@@ -82,6 +85,9 @@ router.post('/read-all', authMiddleware, async (req, res, next) => {
  */
 router.post('/fcm-token', authMiddleware, async (req, res, next) => {
   try {
+    // A propósito req.user.uid y no el actingUid: el token es del dispositivo de
+    // esta persona. Guardarlo bajo el uid de la empresa mandaría los push de la
+    // organización al teléfono de quien la estaba operando.
     const { uid } = req.user;
     const { token, deviceType = 'web' } = req.body;
 
