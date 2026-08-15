@@ -143,6 +143,7 @@ export default function ProfileOnboardingPage() {
               locationCovered={form.locationCovered}
               localidad={form.formData.localidad}
               onLocalidadChange={(v) => form.setField('localidad', v)}
+              collapsibleDetails
             />
           )}
 
