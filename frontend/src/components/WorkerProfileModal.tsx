@@ -71,12 +71,31 @@ export function WorkerProfileModal({
               </Badge>
             </div>
           )}
-          <DialogTitle className="text-xl">
-            Perfil del Trabajador
-          </DialogTitle>
-          <DialogDescription>
-            {worker.rubro} - {worker.puesto}
-          </DialogDescription>
+          {/* La foto va acá arriba: el empleador quiere ver con quién va a
+              trabajar antes de leer el resto. Mismo tratamiento circular con
+              fallback que la lista de interesados. */}
+          <div className="flex items-center gap-3 text-left">
+            <div className="w-16 h-16 rounded-full bg-[#E10600]/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+              {worker.photoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={worker.photoUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-2xl">👤</span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <DialogTitle className="text-xl">
+                Perfil del Trabajador
+              </DialogTitle>
+              <DialogDescription>
+                {worker.rubro} - {worker.puesto}
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <div className="space-y-4">
