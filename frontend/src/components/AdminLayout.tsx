@@ -8,6 +8,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import {
   LayoutGrid, Users, Building2, Briefcase, CheckCircle2, UserPlus, MapPin, Tag,
   DollarSign, FileText, Sparkles, ScrollText, Lock, QrCode, Trash2, ChevronDown,
+  ListChecks,
 } from "lucide-react";
 import { EAppRole } from "@/types";
 
@@ -83,6 +84,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
       items: [
         { href: "/sudo/cities", label: "Ciudades", icon: MapPin },
         { href: "/sudo/rubros", label: "Rubros", icon: Tag },
+        { href: "/sudo/skills", label: "Skills", icon: ListChecks },
         { href: "/sudo/plans", label: "Planes", icon: DollarSign },
         { href: "/sudo/company-plans", label: "Planes Empresa", icon: FileText },
         { href: "/sudo/ai-settings", label: "IA", icon: Sparkles },

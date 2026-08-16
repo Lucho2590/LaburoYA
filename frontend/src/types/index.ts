@@ -666,8 +666,158 @@ export interface IAdminStats {
   inactiveJobOffers: number;
 }
 
+// Consumo de IA acumulado por oferta (análisis de CVs). Solo se expone en /sudo.
+export interface IAiUsage {
+  cvCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+// Skills de una oferta/perfil clasificadas contra SKILLS_BY_RUBRO:
+// known = sugeridas para ese puesto, offCatalog = del catálogo pero de otro
+// puesto, custom = escritas a mano (no existen en el catálogo).
+export interface ISkillClassification {
+  total: number;
+  known: string[];
+  offCatalog: string[];
+  custom: string[];
+}
+
+// Contadores por oferta (solo /sudo).
+export interface IOfferAnalytics {
+  matches: { total: number; pending: number; accepted: number; rejected: number; mutual: number };
+  interactions: { interested: number; notInterested: number };
+  requests: {
+    total: number;
+    fromWorker: number;
+    fromEmployer: number;
+    pending: number;
+    matched: number;
+    accepted: number;
+    rejected: number;
+    expiredPending: number;
+  };
+  // Ranking de CVs cargados a la oferta (los que se analizan con IA).
+  cvRanking: {
+    total: number;
+    selected: number;
+    withAi: number;
+    basic: number;
+    avgScore: number;
+    byRecommendation: Record<string, number>;
+  };
+  skills: ISkillClassification;
+}
+
 export interface IAdminJobOffer extends IJobOffer {
   employer?: IEmployerProfile;
+  aiUsage?: IAiUsage | null;
+  analytics?: IOfferAnalytics;
+  stats?: { interestedCount: number; notInterestedCount: number };
+}
+
+// Worker tal como aparece en las listas del detalle de oferta en /sudo.
+export interface IAdminOfferWorker {
+  uid: string;
+  nombre: string | null;
+  email: string | null;
+  rubro: string | null;
+  puesto: string | null;
+  zona: string | null;
+  skills: string[];
+  active: boolean;
+}
+
+export interface IAdminOfferDetail {
+  offer: IAdminJobOffer & { aiUsage?: (IAiUsage & { updatedAt?: string }) | null };
+  employer: { uid: string; businessName: string | null; isCompany: boolean } | null;
+  counts: Omit<IOfferAnalytics, 'skills'>;
+  skills: ISkillClassification & { required: string[]; suggested: string[] };
+  matches: {
+    id: string;
+    status: TMatchStatus;
+    mutualInterest: boolean;
+    statusUpdatedByRole: 'worker' | 'employer' | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+    worker: IAdminOfferWorker;
+  }[];
+  interactions: {
+    id: string;
+    type: 'interested' | 'not_interested';
+    createdAt: string | null;
+    worker: IAdminOfferWorker;
+  }[];
+  requests: {
+    id: string;
+    status: 'pending' | 'matched' | 'accepted' | 'rejected';
+    direction: 'worker_to_offer' | 'employer_to_worker';
+    expired: boolean;
+    createdAt: string | null;
+    expiresAt: string | null;
+    worker: IAdminOfferWorker;
+  }[];
+  // CVs cargados al ranking de la oferta, con lo que devolvió la evaluación.
+  candidates: {
+    id: string;
+    nombre: string | null;
+    email: string | null;
+    puesto: string | null;
+    zona: string | null;
+    selected: boolean;
+    score: number;
+    stars: number;
+    mode: string;
+    recommendation: string | null;
+    locationStatus: string | null;
+    matchingSkills: string[];
+    missingSkills: string[];
+    createdAt: string | null;
+  }[];
+  cvInsights: {
+    topMissingSkills: { skill: string; count: number; inCatalog: boolean }[];
+    topCandidateSkills: { skill: string; count: number; inCatalog: boolean }[];
+  };
+}
+
+// Auditoría de skills: qué se escribe a mano y qué del catálogo no se usa.
+export interface ISkillsAudit {
+  summary: {
+    catalogSkills: number;
+    customSkills: number;
+    totalOffers: number;
+    offersWithCustom: number;
+    totalWorkers: number;
+    workersWithCustom: number;
+    totalCvs: number;
+    unusedCatalogSkills: number;
+  };
+  custom: {
+    skill: string;
+    offers: number;
+    workers: number;
+    cvs: number;
+    total: number;
+    rubros: string[];
+    puestos: string[];
+    sampleOfferIds: string[];
+  }[];
+  catalog: { skill: string; rubros: string[]; puestos: string[]; uses: number }[];
+  // Skills que nombró la IA al evaluar CVs y no están en el catálogo.
+  aiSkills: { skill: string; matching: number; missing: number; total: number }[];
+  offers: {
+    id: string;
+    rubro: string | null;
+    puesto: string | null;
+    businessName: string | null;
+    employerId: string | null;
+    active: boolean;
+    createdAt: string | null;
+    requiredSkills: string[];
+    custom: string[];
+    offCatalog: string[];
+  }[];
 }
 
 export interface IAdminMatch extends IMatch {
