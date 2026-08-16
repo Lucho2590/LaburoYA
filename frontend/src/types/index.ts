@@ -848,6 +848,31 @@ export interface IOrphanOffer {
   createdAt: string | null;
 }
 
+// Limpieza de datos huérfanos. `counts`/`totals` son conteos por colección
+// (matches, chats, chatMessages, storageFiles...), variables según lo que haya.
+export interface ICleanupItem {
+  uid: string;
+  foundIn: string[];
+  counts: Record<string, number>;
+}
+
+export interface ICleanupReport {
+  items: ICleanupItem[];
+  /** Documentos ÚNICOS por colección: ya deduplicado entre uids. */
+  totals: Record<string, number>;
+  deadUids: number;
+  /** Colecciones que a propósito no se tocan. */
+  keep: string[];
+}
+
+export interface IAbandonedAccount {
+  uid: string;
+  email: string | null;
+  emailVerified: boolean;
+  createdAt: string;
+  ageDays: number;
+}
+
 export interface IPaginatedResponse<T> {
   total: number;
   limit: number;
