@@ -36,7 +36,6 @@ interface DashboardOffer {
   businessName?: string;
   availability?: 'part-time' | 'full-time';
   aiAssessEnabled?: boolean;
-  aiUsage?: { cvCount: number; inputTokens: number; outputTokens: number; costUsd: number };
   requiredSkills?: string[];
   active: boolean;
   isExpired: boolean;
@@ -54,9 +53,6 @@ interface DashboardOffer {
     pinned?: number;
   };
 }
-
-const formatUsd = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const formatTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 export default function EmployerJobsPage() {
   const router = useRouter();
@@ -1099,11 +1095,6 @@ export default function EmployerJobsPage() {
                         {job.salary && `💰 ${job.salary}`}
                         {job.salary && job.schedule && ' • '}
                         {job.schedule && `🕐 ${job.schedule}`}
-                      </p>
-                    )}
-                    {(job.aiUsage?.cvCount ?? 0) > 0 && (
-                      <p className="text-xs theme-text-muted mt-1" title="Gasto estimado de IA (aprox)">
-                        💸 U$D {formatUsd(job.aiUsage!.costUsd)} · {formatTokens(job.aiUsage!.inputTokens + job.aiUsage!.outputTokens)} tokens · {job.aiUsage!.cvCount} CV{job.aiUsage!.cvCount !== 1 ? 's' : ''}
                       </p>
                     )}
                   </div>

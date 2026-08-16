@@ -211,6 +211,25 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
       ),
     },
     {
+      href: "/sudo/skills",
+      label: "Skills",
+      icon: (
+        <svg
+          className="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M7 7h.01M3 5a2 2 0 012-2h4l10 10-6 6L3 9V5z"
+          />
+        </svg>
+      ),
+    },
+    {
       href: "/sudo/rubros",
       label: "Rubros",
       icon: (

@@ -266,8 +266,8 @@ router.get('/dashboard', authMiddleware, async (req, res, next) => {
         zona: data.zona,
         businessName: data.businessName || null,
         availability: data.availability || null,
+        // El consumo/costo de IA (aiUsage) es info interna: se ve solo en /sudo.
         aiAssessEnabled: data.aiAssessEnabled !== false,
-        aiUsage: data.aiUsage || null,
         requiredSkills: data.requiredSkills || [],
         active: data.active !== false,
         isExpired,

@@ -654,8 +654,12 @@ class MatchingService {
       throw new Error('Unauthorized');
     }
 
+    // Se guarda quién movió el estado: sin esto no hay forma de saber después si
+    // un match rechazado lo rechazó el worker o el empleador (lo mira /sudo).
     await matchRef.update({
       status,
+      statusUpdatedBy: uid,
+      statusUpdatedByRole: matchData.workerId === uid ? 'worker' : 'employer',
       updatedAt: new Date()
     });
 

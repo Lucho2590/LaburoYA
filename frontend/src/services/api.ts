@@ -10,6 +10,8 @@ import {
   IAdminUser,
   IAdminUserDetail,
   IAdminJobOffer,
+  IAdminOfferDetail,
+  ISkillsAudit,
   IAdminMatch,
   IOrphanWorker,
   IOrphanOffer,
@@ -470,12 +472,14 @@ class ApiService {
     );
   }
 
-  async getAdminJobOffers(params?: { active?: boolean; employerId?: string; limit?: number; offset?: number }) {
+  async getAdminJobOffers(params?: { active?: boolean; employerId?: string; limit?: number; offset?: number; withAnalytics?: boolean }) {
     const searchParams = new URLSearchParams();
     if (params?.active !== undefined) searchParams.set('active', params.active.toString());
     if (params?.employerId) searchParams.set('employerId', params.employerId);
     if (params?.limit) searchParams.set('limit', params.limit.toString());
     if (params?.offset) searchParams.set('offset', params.offset.toString());
+    // Trae matches/interacciones/postulaciones y skills por oferta (solo /sudo).
+    if (params?.withAnalytics) searchParams.set('withAnalytics', 'true');
     const query = searchParams.toString();
     return this.request<{ jobOffers: IAdminJobOffer[]; total: number; limit: number; offset: number }>(
       `/admin/job-offers${query ? `?${query}` : ''}`
@@ -500,6 +504,16 @@ class ApiService {
       total: number;
       counts: { pending: number; accepted: number; rejected: number };
     }>(`/admin/job-offers/${id}/matches`);
+  }
+
+  // Ficha completa de una oferta para /sudo (matches, descartes, postulaciones,
+  // gasto de IA y skills fuera del catálogo).
+  async getAdminJobOfferDetail(id: string) {
+    return this.request<IAdminOfferDetail>(`/admin/job-offers/${id}/detail`);
+  }
+
+  async getAdminSkillsAudit() {
+    return this.request<ISkillsAudit>('/admin/skills-audit');
   }
 
   async getAdminMatches(params?: { status?: string; limit?: number; offset?: number }) {

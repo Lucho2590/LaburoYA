@@ -16,6 +16,7 @@ const { getDocMapByIds } = require('../utils/firestore');
 const profileBlocks = require('../services/profileBlocks');
 const appFeatures = require('../services/appFeatures');
 const { normEmail, normPhone } = require('../services/companyCandidates');
+const offerAnalytics = require('../services/offerAnalytics');
 
 const router = express.Router();
 
@@ -994,7 +995,7 @@ router.delete('/companies/:companyUid/members/:memberUid', async (req, res, next
 router.get('/job-offers', async (req, res, next) => {
   try {
     const db = getDb();
-    const { active, employerId, limit = 50, offset = 0 } = req.query;
+    const { active, employerId, limit = 50, offset = 0, withAnalytics } = req.query;
 
     let query = db.collection('jobOffers');
 
@@ -1018,6 +1019,13 @@ router.get('/job-offers', async (req, res, next) => {
     ]);
     const ownerOf = (id) => employerMap.get(id) || companyMap.get(id) || null;
 
+    // ?withAnalytics=true agrega, por oferta, matches/interacciones/postulaciones
+    // y skills fuera del catálogo. Es opt-in porque recorre esas colecciones
+    // enteras: solo lo pide el panel /sudo.
+    const analyticsByOffer = withAnalytics === 'true'
+      ? await offerAnalytics.loadAnalyticsByOffer(db)
+      : null;
+
     const jobOffers = docs.map(doc => {
       const data = doc.data();
       const employer = ownerOf(data.employerId);
@@ -1025,10 +1033,18 @@ router.get('/job-offers', async (req, res, next) => {
       // Include stats (default to 0 if not present)
       const stats = data.stats || { interestedCount: 0, notInterestedCount: 0 };
 
+      const analytics = analyticsByOffer
+        ? {
+            ...(analyticsByOffer.get(doc.id) || offerAnalytics.emptyCounts()),
+            skills: offerAnalytics.classifySkills(data.rubro, data.puesto, data.requiredSkills),
+          }
+        : undefined;
+
       return {
         id: doc.id,
         ...data,
         stats,
+        analytics,
         employer,
         createdAt: data.createdAt?.toDate?.() || data.createdAt,
         expiresAt: data.expiresAt?.toDate?.() || data.expiresAt,
@@ -1102,6 +1118,31 @@ router.patch('/job-offers/:id', async (req, res, next) => {
       expiresAt: updatedData.expiresAt?.toDate?.() || updatedData.expiresAt,
       updatedAt: updatedData.updatedAt?.toDate?.() || updatedData.updatedAt
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/admin/job-offers/:id/detail - Ficha completa de una oferta para /sudo:
+// datos de la oferta, gasto de IA, matches por estado, workers que la descartaron,
+// postulaciones y skills fuera del catálogo.
+router.get('/job-offers/:id/detail', async (req, res, next) => {
+  try {
+    const detail = await offerAnalytics.loadOfferDetail(getDb(), req.params.id);
+    if (!detail) {
+      return res.status(404).json({ error: 'Job offer not found' });
+    }
+    res.json(detail);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/admin/skills-audit - Skills escritas a mano (fuera del catálogo) en
+// ofertas y perfiles, más las del catálogo que nadie usa.
+router.get('/skills-audit', async (req, res, next) => {
+  try {
+    res.json(await offerAnalytics.buildSkillsAudit(getDb()));
   } catch (error) {
     next(error);
   }

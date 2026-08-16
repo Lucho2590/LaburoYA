@@ -4,24 +4,17 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { api } from '@/services/api';
-import { IAdminJobOffer, IAdminMatch } from '@/types';
+import { IAdminJobOffer, IAiUsage } from '@/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ShareJobModal } from '@/components/ShareJobModal';
+import { downloadCsv, formatCsvDate } from '@/lib/csv';
 
-interface MatchesModalData {
-  offerId: string;
-  matches: {
-    pending: IAdminMatch[];
-    accepted: IAdminMatch[];
-    rejected: IAdminMatch[];
-  };
-  counts: { pending: number; accepted: number; rejected: number };
-}
-
-interface JobOfferStats {
-  interestedCount: number;
-  notInterestedCount: number;
-}
+// Gasto de IA por análisis de CVs: info interna, solo visible acá (/sudo).
+const formatUsd = (n: number) =>
+  n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+const totalTokens = (usage?: IAiUsage | null) =>
+  (usage?.inputTokens || 0) + (usage?.outputTokens || 0);
 
 export default function AdminJobsPage() {
   const [allJobOffers, setAllJobOffers] = useState<IAdminJobOffer[]>([]);
@@ -35,6 +28,8 @@ export default function AdminJobsPage() {
   const [rubroFilter, setRubroFilter] = useState<string>('');
   const [puestoFilter, setPuestoFilter] = useState<string>('');
   const [searchText, setSearchText] = useState<string>('');
+  // Ofertas que piden skills que no están en el catálogo (candidatas a revisar).
+  const [onlyCustomSkills, setOnlyCustomSkills] = useState(false);
 
   // Compartir búsqueda (link + QR)
   const [shareJob, setShareJob] = useState<IAdminJobOffer | null>(null);
@@ -51,14 +46,12 @@ export default function AdminJobsPage() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [editingDuration, setEditingDuration] = useState<string | null>(null);
   const [durationValue, setDurationValue] = useState<number>(3);
-  const [matchesModal, setMatchesModal] = useState<MatchesModalData | null>(null);
-  const [loadingMatches, setLoadingMatches] = useState(false);
-  const [detailModal, setDetailModal] = useState<IAdminJobOffer | null>(null);
 
   const fetchJobOffers = async () => {
     setLoading(true);
     try {
-      const data = await api.getAdminJobOffers({ limit: 500 }); // Traer todas para filtrar client-side
+      // withAnalytics: matches, interacciones, postulaciones y skills por oferta.
+      const data = await api.getAdminJobOffers({ limit: 500, withAnalytics: true });
       setAllJobOffers(data.jobOffers);
 
       // Extraer listas unicas para filtros
@@ -116,6 +109,10 @@ export default function AdminJobsPage() {
       filtered = filtered.filter((job) => job.puesto === puestoFilter);
     }
 
+    if (onlyCustomSkills) {
+      filtered = filtered.filter((job) => (job.analytics?.skills.custom.length || 0) > 0);
+    }
+
     // Busqueda de texto
     if (searchText.trim()) {
       const search = searchText.toLowerCase().trim();
@@ -131,7 +128,7 @@ export default function AdminJobsPage() {
 
     setFilteredOffers(filtered);
     setCurrentPage(1); // Reset a pagina 1 cuando cambian los filtros
-  }, [allJobOffers, activeFilter, employerFilter, rubroFilter, puestoFilter, searchText]);
+  }, [allJobOffers, activeFilter, employerFilter, rubroFilter, puestoFilter, searchText, onlyCustomSkills]);
 
   // Calcular datos paginados
   const totalPages = Math.ceil(filteredOffers.length / pageSize);
@@ -208,18 +205,6 @@ export default function AdminJobsPage() {
     }
   };
 
-  const handleViewMatches = async (jobId: string) => {
-    setLoadingMatches(true);
-    try {
-      const data = await api.getAdminJobOfferMatches(jobId);
-      setMatchesModal(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar matches');
-    } finally {
-      setLoadingMatches(false);
-    }
-  };
-
   const startEditDuration = (job: IAdminJobOffer) => {
     setEditingDuration(job.id);
     setDurationValue(job.durationDays || 3);
@@ -231,16 +216,81 @@ export default function AdminJobsPage() {
     setRubroFilter('');
     setPuestoFilter('');
     setSearchText('');
+    setOnlyCustomSkills(false);
   };
 
-  const hasActiveFilters = activeFilter !== 'all' || employerFilter || rubroFilter || puestoFilter || searchText;
+  const hasActiveFilters =
+    activeFilter !== 'all' || employerFilter || rubroFilter || puestoFilter || searchText || onlyCustomSkills;
+
+  // Totales de las ofertas que quedaron después de filtrar.
+  const totals = filteredOffers.reduce(
+    (acc, job) => {
+      const a = job.analytics;
+      return {
+        cvCount: acc.cvCount + (job.aiUsage?.cvCount || 0),
+        tokens: acc.tokens + totalTokens(job.aiUsage),
+        costUsd: acc.costUsd + (job.aiUsage?.costUsd || 0),
+        matches: acc.matches + (a?.matches.total || 0),
+        rejected: acc.rejected + (a?.matches.rejected || 0),
+        notInterested: acc.notInterested + (a?.interactions.notInterested || 0),
+        customSkills: acc.customSkills + (a?.skills.custom.length ? 1 : 0),
+      };
+    },
+    { cvCount: 0, tokens: 0, costUsd: 0, matches: 0, rejected: 0, notInterested: 0, customSkills: 0 }
+  );
+
+  // Una fila por oferta con todos los números: la base para analizar afuera.
+  const exportCsv = () => {
+    downloadCsv(
+      'ofertas-sudo.csv',
+      filteredOffers.map((job) => {
+        const a = job.analytics;
+        return {
+          offerId: job.id,
+          rubro: job.rubro || '',
+          puesto: job.puesto || '',
+          empleador: job.employer?.businessName || '',
+          empleadorId: job.employerId || '',
+          estado: job.active === false ? 'inactiva' : 'activa',
+          expirada: isExpired(job.expiresAt) ? 'si' : 'no',
+          creada: formatCsvDate(job.createdAt),
+          expira: formatCsvDate(job.expiresAt),
+          duracionDias: job.durationDays || 3,
+          zona: job.zona || '',
+          salario: job.salary || '',
+          horario: job.schedule || '',
+          skillsPedidas: (job.requiredSkills || []).join(' | '),
+          skillsFueraCatalogo: (a?.skills.custom || []).join(' | '),
+          skillsDeOtroPuesto: (a?.skills.offCatalog || []).join(' | '),
+          cvsAnalizados: job.aiUsage?.cvCount || 0,
+          tokensIa: totalTokens(job.aiUsage),
+          costoIaUsd: (job.aiUsage?.costUsd || 0).toFixed(4),
+          matchesTotal: a?.matches.total || 0,
+          matchesAceptados: a?.matches.accepted || 0,
+          matchesPendientes: a?.matches.pending || 0,
+          matchesRechazados: a?.matches.rejected || 0,
+          leInteresoA: a?.interactions.interested || 0,
+          laDescartaron: a?.interactions.notInterested || 0,
+          postulacionesWorker: a?.requests.fromWorker || 0,
+          invitacionesEmpleador: a?.requests.fromEmployer || 0,
+          postulacionesPendientes: a?.requests.pending || 0,
+          postulacionesRechazadas: a?.requests.rejected || 0,
+          cvsEnRanking: a?.cvRanking.total || 0,
+          cvScorePromedio: a?.cvRanking.avgScore || 0,
+          cvsSeleccionados: a?.cvRanking.selected || 0,
+          cvsRecomendadosSi: a?.cvRanking.byRecommendation?.yes || 0,
+          cvsRecomendadosNo: a?.cvRanking.byRecommendation?.no || 0,
+        };
+      })
+    );
+  };
 
   return (
     <AdminLayout title="Ofertas de Trabajo">
       {/* Filtros */}
       <div className="mb-6 space-y-4">
         {/* Busqueda */}
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <div className="flex-1 max-w-md">
             <input
               type="text"
@@ -253,6 +303,13 @@ export default function AdminJobsPage() {
           <span className="theme-text-muted text-sm">
             {filteredOffers.length} de {allJobOffers.length} oferta{allJobOffers.length !== 1 ? 's' : ''}
           </span>
+          <button
+            onClick={exportCsv}
+            disabled={filteredOffers.length === 0}
+            className="px-3 py-1.5 rounded-lg text-sm font-medium bg-[#E10600] text-white hover:bg-[#c10500] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Descargar CSV
+          </button>
           {hasActiveFilters && (
             <button
               onClick={clearFilters}
@@ -261,6 +318,16 @@ export default function AdminJobsPage() {
               Limpiar filtros
             </button>
           )}
+        </div>
+
+        {/* Totales de lo filtrado (el detalle por oferta está en cada fila) */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm theme-text-muted">
+          <span title="Gasto estimado de IA (análisis de CVs) de las ofertas filtradas">
+            💸 U$D {formatUsd(totals.costUsd)} · {formatTokens(totals.tokens)} tokens · {totals.cvCount} CVs
+          </span>
+          <span>🤝 {totals.matches} matches ({totals.rejected} rechazados)</span>
+          <span>🙅 {totals.notInterested} descartes de workers</span>
+          <span>🏷️ {totals.customSkills} ofertas con skills fuera del catálogo</span>
         </div>
 
         {/* Filtros en fila */}
@@ -351,6 +418,15 @@ export default function AdminJobsPage() {
               </SelectContent>
             </Select>
           </div>
+
+          <label className="flex items-center gap-2 text-xs theme-text-secondary">
+            <input
+              type="checkbox"
+              checked={onlyCustomSkills}
+              onChange={(e) => setOnlyCustomSkills(e.target.checked)}
+            />
+            Solo con skills fuera del catálogo
+          </label>
         </div>
       </div>
 
@@ -378,14 +454,17 @@ export default function AdminJobsPage() {
                 <th className="text-left px-4 py-3 theme-text-secondary text-sm font-medium">Estado</th>
                 <th className="text-left px-4 py-3 theme-text-secondary text-sm font-medium">Duracion</th>
                 <th className="text-left px-4 py-3 theme-text-secondary text-sm font-medium">Expira</th>
+                <th className="text-left px-4 py-3 theme-text-secondary text-sm font-medium">IA (CVs)</th>
                 <th className="text-left px-4 py-3 theme-text-secondary text-sm font-medium">Matches</th>
+                <th className="text-left px-4 py-3 theme-text-secondary text-sm font-medium">Interés</th>
+                <th className="text-left px-4 py-3 theme-text-secondary text-sm font-medium">Skills</th>
                 <th className="text-left px-4 py-3 theme-text-secondary text-sm font-medium">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y theme-border">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
+                  <td colSpan={11} className="px-6 py-12 text-center">
                     <div className="flex justify-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E10600]"></div>
                     </div>
@@ -393,7 +472,7 @@ export default function AdminJobsPage() {
                 </tr>
               ) : paginatedOffers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center theme-text-muted">
+                  <td colSpan={11} className="px-6 py-12 text-center theme-text-muted">
                     {hasActiveFilters ? 'No se encontraron ofertas con los filtros aplicados' : 'No se encontraron ofertas'}
                   </td>
                 </tr>
@@ -401,21 +480,18 @@ export default function AdminJobsPage() {
                 paginatedOffers.map((job) => (
                   <tr key={job.id} className="hover:theme-bg-secondary transition-colors">
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => setDetailModal(job)}
+                      <Link
+                        href={`/sudo/jobs/${job.id}`}
                         className="font-mono text-xs text-[#E10600] hover:underline"
                       >
                         {job.id.slice(0, 8)}...
-                      </button>
+                      </Link>
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => setDetailModal(job)}
-                        className="text-left hover:opacity-80"
-                      >
+                      <Link href={`/sudo/jobs/${job.id}`} className="block hover:opacity-80">
                         <div className="theme-text-primary font-medium text-sm">{job.rubro}</div>
                         <div className="theme-text-muted text-xs">{job.puesto}</div>
-                      </button>
+                      </Link>
                     </td>
                     <td className="px-4 py-3">
                       {job.employer ? (
@@ -496,16 +572,86 @@ export default function AdminJobsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleViewMatches(job.id)}
-                        disabled={loadingMatches}
-                        className="text-sm text-[#E10600] hover:underline"
-                      >
-                        Ver matches
-                      </button>
+                      {(job.aiUsage?.cvCount ?? 0) > 0 ? (
+                        <div title="Gasto estimado de IA por analizar CVs en esta oferta">
+                          <div className="text-sm theme-text-primary">
+                            U$D {formatUsd(job.aiUsage!.costUsd)}
+                          </div>
+                          <div className="text-xs theme-text-muted">
+                            {formatTokens(totalTokens(job.aiUsage))} tokens · {job.aiUsage!.cvCount} CV
+                            {job.aiUsage!.cvCount !== 1 ? 's' : ''}
+                          </div>
+                          {(job.analytics?.cvRanking.total ?? 0) > 0 && (
+                            <div className="text-xs theme-text-muted">
+                              score prom. {job.analytics!.cvRanking.avgScore}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="theme-text-muted text-sm">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {job.analytics ? (
+                        <Link href={`/sudo/jobs/${job.id}`} className="block hover:opacity-80">
+                          <div className="text-sm theme-text-primary">{job.analytics.matches.total}</div>
+                          <div className="text-xs theme-text-muted">
+                            <span className="text-green-600">{job.analytics.matches.accepted} ok</span>
+                            {' · '}
+                            <span className="text-yellow-600">{job.analytics.matches.pending} pend</span>
+                            {' · '}
+                            <span className="text-red-600">{job.analytics.matches.rejected} rech</span>
+                          </div>
+                        </Link>
+                      ) : (
+                        <span className="theme-text-muted text-sm">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {job.analytics ? (
+                        <div title="Workers que marcaron interés o descartaron la oferta, y postulaciones">
+                          <div className="text-xs">
+                            <span className="text-green-600">
+                              👍 {job.analytics.interactions.interested}
+                            </span>
+                            {' · '}
+                            <span className="text-red-600">
+                              👎 {job.analytics.interactions.notInterested}
+                            </span>
+                          </div>
+                          <div className="text-xs theme-text-muted">
+                            {job.analytics.requests.total} postulaciones
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="theme-text-muted text-sm">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {job.analytics ? (
+                        <div className="text-xs theme-text-muted">
+                          <div>{job.analytics.skills.total} pedidas</div>
+                          {job.analytics.skills.custom.length > 0 && (
+                            <div
+                              className="text-purple-500"
+                              title={job.analytics.skills.custom.join(', ')}
+                            >
+                              {job.analytics.skills.custom.length} fuera de catálogo
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="theme-text-muted text-sm">-</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
+                        <Link
+                          href={`/sudo/jobs/${job.id}`}
+                          className="text-xs text-[#E10600] hover:underline"
+                        >
+                          Ver detalle
+                        </Link>
                         <button
                           onClick={() => setShareJob(job)}
                           disabled={isExpired(job.expiresAt)}
@@ -629,109 +775,6 @@ export default function AdminJobsPage() {
         )}
       </div>
 
-      {/* Modal de Detalles */}
-      {detailModal && (
-        <JobDetailModal
-          job={detailModal}
-          onClose={() => setDetailModal(null)}
-          onViewMatches={(jobId) => {
-            setDetailModal(null);
-            handleViewMatches(jobId);
-          }}
-          onToggleActive={async () => {
-            await handleToggleActive(detailModal);
-            // Actualizar el modal con el nuevo estado
-            setDetailModal((prev) => prev ? { ...prev, active: !prev.active } : null);
-          }}
-          isUpdating={updating === detailModal.id}
-          formatDateTime={formatDateTime}
-          getTimeRemaining={getTimeRemaining}
-          isExpired={isExpired}
-        />
-      )}
-
-      {/* Modal de Matches */}
-      {matchesModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="theme-bg-card rounded-xl max-w-2xl w-full max-h-[80vh] overflow-hidden">
-            <div className="p-4 border-b theme-border flex justify-between items-center">
-              <h3 className="text-lg font-semibold theme-text-primary">
-                Matches de la oferta
-              </h3>
-              <button
-                onClick={() => setMatchesModal(null)}
-                className="theme-text-muted hover:theme-text-primary"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-4 overflow-y-auto max-h-[60vh]">
-              {/* Contadores */}
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="theme-bg-secondary rounded-lg p-3 text-center">
-                  <div className="text-2xl font-bold text-yellow-600">{matchesModal.counts.pending}</div>
-                  <div className="text-xs theme-text-muted">Pendientes</div>
-                </div>
-                <div className="theme-bg-secondary rounded-lg p-3 text-center">
-                  <div className="text-2xl font-bold text-green-600">{matchesModal.counts.accepted}</div>
-                  <div className="text-xs theme-text-muted">Aceptados</div>
-                </div>
-                <div className="theme-bg-secondary rounded-lg p-3 text-center">
-                  <div className="text-2xl font-bold text-red-600">{matchesModal.counts.rejected}</div>
-                  <div className="text-xs theme-text-muted">Rechazados</div>
-                </div>
-              </div>
-
-              {/* Lista de matches */}
-              {matchesModal.counts.pending + matchesModal.counts.accepted + matchesModal.counts.rejected === 0 ? (
-                <p className="text-center theme-text-muted py-8">
-                  Esta oferta no tiene matches todavia
-                </p>
-              ) : (
-                <div className="space-y-4">
-                  {/* Aceptados */}
-                  {matchesModal.matches.accepted.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-medium text-green-600 mb-2">Aceptados ({matchesModal.matches.accepted.length})</h4>
-                      <div className="space-y-2">
-                        {matchesModal.matches.accepted.map((match) => (
-                          <MatchCard key={match.id} match={match} status="accepted" />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Pendientes */}
-                  {matchesModal.matches.pending.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-medium text-yellow-600 mb-2">Pendientes ({matchesModal.matches.pending.length})</h4>
-                      <div className="space-y-2">
-                        {matchesModal.matches.pending.map((match) => (
-                          <MatchCard key={match.id} match={match} status="pending" />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Rechazados */}
-                  {matchesModal.matches.rejected.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-medium text-red-600 mb-2">Rechazados ({matchesModal.matches.rejected.length})</h4>
-                      <div className="space-y-2">
-                        {matchesModal.matches.rejected.map((match) => (
-                          <MatchCard key={match.id} match={match} status="rejected" />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       <ShareJobModal
         open={!!shareJob}
         offerId={shareJob?.id ?? null}
@@ -740,274 +783,5 @@ export default function AdminJobsPage() {
         onClose={() => setShareJob(null)}
       />
     </AdminLayout>
-  );
-}
-
-function MatchCard({ match, status }: { match: IAdminMatch; status: string }) {
-  const statusColors = {
-    pending: 'border-yellow-500',
-    accepted: 'border-green-500',
-    rejected: 'border-red-500',
-  };
-
-  return (
-    <div className={`border-l-4 ${statusColors[status as keyof typeof statusColors]} theme-bg-secondary rounded-r-lg p-3`}>
-      <div className="flex justify-between items-start">
-        <div>
-          <div className="font-medium theme-text-primary text-sm">
-            {match.worker?.puesto || 'Sin puesto'}
-          </div>
-          <div className="text-xs theme-text-muted">
-            {match.worker?.rubro} - {match.worker?.zona || 'Sin zona'}
-          </div>
-        </div>
-        <Link
-          href={`/sudo/users/${match.workerId}`}
-          className="text-xs text-[#E10600] hover:underline"
-        >
-          Ver trabajador
-        </Link>
-      </div>
-      {match.worker?.skills && match.worker.skills.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {match.worker.skills.slice(0, 5).map((skill) => (
-            <span
-              key={skill}
-              className="px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded-full text-xs theme-text-secondary"
-            >
-              {skill}
-            </span>
-          ))}
-          {match.worker.skills.length > 5 && (
-            <span className="text-xs theme-text-muted">
-              +{match.worker.skills.length - 5} mas
-            </span>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface JobDetailModalProps {
-  job: IAdminJobOffer & { stats?: JobOfferStats };
-  onClose: () => void;
-  onViewMatches: (jobId: string) => void;
-  onToggleActive: () => void;
-  isUpdating: boolean;
-  formatDateTime: (date?: string) => string;
-  getTimeRemaining: (date?: string) => string | null;
-  isExpired: (date?: string) => boolean;
-}
-
-function JobDetailModal({
-  job,
-  onClose,
-  onViewMatches,
-  onToggleActive,
-  isUpdating,
-  formatDateTime,
-  getTimeRemaining,
-  isExpired,
-}: JobDetailModalProps) {
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="theme-bg-card rounded-xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="p-4 border-b theme-border flex justify-between items-start">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-lg font-semibold theme-text-primary">
-                {job.rubro}
-              </h3>
-              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                job.active !== false
-                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                  : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-              }`}>
-                {job.active !== false ? 'Activa' : 'Inactiva'}
-              </span>
-            </div>
-            <p className="theme-text-secondary text-sm">{job.puesto}</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="theme-text-muted hover:theme-text-primary text-xl"
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-4 overflow-y-auto max-h-[calc(90vh-180px)]">
-          {/* Info Grid */}
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            {/* Empleador */}
-            <div className="theme-bg-secondary rounded-lg p-3">
-              <div className="text-xs theme-text-muted mb-1">Empleador</div>
-              {job.employer ? (
-                <Link
-                  href={`/sudo/users/${job.employerId}`}
-                  className="text-sm text-[#E10600] hover:underline font-medium"
-                >
-                  {job.employer.businessName}
-                </Link>
-              ) : (
-                <span className="text-sm theme-text-primary">-</span>
-              )}
-            </div>
-
-            {/* Zona */}
-            <div className="theme-bg-secondary rounded-lg p-3">
-              <div className="text-xs theme-text-muted mb-1">Zona</div>
-              <div className="text-sm theme-text-primary font-medium">
-                {job.zona || '-'}
-              </div>
-            </div>
-
-            {/* Duracion */}
-            <div className="theme-bg-secondary rounded-lg p-3">
-              <div className="text-xs theme-text-muted mb-1">Duracion</div>
-              <div className="text-sm theme-text-primary font-medium">
-                {job.durationDays || 3} dias
-              </div>
-            </div>
-
-            {/* Expiracion */}
-            <div className="theme-bg-secondary rounded-lg p-3">
-              <div className="text-xs theme-text-muted mb-1">Expiracion</div>
-              <div className={`text-sm font-medium ${
-                isExpired(job.expiresAt)
-                  ? 'text-red-600'
-                  : getTimeRemaining(job.expiresAt)?.includes('h') && !getTimeRemaining(job.expiresAt)?.includes('d')
-                    ? 'text-orange-600'
-                    : 'theme-text-primary'
-              }`}>
-                {isExpired(job.expiresAt) ? 'Expirada' : getTimeRemaining(job.expiresAt) || '-'}
-              </div>
-              <div className="text-xs theme-text-muted">
-                {formatDateTime(job.expiresAt)}
-              </div>
-            </div>
-          </div>
-
-          {/* Estadisticas */}
-          <div className="mb-6">
-            <h4 className="text-sm font-medium theme-text-primary mb-2">Estadisticas</h4>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="theme-bg-secondary rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold text-green-600">
-                  {job.stats?.interestedCount || 0}
-                </div>
-                <div className="text-xs theme-text-muted">Interesados</div>
-              </div>
-              <div className="theme-bg-secondary rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold text-red-600">
-                  {job.stats?.notInterestedCount || 0}
-                </div>
-                <div className="text-xs theme-text-muted">No interesados</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Descripcion */}
-          {job.description && (
-            <div className="mb-4">
-              <h4 className="text-sm font-medium theme-text-primary mb-2">Descripcion</h4>
-              <p className="text-sm theme-text-secondary whitespace-pre-wrap">
-                {job.description}
-              </p>
-            </div>
-          )}
-
-          {/* Requisitos */}
-          {job.requirements && (
-            <div className="mb-4">
-              <h4 className="text-sm font-medium theme-text-primary mb-2">Requisitos</h4>
-              <p className="text-sm theme-text-secondary whitespace-pre-wrap">
-                {job.requirements}
-              </p>
-            </div>
-          )}
-
-          {/* Salario y Horario */}
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            {job.salary && (
-              <div>
-                <h4 className="text-sm font-medium theme-text-primary mb-1">Salario</h4>
-                <p className="text-sm theme-text-secondary">{job.salary}</p>
-              </div>
-            )}
-            {job.schedule && (
-              <div>
-                <h4 className="text-sm font-medium theme-text-primary mb-1">Horario</h4>
-                <p className="text-sm theme-text-secondary">{job.schedule}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Skills requeridos */}
-          {job.requiredSkills && job.requiredSkills.length > 0 && (
-            <div className="mb-4">
-              <h4 className="text-sm font-medium theme-text-primary mb-2">Skills requeridos</h4>
-              <div className="flex flex-wrap gap-2">
-                {job.requiredSkills.map((skill) => (
-                  <span
-                    key={skill}
-                    className="px-2.5 py-1 bg-[#E10600] text-white rounded-full text-xs font-medium"
-                  >
-                    {skill}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Fechas */}
-          <div className="border-t theme-border pt-4 mt-4">
-            <div className="grid grid-cols-2 gap-4 text-xs theme-text-muted">
-              <div>
-                <span className="font-medium">Creada:</span> {formatDateTime(job.createdAt)}
-              </div>
-              <div>
-                <span className="font-medium">Actualizada:</span> {formatDateTime(job.updatedAt)}
-              </div>
-            </div>
-            <div className="mt-2 text-xs theme-text-muted">
-              <span className="font-medium">ID:</span> <span className="font-mono">{job.id}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="p-4 border-t theme-border flex justify-between items-center">
-          <div className="flex gap-2">
-            <button
-              onClick={onToggleActive}
-              disabled={isUpdating}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                job.active !== false
-                  ? 'bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600'
-                  : 'bg-green-600 text-white hover:bg-green-700'
-              } ${isUpdating ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              {isUpdating ? '...' : job.active !== false ? 'Desactivar' : 'Activar'}
-            </button>
-            <button
-              onClick={() => onViewMatches(job.id)}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-[#E10600] text-white hover:bg-[#c10500] transition-colors"
-            >
-              Ver matches
-            </button>
-          </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg text-sm font-medium theme-bg-secondary theme-text-primary hover:opacity-80 transition-colors"
-          >
-            Cerrar
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
