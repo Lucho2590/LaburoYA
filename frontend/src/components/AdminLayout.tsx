@@ -5,12 +5,18 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import {
+  LayoutGrid, Users, Building2, Briefcase, CheckCircle2, UserPlus, MapPin, Tag,
+  DollarSign, FileText, Sparkles, ScrollText, Lock, QrCode, Trash2, ChevronDown,
+} from "lucide-react";
 import { EAppRole } from "@/types";
 
 interface AdminLayoutProps {
   children: ReactNode;
   title?: string;
 }
+
+const NAV_COLLAPSED_KEY = "laburoya:sudoNavCollapsed";
 
 export function AdminLayout({ children, title }: AdminLayoutProps) {
   const pathname = usePathname();
@@ -19,6 +25,18 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
   const { theme, toggleTheme } = useTheme();
   const [changingRole, setChangingRole] = useState(false);
   const [stoppingImpersonation, setStoppingImpersonation] = useState(false);
+  // Secciones plegadas. Se hidrata en un efecto y no en el useState inicial
+  // para no romper la hidratación de Next (el server no tiene localStorage).
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(NAV_COLLAPSED_KEY);
+      if (raw) setCollapsed(JSON.parse(raw));
+    } catch {
+      // Ignorar: si no se puede leer, arrancan todas abiertas.
+    }
+  }, []);
 
   const isSuperuser = userData?.role === "superuser";
 
@@ -38,305 +56,73 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
     );
   }
 
-  const navItems = [
+  // Secciones del panel. Antes era una lista plana de 15 items en orden
+  // histórico (entidades, huérfanos, catálogos y config mezclados) con un SVG
+  // inline de ~18 líneas cada uno: casi 300 de las 589 líneas del archivo.
+  const navSections = [
     {
-      href: "/sudo",
-      label: "Dashboard",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
-          />
-        </svg>
-      ),
+      id: "comunidad",
+      label: "Comunidad",
+      items: [
+        { href: "/sudo/users", label: "Usuarios", icon: Users },
+        { href: "/sudo/companies", label: "Empresas", icon: Building2 },
+      ],
     },
     {
-      href: "/sudo/users",
-      label: "Usuarios",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
-          />
-        </svg>
-      ),
+      id: "actividad",
+      label: "Actividad",
+      items: [
+        { href: "/sudo/jobs", label: "Ofertas", icon: Briefcase },
+        { href: "/sudo/matches", label: "Matches", icon: CheckCircle2 },
+        { href: "/sudo/leads", label: "Leads", icon: UserPlus },
+      ],
     },
     {
-      href: "/sudo/companies",
-      label: "Empresas",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0H5m14 0h2M5 21H3m4-14h.01M11 7h.01M15 7h.01M7 11h.01M11 11h.01M15 11h.01M7 15h.01M11 15h.01M15 15h.01"
-          />
-        </svg>
-      ),
+      id: "configuracion",
+      label: "Configuración",
+      items: [
+        { href: "/sudo/cities", label: "Ciudades", icon: MapPin },
+        { href: "/sudo/rubros", label: "Rubros", icon: Tag },
+        { href: "/sudo/plans", label: "Planes", icon: DollarSign },
+        { href: "/sudo/company-plans", label: "Planes Empresa", icon: FileText },
+        { href: "/sudo/ai-settings", label: "IA", icon: Sparkles },
+        { href: "/sudo/tyc", label: "TyC", icon: ScrollText },
+        { href: "/sudo/security", label: "Seguridad", icon: Lock },
+      ],
     },
     {
-      href: "/sudo/company-plans",
-      label: "Planes Empresa",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-          />
-        </svg>
-      ),
-    },
-    {
-      href: "/sudo/jobs",
-      label: "Ofertas",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-          />
-        </svg>
-      ),
-    },
-    {
-      href: "/sudo/matches",
-      label: "Matches",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-      ),
-    },
-    {
-      href: "/sudo/orphans",
-      label: "Workers huérfanos",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 9v2m0 4h.01M5.07 19H19a2 2 0 001.75-2.96l-6.93-12a2 2 0 00-3.5 0l-6.93 12A2 2 0 005.07 19z"
-          />
-        </svg>
-      ),
-    },
-    {
-      href: "/sudo/orphan-offers",
-      label: "Ofertas huérfanas",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 9v2m0 4h.01M5.07 19H19a2 2 0 001.75-2.96l-6.93-12a2 2 0 00-3.5 0l-6.93 12A2 2 0 005.07 19z"
-          />
-        </svg>
-      ),
-    },
-    {
-      href: "/sudo/plans",
-      label: "Planes",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-      ),
-    },
-    {
-      href: "/sudo/rubros",
-      label: "Rubros",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-          />
-        </svg>
-      ),
-    },
-    {
-      href: "/sudo/cities",
-      label: "Ciudades",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-          />
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-          />
-        </svg>
-      ),
-    },
-    {
-      href: "/sudo/leads",
-      label: "Leads",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-          />
-        </svg>
-      ),
-    },
-    {
-      href: "/sudo/tyc",
-      label: "TyC",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-          />
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-          />
-        </svg>
-      ),
-    },
-    {
-      href: "/sudo/ai-settings",
-      label: "IA",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-          />
-        </svg>
-      ),
-    },
-    {
-      href: "/sudo/security",
-      label: "Seguridad",
-      icon: (
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-          />
-        </svg>
-      ),
+      id: "herramientas",
+      label: "Herramientas",
+      items: [
+        { href: "/sudo/qr", label: "Generador de QR", icon: QrCode },
+        { href: "/sudo/limpieza", label: "Limpieza de datos", icon: Trash2 },
+      ],
     },
   ];
+
+  // Coincidencia exacta o con "/" al final. El startsWith pelado que había antes
+  // marcaba como activa cualquier ruta que empezara igual (/sudo/users-algo).
+  const isActiveHref = (href: string) =>
+    pathname === href || pathname.startsWith(`${href}/`);
+
+  // Una sección se ve abierta si el usuario la dejó así, o si contiene la ruta
+  // actual: entrando por URL directa, el item activo no puede quedar escondido.
+  const isSectionOpen = (section: { id: string; items: { href: string }[] }) => {
+    if (section.items.some((i) => isActiveHref(i.href))) return true;
+    return collapsed[section.id] !== true;
+  };
+
+  const toggleSection = (id: string) => {
+    setCollapsed((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      try {
+        localStorage.setItem(NAV_COLLAPSED_KEY, JSON.stringify(next));
+      } catch {
+        // Modo privado o storage lleno: no vale romper la navegación por esto.
+      }
+      return next;
+    });
+  };
 
   const handleSignOut = async () => {
     await signOut();
@@ -380,29 +166,64 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
         </div>
 
         {/* Navigation - Scrollable */}
-        <nav className="flex-1 p-3 overflow-y-auto">
-          <ul className="space-y-1">
-            {navItems.map((item) => {
-              const isActive =
-                pathname === item.href ||
-                (item.href !== "/sudo" && pathname.startsWith(item.href));
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                      isActive
-                        ? "bg-[#E10600] text-white"
-                        : "theme-text-secondary hover:theme-bg-card"
-                    }`}
-                  >
-                    {item.icon}
-                    <span className="font-medium text-sm">{item.label}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+        <nav className="flex-1 p-3 overflow-y-auto space-y-1">
+          {/* Dashboard queda suelto arriba: es la entrada, no pertenece a
+              ninguna sección. */}
+          <Link
+            href="/sudo"
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+              pathname === "/sudo"
+                ? "bg-[#E10600] text-white"
+                : "theme-text-secondary hover:theme-bg-card"
+            }`}
+          >
+            <LayoutGrid className="h-5 w-5 flex-shrink-0" />
+            <span className="font-medium text-sm">Dashboard</span>
+          </Link>
+
+          {navSections.map((section) => {
+            const open = isSectionOpen(section);
+            return (
+              <div key={section.id} className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => toggleSection(section.id)}
+                  className="w-full flex items-center justify-between px-3 py-1.5 theme-text-muted hover:theme-text-secondary transition-colors cursor-pointer"
+                >
+                  <span className="text-xs font-semibold uppercase tracking-wide">
+                    {section.label}
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${open ? "" : "-rotate-90"}`}
+                  />
+                </button>
+
+                {open && (
+                  <ul className="space-y-1 mt-1">
+                    {section.items.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = isActiveHref(item.href);
+                      return (
+                        <li key={item.href}>
+                          <Link
+                            href={item.href}
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                              isActive
+                                ? "bg-[#E10600] text-white"
+                                : "theme-text-secondary hover:theme-bg-card"
+                            }`}
+                          >
+                            <Icon className="h-5 w-5 flex-shrink-0" />
+                            <span className="font-medium text-sm">{item.label}</span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         {/* Footer */}
