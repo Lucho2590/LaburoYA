@@ -2,67 +2,33 @@
  * Borra ofertas laborales por id, junto con su data relacionada
  * (offerInteractions, matches, contactRequests, pinnedCandidates).
  *
+ * Usa la misma cascada que el panel de admin (services/userCleanup): antes este
+ * script tenía su propia copia.
+ *
  * Uso: node scripts/delete-offers.js <offerId> [<offerId> ...]
  */
 
 require('dotenv').config();
-const admin = require('firebase-admin');
+const { initializeFirebase, getDb } = require('../src/config/firebase');
+const { deleteOfferAndRefs } = require('../src/services/userCleanup');
 
-let privateKey = process.env.FIREBASE_PRIVATE_KEY || '';
-if ((privateKey.startsWith('"') && privateKey.endsWith('"')) ||
-    (privateKey.startsWith("'") && privateKey.endsWith("'"))) {
-  privateKey = privateKey.slice(1, -1);
-}
-privateKey = privateKey.replace(/\\n/g, '\n');
-
-admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: privateKey
-  })
-});
-
-const db = admin.firestore();
-
-async function deleteOffer(offerId) {
-  const counts = { offer: 0, offerInteractions: 0, matches: 0, contactRequests: 0, pinnedCandidates: 0 };
-
-  const offerRef = db.collection('jobOffers').doc(offerId);
-  if ((await offerRef.get()).exists) {
-    await offerRef.delete();
-    counts.offer = 1;
-  }
-
-  const deleteWhere = async (collection, key) => {
-    const snap = await db.collection(collection).where('offerId', '==', offerId).get();
-    if (!snap.size) return;
-    const batch = db.batch();
-    snap.docs.forEach(d => batch.delete(d.ref));
-    await batch.commit();
-    counts[key] += snap.size;
-  };
-
-  await deleteWhere('offerInteractions', 'offerInteractions');
-  await deleteWhere('matches', 'matches');
-  await deleteWhere('contactRequests', 'contactRequests');
-  await deleteWhere('pinnedCandidates', 'pinnedCandidates');
-
-  return counts;
-}
+initializeFirebase();
 
 async function main() {
   const ids = process.argv.slice(2);
-  if (ids.length === 0) {
+  if (!ids.length) {
     console.error('Uso: node scripts/delete-offers.js <offerId> [<offerId> ...]');
     process.exit(1);
   }
+
+  const db = getDb();
   for (const id of ids) {
-    const c = await deleteOffer(id);
-    console.log(`✓ ${id} → offer:${c.offer} interactions:${c.offerInteractions} matches:${c.matches} contactRequests:${c.contactRequests} pinned:${c.pinnedCandidates}`);
+    const deleted = await deleteOfferAndRefs(db, id);
+    const detalle = Object.entries(deleted).map(([k, v]) => `${k}=${v}`).join(' ') || '(nada)';
+    console.log(`${id}: ${detalle}`);
   }
-  console.log('\nListo.');
-  process.exit(0);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main()
+  .then(() => process.exit(0))
+  .catch((e) => { console.error(e); process.exit(1); });

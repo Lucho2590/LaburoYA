@@ -13,6 +13,8 @@ import {
   IAdminMatch,
   IOrphanWorker,
   IOrphanOffer,
+  ICleanupReport,
+  IAbandonedAccount,
   IContactRequest,
   IDiscoveryOffersResponse,
   IDiscoveryWorkersResponse,
@@ -533,6 +535,27 @@ class ApiService {
     return this.request<{ message: string }>(`/admin/orphan-offers/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  // Admin - Limpieza de datos huérfanos
+
+  /** Diagnóstico. No borra nada. */
+  async getCleanupReport() {
+    return this.request<ICleanupReport>('/admin/cleanup/orphan-users');
+  }
+
+  /** Ejecuta la limpieza. Irreversible. */
+  async runCleanup() {
+    return this.request<{ message: string; deadUids: number; deleted: Record<string, number> }>(
+      '/admin/cleanup/orphan-users',
+      { method: 'POST' },
+    );
+  }
+
+  async getAbandonedAccounts() {
+    return this.request<{ accounts: IAbandonedAccount[]; total: number }>(
+      '/admin/cleanup/abandoned-accounts',
+    );
   }
 
   // Admin - Plans

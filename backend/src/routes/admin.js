@@ -1,6 +1,6 @@
 const express = require('express');
 const multer = require('multer');
-const { getDb, getAuth } = require('../config/firebase');
+const { getDb, getAuth, getBucket } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
 const { superuserMiddleware } = require('../middleware/superuser');
 const { sendInvitationEmail } = require('../services/emailService');
@@ -12,6 +12,12 @@ const pdfParser = require('../services/pdfParser');
 const citiesService = require('../services/citiesService');
 const locationService = require('../services/locationService');
 const { normalizeZona } = require('../utils/constants');
+const {
+  deleteUserData,
+  deleteOfferAndRefs,
+  buildCleanupReport,
+  listAbandonedAccounts,
+} = require('../services/userCleanup');
 const { getDocMapByIds } = require('../utils/firestore');
 const profileBlocks = require('../services/profileBlocks');
 const appFeatures = require('../services/appFeatures');
@@ -622,47 +628,41 @@ router.delete('/users/:uid', async (req, res, next) => {
     }
 
     if (hard === 'true') {
-      // Hard delete - remove user and related data
-      const batch = db.batch();
       const auth = getAuth();
       const authUidsToDelete = [uid]; // cuentas de Firebase Auth a liberar
 
-      // Delete user document
-      batch.delete(userRef);
-
-      // Delete profile
-      if (userData.role === 'worker') {
-        batch.delete(db.collection('workers').doc(uid));
-      } else if (userData.role === 'employer' || userData.role === 'company') {
-        batch.delete(db.collection(userData.role === 'company' ? 'companies' : 'employers').doc(uid));
-
-        // Delete the owner's job offers
-        const jobOffersSnapshot = await db.collection('jobOffers')
-          .where('employerId', '==', uid)
+      // Empresa: sus miembros del equipo se borran también, cada uno con su
+      // propia cascada.
+      if (userData.role === 'company') {
+        const membersSnapshot = await db.collection('users')
+          .where('organizationId', '==', uid)
           .get();
-        jobOffersSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+        membersSnapshot.docs.forEach(doc => {
+          if (doc.id !== uid) authUidsToDelete.push(doc.id);
+        });
 
-        // Empresa: borrar también su talent pool y sus MIEMBROS del equipo.
-        if (userData.role === 'company') {
-          const candidatesSnapshot = await db.collection('companyCandidates')
-            .where('organizationId', '==', uid)
-            .get();
-          candidatesSnapshot.docs.forEach(doc => batch.delete(doc.ref));
-
-          // Miembros de la organización (otros uid con organizationId === uid).
-          const membersSnapshot = await db.collection('users')
-            .where('organizationId', '==', uid)
-            .get();
-          membersSnapshot.docs.forEach(doc => {
-            if (doc.id !== uid) {
-              batch.delete(doc.ref);
-              authUidsToDelete.push(doc.id);
-            }
-          });
-        }
+        // Talent pool de la organización. Los archivos de CV NO se borran acá:
+        // los migrados a talentProspects comparten path y son la fuente del
+        // cvUrl de workers ya validados.
+        const candidatesSnapshot = await db.collection('companyCandidates')
+          .where('organizationId', '==', uid)
+          .get();
+        const batch = db.batch();
+        candidatesSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
       }
 
-      await batch.commit();
+      // La cascada completa, compartida con la limpieza de huérfanos. Antes acá
+      // se borraba sólo el doc de users, el perfil y las ofertas, dejando
+      // colgando matches, chats, mensajes, solicitudes, notificaciones,
+      // interacciones y los archivos de Storage.
+      const deleted = {};
+      for (const targetUid of authUidsToDelete) {
+        const c = await deleteUserData(db, targetUid, { bucket: getBucket() });
+        Object.entries(c).forEach(([k, v]) => { deleted[k] = (deleted[k] || 0) + v; });
+        await db.collection('users').doc(targetUid).delete();
+        deleted.users = (deleted.users || 0) + 1;
+      }
 
       // Liberar las cuentas de Firebase Auth (best-effort) para que el email
       // pueda re-invitarse en el futuro. Cada borrado es independiente.
@@ -674,7 +674,7 @@ router.delete('/users/:uid', async (req, res, next) => {
         }
       }));
 
-      res.json({ message: 'User permanently deleted' });
+      res.json({ message: 'User permanently deleted', deleted });
     } else {
       // Soft delete - mark as disabled
       await userRef.update({
@@ -690,39 +690,61 @@ router.delete('/users/:uid', async (req, res, next) => {
   }
 });
 
+// ----- Limpieza de datos huérfanos -----
+// Estos endpoints exponen en el panel lo mismo que hace scripts/cleanup-orphan-users.js;
+// los dos comparten services/userCleanup, así que muestran idénticos números.
+
+// GET /api/admin/cleanup/orphan-users - Diagnóstico. NO borra nada.
+router.get('/cleanup/orphan-users', async (req, res, next) => {
+  try {
+    const report = await buildCleanupReport(getDb(), getAuth(), { bucket: getBucket() });
+    res.json(report);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/admin/cleanup/orphan-users - Ejecuta el borrado. Irreversible.
+router.post('/cleanup/orphan-users', async (req, res, next) => {
+  try {
+    const db = getDb();
+    // Se vuelve a calcular acá y no se confía en lo que mande el cliente: entre
+    // que se mostró el diagnóstico y se apretó el botón, la base pudo cambiar.
+    const { items } = await buildCleanupReport(db, getAuth(), { bucket: getBucket() });
+
+    const deleted = {};
+    for (const item of items) {
+      const c = await deleteUserData(db, item.uid, { bucket: getBucket() });
+      Object.entries(c).forEach(([k, v]) => { deleted[k] = (deleted[k] || 0) + v; });
+    }
+
+    res.json({ message: 'Limpieza ejecutada', deadUids: items.length, deleted });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/admin/cleanup/abandoned-accounts - Cuentas de Auth que nunca
+// completaron el registro. Sólo lectura: son personas reales, se deciden de a una.
+router.get('/cleanup/abandoned-accounts', async (req, res, next) => {
+  try {
+    const accounts = await listAbandonedAccounts(getDb(), getAuth());
+    res.json({ accounts, total: accounts.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // ----- Perfiles de worker "huérfanos" -----
 // Un worker es huérfano cuando existe su doc en `workers` pero NO su doc en
 // `users` (típicamente porque se borró el usuario a mano en la consola de
 // Firebase). Siguen apareciendo como candidatos en la app (el descubrimiento
 // lee `workers`) pero son invisibles al panel (que lista `users`).
 
-// Borra el worker + su data relacionada (matches/interacciones/solicitudes/
-// notificaciones). Devuelve los conteos borrados.
+// Borra el worker + su data relacionada. Delega en la cascada compartida: esta
+// función tenía su propia versión que no tocaba chats, mensajes ni Storage.
 async function deleteWorkerAndRefs(db, uid) {
-  const counts = { worker: 0, matches: 0, offerInteractions: 0, contactRequests: 0, notifications: 0 };
-
-  const workerRef = db.collection('workers').doc(uid);
-  if ((await workerRef.get()).exists) {
-    await workerRef.delete();
-    counts.worker = 1;
-  }
-
-  const deleteWhere = async (collection, field, key) => {
-    const snap = await db.collection(collection).where(field, '==', uid).get();
-    if (!snap.size) return;
-    const batch = db.batch();
-    snap.docs.forEach(d => batch.delete(d.ref));
-    await batch.commit();
-    counts[key] += snap.size;
-  };
-
-  await deleteWhere('matches', 'workerId', 'matches');
-  await deleteWhere('offerInteractions', 'userId', 'offerInteractions');
-  await deleteWhere('contactRequests', 'fromUid', 'contactRequests');
-  await deleteWhere('contactRequests', 'toUid', 'contactRequests');
-  await deleteWhere('notifications', 'userId', 'notifications');
-
-  return counts;
+  return deleteUserData(db, uid, { bucket: getBucket() });
 }
 
 // GET /api/admin/orphan-workers - Lista de workers sin doc en `users`.
@@ -784,33 +806,6 @@ router.delete('/orphan-workers/:uid', async (req, res, next) => {
 // - "superuser": el employerId es una cuenta con role 'superuser' (ofertas de prueba).
 // Estas ofertas siguen apareciendo/matcheando en la app pero no tienen un dueño
 // real; acá se listan y borran junto con su data relacionada.
-
-// Borra la oferta + su data relacionada. Devuelve los conteos borrados.
-async function deleteOfferAndRefs(db, offerId) {
-  const counts = { offer: 0, offerInteractions: 0, matches: 0, contactRequests: 0, pinnedCandidates: 0 };
-
-  const offerRef = db.collection('jobOffers').doc(offerId);
-  if ((await offerRef.get()).exists) {
-    await offerRef.delete();
-    counts.offer = 1;
-  }
-
-  const deleteWhere = async (collection, key) => {
-    const snap = await db.collection(collection).where('offerId', '==', offerId).get();
-    if (!snap.size) return;
-    const batch = db.batch();
-    snap.docs.forEach(d => batch.delete(d.ref));
-    await batch.commit();
-    counts[key] += snap.size;
-  };
-
-  await deleteWhere('offerInteractions', 'offerInteractions');
-  await deleteWhere('matches', 'matches');
-  await deleteWhere('contactRequests', 'contactRequests');
-  await deleteWhere('pinnedCandidates', 'pinnedCandidates');
-
-  return counts;
-}
 
 // Clasifica una oferta: 'orphan' (dueño sin users doc), 'superuser' (dueño superuser) o null.
 function offerCleanupCategory(offer, usersMap) {
