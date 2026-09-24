@@ -502,6 +502,10 @@ export interface IAdminUser {
   onboardingCompleted?: boolean;
   secondaryRole?: string;
   organizationId?: string;
+  // Los empleadores guardan razón social y contacto en el doc de users (los
+  // escribe el onboarding en PATCH /auth/basic-info).
+  businessName?: string;
+  contactName?: string;
   aiCvEnabled?: boolean; // Admin-controlled: AI CV-assessment module enabled
   lastLocation?: {
     city?: string;

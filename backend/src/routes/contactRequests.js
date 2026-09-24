@@ -6,7 +6,7 @@ const { authMiddleware } = require('../middleware/auth');
 const notificationService = require('../services/notificationService');
 const { getAllByIds } = require('../utils/firestore');
 const { resolveActingContext, isEmployerLike } = require('../utils/actingContext');
-const { loadOwnerProfile, ownerDisplayName } = require('../utils/ownerProfile');
+const { loadOwnerProfile, loadOwnerProfilesByIds, ownerDisplayName } = require('../utils/ownerProfile');
 
 const router = express.Router();
 
@@ -188,9 +188,9 @@ router.post('/worker-to-offer', authMiddleware, async (req, res, next) => {
       // Send match notifications if it's a new match
       if (!match.alreadyExisted) {
         const workerDoc = await db.collection('workers').doc(uid).get();
-        const employerDoc = await db.collection('employers').doc(employerId).get();
         const workerData = workerDoc.exists ? workerDoc.data() : {};
-        const employerData = employerDoc.exists ? employerDoc.data() : {};
+        // El dueño puede ser un employer individual o una empresa.
+        const employerData = (await loadOwnerProfile(db, employerId)) || {};
 
         // Get worker user info for better name
         const workerUserDoc = await db.collection('users').doc(uid).get();
@@ -475,23 +475,20 @@ router.get('/received', authMiddleware, async (req, res, next) => {
       };
     });
 
-    // Batch fetch all related documents (un round-trip por colección con getAll)
-    const [workerDocs, employerDocs, offerDocs] = await Promise.all([
+    // Batch fetch all related documents (un round-trip por colección con getAll).
+    // El dueño puede ser un employer individual o una empresa (companies).
+    const [workerDocs, employerMap, offerDocs] = await Promise.all([
       getAllByIds(db, 'workers', Array.from(workerIds)),
-      getAllByIds(db, 'employers', Array.from(employerIds)),
+      loadOwnerProfilesByIds(db, Array.from(employerIds)),
       getAllByIds(db, 'jobOffers', Array.from(offerIds))
     ]);
 
     // Build lookup maps
     const workerMap = new Map();
-    const employerMap = new Map();
     const offerMap = new Map();
 
     workerDocs.forEach(doc => {
       if (doc.exists) workerMap.set(doc.id, doc.data());
-    });
-    employerDocs.forEach(doc => {
-      if (doc.exists) employerMap.set(doc.id, doc.data());
     });
     offerDocs.forEach(doc => {
       if (doc.exists) offerMap.set(doc.id, { id: doc.id, ...doc.data() });
@@ -564,23 +561,20 @@ router.get('/sent', authMiddleware, async (req, res, next) => {
       };
     });
 
-    // Batch fetch all related documents (un round-trip por colección con getAll)
-    const [workerDocs, employerDocs, offerDocs] = await Promise.all([
+    // Batch fetch all related documents (un round-trip por colección con getAll).
+    // El dueño puede ser un employer individual o una empresa (companies).
+    const [workerDocs, employerMap, offerDocs] = await Promise.all([
       getAllByIds(db, 'workers', Array.from(workerIds)),
-      getAllByIds(db, 'employers', Array.from(employerIds)),
+      loadOwnerProfilesByIds(db, Array.from(employerIds)),
       getAllByIds(db, 'jobOffers', Array.from(offerIds))
     ]);
 
     // Build lookup maps
     const workerMap = new Map();
-    const employerMap = new Map();
     const offerMap = new Map();
 
     workerDocs.forEach(doc => {
       if (doc.exists) workerMap.set(doc.id, doc.data());
-    });
-    employerDocs.forEach(doc => {
-      if (doc.exists) employerMap.set(doc.id, doc.data());
     });
     offerDocs.forEach(doc => {
       if (doc.exists) offerMap.set(doc.id, { id: doc.id, ...doc.data() });

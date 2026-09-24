@@ -6,6 +6,7 @@ const { superuserMiddleware } = require('../middleware/superuser');
 const { sendInvitationEmail } = require('../services/emailService');
 const companyMembers = require('../services/companyMembers');
 const companySubscription = require('../utils/companySubscription');
+const { buildCompanyProfileDoc } = require('../utils/companyProfileDoc');
 const adminSecurity = require('../services/adminSecurity');
 const aiProvider = require('../services/aiProvider');
 const pdfParser = require('../services/pdfParser');
@@ -41,9 +42,6 @@ const pdfUpload = multer({
 // Apply auth and superuser middleware to all routes
 router.use(authMiddleware);
 router.use(superuserMiddleware);
-
-// Límite de miembros por defecto al crear una empresa (incluye al dueño).
-const DEFAULT_COMPANY_MAX_MEMBERS = 3;
 
 // GET /api/admin/stats - General statistics
 router.get('/stats', async (req, res, next) => {
@@ -183,36 +181,14 @@ router.post('/users', async (req, res, next) => {
     // 2c. Si role=company, crear el perfil de empresa (con placeholders de
     // suscripción/KPIs/onboarding a definir más adelante).
     if (role === 'company') {
-      await db.collection('companies').doc(userRecord.uid).set({
+      await db.collection('companies').doc(userRecord.uid).set(buildCompanyProfileDoc({
         uid: userRecord.uid,
-        organizationId: userRecord.uid,
         businessName,
         contactName: firstName && lastName ? `${firstName} ${lastName}` : (firstName || null),
-        phone: phone || null,
-        rubro: null,
-        address: null,
-        localidad: null,
-        city: null,
-        description: null,
-        photoUrl: null,
-        active: true,
-        // Límite de cuentas del equipo (incluye al dueño). null = sin límite.
-        maxMembers: Number.isInteger(maxMembers) && maxMembers > 0 ? maxMembers : DEFAULT_COMPANY_MAX_MEMBERS,
-        // Suscripción materializada desde el plan elegido (vigencia + IA + cupo).
-        subscription: companySubscription.applyPlan(companyPlan, new Date()),
-        // KPIs (PLACEHOLDER, a definir).
-        kpis: {
-          totalOffers: 0,
-          totalCandidatesEvaluated: 0,
-          totalHires: 0,
-          talentPoolSize: 0,
-          updatedAt: null
-        },
-        // Onboarding (PLACEHOLDER, a definir).
-        onboarding: { completed: false, steps: {} },
-        createdAt: new Date(),
-        updatedAt: new Date()
-      });
+        phone,
+        maxMembers,
+        plan: companyPlan
+      }));
     }
 
     // 2b. Si role=worker y vienen datos de worker profile, crear el perfil
@@ -580,6 +556,19 @@ router.patch('/users/:uid', async (req, res, next) => {
       if (!['worker', 'employer', 'superuser', 'company'].includes(role)) {
         return res.status(400).json({ error: 'Invalid role' });
       }
+      // Entrar o salir del rol `company` por acá dejaba la cuenta rota: no crea
+      // el doc en `companies` ni la suscripción (al entrar), y deja colgando el
+      // perfil, los miembros del equipo y el talent pool (al salir).
+      if (role === 'company' && userDoc.data().role !== 'company') {
+        return res.status(400).json({
+          error: 'Para convertir una cuenta en empresa usá "Convertir a cuenta empresa" (POST /api/admin/users/:uid/convert-to-company)'
+        });
+      }
+      if (userDoc.data().role === 'company' && role !== 'company') {
+        return res.status(400).json({
+          error: 'No se puede sacar el rol empresa desde acá: quedarían colgando el perfil, el equipo y el talent pool. Borrá la empresa si hace falta.'
+        });
+      }
       updates.role = role;
     }
 
@@ -601,6 +590,136 @@ router.patch('/users/:uid', async (req, res, next) => {
         uid: updatedDoc.id,
         ...updatedDoc.data()
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/admin/users/:uid/convert-to-company - Convierte una cuenta de
+// empleador individual en cuenta empresa, CONSERVANDO el uid (y con él sus
+// ofertas, matches, chats, solicitudes y notificaciones).
+//
+// Existe porque las empresas sólo se podían crear de cero (POST /users), lo que
+// obligaba a un uid nuevo y a perder todo el historial. El cambio de rol por
+// PATCH /users/:uid no sirve: deja la cuenta sin doc en `companies`, sin
+// organizationId y sin suscripción.
+router.post('/users/:uid/convert-to-company', async (req, res, next) => {
+  try {
+    const { uid } = req.params;
+    const { companyPlanId, businessName, maxMembers } = req.body;
+    const db = getDb();
+
+    // --- Validaciones: todas antes de escribir nada. ---
+    const userRef = db.collection('users').doc(uid);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    const userData = userDoc.data();
+
+    if (userData.role === 'company') {
+      return res.status(400).json({ error: 'Esta cuenta ya es una empresa' });
+    }
+    if (userData.role !== 'employer') {
+      return res.status(400).json({ error: 'Solo se pueden convertir cuentas de empleador' });
+    }
+
+    const companyRef = db.collection('companies').doc(uid);
+    const companyDoc = await companyRef.get();
+    if (companyDoc.exists) {
+      // Estado inconsistente (rol employer + perfil de empresa). No lo pisamos.
+      return res.status(409).json({
+        error: 'Esta cuenta ya tiene un perfil de empresa cargado. Revisala antes de convertirla.'
+      });
+    }
+
+    if (!companyPlanId) {
+      return res.status(400).json({ error: 'Tenés que elegir un plan para la empresa' });
+    }
+    const planDoc = await db.collection('companyPlans').doc(companyPlanId).get();
+    if (!planDoc.exists) {
+      return res.status(400).json({ error: 'El plan seleccionado no existe' });
+    }
+    const companyPlan = { id: planDoc.id, ...planDoc.data() };
+
+    // El perfil de empleador puede no existir: el onboarding no lo crea, recién
+    // lo crea POST /api/employers cuando completa el perfil en la app.
+    const employerRef = db.collection('employers').doc(uid);
+    const employerDoc = await employerRef.get();
+    const employer = employerDoc.exists ? employerDoc.data() : {};
+
+    const finalBusinessName = businessName || employer.businessName || userData.businessName || null;
+    if (!finalBusinessName) {
+      return res.status(400).json({ error: 'Tenés que indicar la razón social' });
+    }
+
+    // `employers` no guarda contactName; lo tiene el doc de users (lo escribe el
+    // onboarding del empleador), con el mismo fallback que usa POST /users.
+    const contactName = employer.contactName
+      || userData.contactName
+      || (userData.firstName && userData.lastName
+        ? `${userData.firstName} ${userData.lastName}`
+        : (userData.firstName || null));
+
+    const now = new Date();
+
+    // --- Escrituras ---
+    // 1) Primero las ofertas. `ownerType`/`organizationId` hoy sólo se escriben,
+    //    nunca se leen, así que si esto falla la cuenta sigue siendo un
+    //    empleador intacto y se puede reintentar sin secuelas.
+    const offersSnapshot = await db.collection('jobOffers')
+      .where('employerId', '==', uid)
+      .get();
+    let offersMigrated = 0;
+    for (const group of chunk(offersSnapshot.docs, 500)) {
+      const batch = db.batch();
+      group.forEach(doc => batch.update(doc.ref, {
+        ownerType: 'company',
+        organizationId: uid,
+        updatedAt: now
+      }));
+      await batch.commit();
+      offersMigrated += group.length;
+    }
+
+    // 2) La identidad, en un único batch (atómico): perfil nuevo, rol nuevo y
+    //    baja del perfil de empleador, que queda reemplazado por el de empresa.
+    const profile = buildCompanyProfileDoc({
+      uid,
+      businessName: finalBusinessName,
+      contactName,
+      phone: employer.phone || userData.phone,
+      rubro: employer.rubro,
+      localidad: employer.localidad,
+      // `employers` no tiene city: se completa después desde /company/profile.
+      city: null,
+      address: employer.address,
+      description: employer.description,
+      photoUrl: employer.photoUrl,
+      active: employer.active,
+      maxMembers,
+      plan: companyPlan,
+      now
+    });
+
+    const batch = db.batch();
+    batch.set(companyRef, profile);
+    batch.update(userRef, {
+      role: 'company',
+      // La empresa "es" la organización: organizationId = su propio uid.
+      organizationId: uid,
+      // El perfil de empresa se administra desde /sudo, no pasa por el onboarding.
+      onboardingCompleted: true,
+      updatedAt: now
+    });
+    if (employerDoc.exists) batch.delete(employerRef);
+    await batch.commit();
+
+    res.json({
+      message: 'Cuenta convertida en empresa',
+      offersMigrated,
+      profile
     });
   } catch (error) {
     next(error);

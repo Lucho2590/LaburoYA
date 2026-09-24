@@ -461,6 +461,18 @@ class ApiService {
     });
   }
 
+  // Convierte un empleador individual en cuenta empresa conservando el uid
+  // (y con él sus ofertas, matches y chats).
+  async convertUserToCompany(
+    uid: string,
+    data: { companyPlanId: string; businessName?: string; maxMembers?: number }
+  ) {
+    return this.request<{ message: string; offersMigrated: number; profile: ICompanyProfile }>(
+      `/admin/users/${uid}/convert-to-company`,
+      { method: 'POST', body: data }
+    );
+  }
+
   async deleteAdminUser(uid: string, hard = false) {
     return this.request<{ message: string }>(`/admin/users/${uid}${hard ? '?hard=true' : ''}`, {
       method: 'DELETE',
