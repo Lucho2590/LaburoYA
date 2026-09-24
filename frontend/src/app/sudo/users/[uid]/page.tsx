@@ -5,9 +5,11 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AdminLayout } from '@/components/AdminLayout';
 import { Ban } from 'lucide-react';
+import { toast } from 'sonner';
 import { api } from '@/services/api';
-import { IAdminUserDetail, EUserRole, IWorkerProfile, IEmployerProfile, ICompanyProfile } from '@/types';
+import { IAdminUserDetail, EUserRole, IWorkerProfile, IEmployerProfile, ICompanyProfile, ICompanyPlan } from '@/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TypedConfirmDialog } from '@/components/admin/TypedConfirmDialog';
 import {
   IVideoTarget,
   VideoPlayerModal,
@@ -26,6 +28,16 @@ export default function AdminUserDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [video, setVideo] = useState<IVideoTarget | null>(null);
 
+  // Conversión empleador -> cuenta empresa
+  const [companyPlans, setCompanyPlans] = useState<ICompanyPlan[]>([]);
+  // businessName arranca en null = "sin tocar", y cae a la razón social que ya
+  // tenía como empleador.
+  const [convertForm, setConvertForm] = useState<{ businessName: string | null; companyPlanId: string; maxMembers: string }>(
+    { businessName: null, companyPlanId: '', maxMembers: '' }
+  );
+  const [showConvertConfirm, setShowConvertConfirm] = useState(false);
+  const [converting, setConverting] = useState(false);
+
   useEffect(() => {
     const fetchUser = async () => {
       try {
@@ -42,6 +54,15 @@ export default function AdminUserDetailPage() {
       fetchUser();
     }
   }, [uid]);
+
+  // Los planes de empresa se cargan sólo si la cuenta se puede convertir.
+  const isEmployer = userDetail?.user.role === 'employer';
+  useEffect(() => {
+    if (!isEmployer) return;
+    api.getAdminCompanyPlans({ active: true })
+      .then((d) => setCompanyPlans(d.plans))
+      .catch(() => {});
+  }, [isEmployer]);
 
   const handleResetCvCheck = async () => {
     try {
@@ -79,6 +100,34 @@ export default function AdminUserDetailPage() {
       alert(err instanceof Error ? err.message : 'Error al actualizar rol');
     } finally {
       setUpdating(false);
+    }
+  };
+
+  // Razón social a usar: la que el admin escribió, o la que ya tenía el perfil
+  // de empleador (el doc de users la guarda desde el onboarding).
+  const convertBusinessName = convertForm.businessName
+    ?? ((userDetail?.profile as IEmployerProfile | undefined)?.businessName
+      || userDetail?.user.businessName
+      || '');
+
+  const handleConvertToCompany = async () => {
+    setConverting(true);
+    try {
+      const maxMembers = convertForm.maxMembers ? Number(convertForm.maxMembers) : undefined;
+      const res = await api.convertUserToCompany(uid, {
+        companyPlanId: convertForm.companyPlanId,
+        businessName: convertBusinessName || undefined,
+        ...(maxMembers ? { maxMembers } : {}),
+      });
+      setShowConvertConfirm(false);
+      toast.success(
+        `Cuenta convertida en empresa${res.offersMigrated ? ` · ${res.offersMigrated} oferta(s) migradas` : ''}. ` +
+        'Si el usuario está logueado, tiene que cerrar sesión y volver a entrar.'
+      );
+      router.push(`/sudo/companies/${uid}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Error al convertir la cuenta');
+      setConverting(false);
     }
   };
 
@@ -228,9 +277,13 @@ export default function AdminUserDetailPage() {
               <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                 user.role === 'worker' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
                 user.role === 'employer' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                user.role === 'company' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
                 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
               }`}>
-                {user.role === 'worker' ? 'Trabajador' : user.role === 'employer' ? 'Empleador' : 'Superuser'}
+                {user.role === 'worker' ? 'Trabajador'
+                  : user.role === 'employer' ? 'Empleador'
+                  : user.role === 'company' ? 'Empresa'
+                  : 'Superuser'}
               </span>
               {user.disabled && (
                 <span className="px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
@@ -253,7 +306,7 @@ export default function AdminUserDetailPage() {
               <p className="text-2xl font-bold theme-text-primary">{stats.matches}</p>
               <p className="text-xs theme-text-muted">Matches</p>
             </div>
-            {user.role === 'employer' && (
+            {(user.role === 'employer' || user.role === 'company') && (
               <div className="text-center px-4 py-2 theme-bg-secondary rounded-lg">
                 <p className="text-2xl font-bold theme-text-primary">{stats.jobOffers}</p>
                 <p className="text-xs theme-text-muted">Ofertas</p>
@@ -351,7 +404,10 @@ export default function AdminUserDetailPage() {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            Perfil de {user.role === 'worker' ? 'Trabajador' : user.role === 'employer' ? 'Empleador' : 'Usuario'}
+            Perfil de {user.role === 'worker' ? 'Trabajador'
+              : user.role === 'employer' ? 'Empleador'
+              : user.role === 'company' ? 'Empresa'
+              : 'Usuario'}
           </h2>
 
           {!profile ? (
@@ -473,6 +529,78 @@ export default function AdminUserDetailPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Convertir a cuenta empresa (solo empleadores individuales) */}
+            {user.role === 'employer' && (
+              <div className="rounded-lg border theme-border p-3 space-y-3">
+                <div>
+                  <p className="text-sm font-medium theme-text-primary">Convertir a cuenta empresa</p>
+                  <p className="text-xs theme-text-muted mt-1">
+                    Mantiene el mismo usuario, así que no pierde ofertas, matches ni chats.
+                    El perfil de empleador se reemplaza por el de empresa.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs theme-text-muted mb-1">Razón social</label>
+                  <input
+                    type="text"
+                    value={convertBusinessName}
+                    onChange={(e) => setConvertForm({ ...convertForm, businessName: e.target.value })}
+                    placeholder="Razón social de la empresa"
+                    className="w-full theme-bg-secondary border theme-border rounded-lg px-3 py-2 text-sm theme-text-primary"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs theme-text-muted mb-1">Plan de empresa</label>
+                  <Select
+                    value={convertForm.companyPlanId || '__none__'}
+                    onValueChange={(v) => setConvertForm({ ...convertForm, companyPlanId: v === '__none__' ? '' : v })}
+                  >
+                    <SelectTrigger className="w-full theme-bg-secondary border theme-border rounded-lg px-3 py-2 text-sm theme-text-primary">
+                      <SelectValue placeholder="Elegí un plan" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Elegí un plan</SelectItem>
+                      {companyPlans.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name} · {p.durationMonths} {p.durationMonths === 1 ? 'mes' : 'meses'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {companyPlans.length === 0 && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      No hay planes activos. Creá uno en{' '}
+                      <Link href="/sudo/company-plans" className="underline">Planes Empresa</Link>.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs theme-text-muted mb-1">
+                    Límite de miembros (opcional)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={convertForm.maxMembers}
+                    onChange={(e) => setConvertForm({ ...convertForm, maxMembers: e.target.value })}
+                    placeholder="Por defecto: 3"
+                    className="w-full theme-bg-secondary border theme-border rounded-lg px-3 py-2 text-sm theme-text-primary"
+                  />
+                </div>
+
+                <button
+                  onClick={() => setShowConvertConfirm(true)}
+                  disabled={updating || converting || !convertBusinessName || !convertForm.companyPlanId}
+                  className="w-full px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-purple-100 text-purple-800 hover:bg-purple-200 dark:bg-purple-900 dark:text-purple-200 cursor-pointer"
+                >
+                  🏢 Convertir a empresa
+                </button>
+              </div>
+            )}
 
             {/* Toggle Disabled */}
             <div>
@@ -658,6 +786,21 @@ export default function AdminUserDetailPage() {
           )}
         </div>
       )}
+
+      <TypedConfirmDialog
+        open={showConvertConfirm}
+        title="Convertir a cuenta empresa"
+        description={
+          `"${convertBusinessName}" pasa a ser una cuenta empresa con el plan elegido. ` +
+          'Conserva el mismo usuario, sus ofertas, matches y chats. ' +
+          'El perfil de empleador se borra y se reemplaza por el de empresa: no se puede deshacer.'
+        }
+        keyword="CONVERTIR"
+        confirmLabel="Convertir a empresa"
+        loading={converting}
+        onConfirm={handleConvertToCompany}
+        onCancel={() => setShowConvertConfirm(false)}
+      />
 
       <VideoPlayerModal target={video} onClose={() => setVideo(null)} />
     </AdminLayout>

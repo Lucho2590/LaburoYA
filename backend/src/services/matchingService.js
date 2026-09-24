@@ -2,6 +2,7 @@ const { getDb } = require('../config/firebase');
 const { zonaCentroid, normalizeZona } = require('../utils/constants');
 const citiesService = require('./citiesService');
 const profileBlocks = require('./profileBlocks');
+const { loadOwnerProfilesByIds } = require('../utils/ownerProfile');
 
 // Match type constants
 const MATCH_TYPES = {
@@ -282,21 +283,8 @@ class MatchingService {
     }
 
     // Batch fetch all owners at once. El dueño puede ser un employer individual
-    // o una empresa (companies); el employerId es el mismo campo en ambos casos,
-    // así que probamos employers y caemos a companies si no está.
-    const employerMap = new Map();
-    if (employerIds.size > 0) {
-      const ownerDocs = await Promise.all(Array.from(employerIds).map(async id => {
-        const emp = await db.collection('employers').doc(id).get();
-        if (emp.exists) return { id, data: emp.data() };
-        const comp = await db.collection('companies').doc(id).get();
-        if (comp.exists) return { id, data: comp.data() };
-        return null;
-      }));
-      ownerDocs.forEach(d => {
-        if (d) employerMap.set(d.id, d.data);
-      });
-    }
+    // o una empresa (companies); el employerId es el mismo campo en ambos casos.
+    const employerMap = await loadOwnerProfilesByIds(db, Array.from(employerIds));
 
     // Build final result with employer data
     const relevantOffers = relevantOffersTemp.map(({ offer, relevance }) => ({
@@ -573,11 +561,9 @@ class MatchingService {
     const fetchPromises = [];
 
     if (role === 'worker') {
-      // Fetch employers and job offers in parallel
+      // Fetch owners (employers o companies) and job offers in parallel
       fetchPromises.push(
-        Promise.all(Array.from(employerIds).map(id =>
-          db.collection('employers').doc(id).get()
-        )),
+        loadOwnerProfilesByIds(db, Array.from(employerIds)),
         Promise.all(Array.from(offerIds).map(id =>
           db.collection('jobOffers').doc(id).get()
         ))
@@ -594,14 +580,13 @@ class MatchingService {
     const results = await Promise.all(fetchPromises);
 
     // Build lookup maps
-    const employerMap = new Map();
+    // Para role 'worker', results[0] ya viene como Map uid -> perfil del dueño.
+    let employerMap = new Map();
     const workerMap = new Map();
     const offerMap = new Map();
 
     if (role === 'worker') {
-      results[0].forEach(doc => {
-        if (doc.exists) employerMap.set(doc.id, doc.data());
-      });
+      employerMap = results[0];
       results[1].forEach(doc => {
         if (doc.exists) offerMap.set(doc.id, doc.data());
       });
