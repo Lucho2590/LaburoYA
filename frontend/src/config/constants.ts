@@ -134,10 +134,11 @@ export function getAllSkills(): string[] {
 export type TRubro = keyof typeof JOB_CATEGORIES;
 export type TZona = typeof ZONAS_MDP[number];
 
-// Detección de cuentas superuser por dominio de email.
-// IMPORTANTE: único punto del frontend acoplado al dominio @laburoya.com (login y
-// verify-email saltean la verificación de email para estas cuentas). Para migrar a
-// detección por `role === 'superuser'`, se ajusta solo este helper.
+// Emails habilitados como admin (superuser). Espejo de backend/src/utils/superuser.js,
+// que es quien realmente decide. Los superusers fuera de esta lista quedan dados
+// de baja. Login y verify-email saltean la verificación de email para estas cuentas.
+export const ADMIN_EMAILS = ["luciano@laburoya.com"];
+
 export function isSuperuserEmail(email?: string | null): boolean {
-  return !!email && email.endsWith("@laburoya.com");
+  return !!email && ADMIN_EMAILS.includes(email.trim().toLowerCase());
 }

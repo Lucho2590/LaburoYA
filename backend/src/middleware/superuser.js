@@ -1,4 +1,5 @@
 const { getDb } = require('../config/firebase');
+const { isAllowedAdminEmail } = require('../utils/superuser');
 
 async function superuserMiddleware(req, res, next) {
   try {
@@ -18,6 +19,11 @@ async function superuserMiddleware(req, res, next) {
 
     if (userData.role !== 'superuser') {
       return res.status(403).json({ error: 'Access denied. Superuser privileges required.' });
+    }
+
+    // Sólo los emails habilitados como admin (ver utils/superuser.js).
+    if (!isAllowedAdminEmail(req.user.email)) {
+      return res.status(403).json({ error: 'Esta cuenta de administración fue dada de baja.', code: 'admin_disabled' });
     }
 
     // Attach user data to request for convenience

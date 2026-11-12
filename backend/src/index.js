@@ -74,7 +74,8 @@ app.use('/api/cv-check', cvCheckRoutes);
 app.use((err, req, res, next) => {
   console.error('Error:', err);
   res.status(err.status || 500).json({
-    error: err.message || 'Internal server error'
+    error: err.message || 'Internal server error',
+    ...(err.code && typeof err.code === 'string' ? { code: err.code } : {})
   });
 });
 

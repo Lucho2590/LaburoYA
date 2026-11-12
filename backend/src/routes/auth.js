@@ -1,7 +1,8 @@
 const express = require('express');
 const { getDb, getAuth } = require('../config/firebase');
 const { authMiddleware } = require('../middleware/auth');
-const { isSuperuserEmail } = require('../utils/superuser');
+const { isSuperuserEmail, isAllowedAdminEmail, isDisabledSuperuser } = require('../utils/superuser');
+const { isAiEnabled } = require('../services/appFeatures');
 const { lookupIp } = require('../services/ipGeolocation');
 const { sendNotificationEmail, sendPasswordResetEmail } = require('../services/emailService');
 const companySubscription = require('../utils/companySubscription');
@@ -14,11 +15,20 @@ router.post('/register', authMiddleware, async (req, res, next) => {
     const { uid } = req.user;
     const { role, referralSource } = req.body;
 
-    if (!role || !['worker', 'employer', 'superuser'].includes(role)) {
-      return res.status(400).json({ error: 'Invalid role. Must be "worker", "employer", or "superuser"' });
+    // 'superuser' NO se acepta acá: antes cualquier usuario logueado podía
+    // auto-promoverse. Los admins se definen en utils/superuser.js.
+    if (!role || !['worker', 'employer'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role. Must be "worker" or "employer"' });
     }
 
     const db = getDb();
+
+    // Un superuser no puede pisar su rol desde acá (ni uno dado de baja
+    // "escaparse" convirtiéndose en worker/employer).
+    const existing = await db.collection('users').doc(uid).get();
+    if (existing.exists && existing.data().role === 'superuser') {
+      return res.status(403).json({ error: 'Superusers cannot change their role here' });
+    }
 
     // Create or update user document
     const userData = {
@@ -71,6 +81,11 @@ router.get('/me', authMiddleware, async (req, res, next) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    // Superusers que no están en la allowlist: cuenta de admin dada de baja.
+    if (isDisabledSuperuser(userData, email)) {
+      return res.status(403).json({ error: 'Esta cuenta de administración fue dada de baja.', code: 'admin_disabled' });
+    }
+
     let profileData = null;
     let impersonating = null;
     let companySub = null;
@@ -111,9 +126,16 @@ router.get('/me', authMiddleware, async (req, res, next) => {
       }
     }
 
+    // IA global apagada: forzamos los flags de IA en false en la respuesta
+    // (sin tocar la DB) para que el front oculte todo lo de IA.
+    const aiEnabled = await isAiEnabled();
+    const userOut = aiEnabled ? userData : { ...userData, aiCvEnabled: false };
+    if (!aiEnabled && companySub) companySub = { ...companySub, aiCvEnabled: false };
+
     res.json({
-      user: userData,
+      user: userOut,
       profile: profileData,
+      aiEnabled,
       ...(impersonating ? { impersonating } : {}),
       ...(companySub ? { companySubscription: companySub } : {})
     });
@@ -191,7 +213,7 @@ router.patch('/profile-wizard-seen', authMiddleware, async (req, res, next) => {
 // Set secondary role for superusers
 router.patch('/secondary-role', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { uid, email } = req.user;
     const { secondaryRole } = req.body;
 
     if (!secondaryRole || !['worker', 'employer'].includes(secondaryRole)) {
@@ -202,7 +224,7 @@ router.patch('/secondary-role', authMiddleware, async (req, res, next) => {
 
     // Verify user is a superuser
     const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists || userDoc.data().role !== 'superuser') {
+    if (!userDoc.exists || userDoc.data().role !== 'superuser' || !isAllowedAdminEmail(email)) {
       return res.status(403).json({ error: 'Only superusers can set a secondary role' });
     }
 
@@ -226,7 +248,7 @@ router.patch('/secondary-role', authMiddleware, async (req, res, next) => {
 // company-scoped actúan como esa empresa.
 router.patch('/impersonate-company', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { uid, email } = req.user;
     const { companyId } = req.body;
 
     if (!companyId) {
@@ -236,7 +258,7 @@ router.patch('/impersonate-company', authMiddleware, async (req, res, next) => {
     const db = getDb();
 
     const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists || userDoc.data().role !== 'superuser') {
+    if (!userDoc.exists || userDoc.data().role !== 'superuser' || !isAllowedAdminEmail(email)) {
       return res.status(403).json({ error: 'Only superusers can impersonate a company' });
     }
 
@@ -263,11 +285,11 @@ router.patch('/impersonate-company', authMiddleware, async (req, res, next) => {
 // Superuser: stop impersonating the current company.
 router.delete('/impersonate-company', authMiddleware, async (req, res, next) => {
   try {
-    const { uid } = req.user;
+    const { uid, email } = req.user;
     const db = getDb();
 
     const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists || userDoc.data().role !== 'superuser') {
+    if (!userDoc.exists || userDoc.data().role !== 'superuser' || !isAllowedAdminEmail(email)) {
       return res.status(403).json({ error: 'Only superusers can stop impersonating' });
     }
 

@@ -42,6 +42,9 @@ export interface IUserData {
   // mandaría al wizard en cada login.
   profileWizardSeenAt?: string | null;
   aiCvEnabled?: boolean; // Admin-controlled: AI CV-assessment module enabled
+  // Interruptor global de IA (appConfig/features.aiEnabled). Si es false, el
+  // front oculta todo lo de IA fuera de /sudo.
+  aiEnabled?: boolean;
 }
 
 // ============================================
@@ -1014,7 +1017,12 @@ export interface ITermsAndConditions {
 }
 
 export interface IAppFeatures {
+  // Interruptor global de IA (default apagado).
+  aiEnabled: boolean;
+  // Valor efectivo: requiere aiEnabled.
   cvCheckEnabled: boolean;
+  // Sólo en la respuesta de admin: lo guardado, independiente de aiEnabled.
+  cvCheckEnabledRaw?: boolean;
 }
 
 export interface IWhatsAppTemplate {

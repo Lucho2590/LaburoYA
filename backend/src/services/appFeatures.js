@@ -1,18 +1,42 @@
-// Feature flags de la app, guardados en `appConfig/features`. Por ahora sólo
-// controla si el análisis público de CV (/evaluar-cv) está habilitado. El admin
-// lo prende/apaga y la landing + el backend del cv-check lo respetan.
+// Feature flags de la app, guardados en `appConfig/features`.
+//  - aiEnabled: interruptor GLOBAL de la IA (default APAGADO). Si está off,
+//    nada llama al proveedor de IA: la evaluación de CV usa el modo básico y el
+//    front oculta todo lo de IA (salvo el panel /sudo).
+//  - cvCheckEnabled: análisis público de CV (/evaluar-cv). Como es 100% IA, el
+//    valor efectivo requiere además aiEnabled.
 const { getDb } = require('../config/firebase');
 
 const FEATURES_DOC = 'features';
 
-async function getFeatures() {
+async function readRaw() {
   const db = getDb();
   const doc = await db.collection('appConfig').doc(FEATURES_DOC).get();
-  const data = doc.exists ? doc.data() : {};
+  return doc.exists ? doc.data() : {};
+}
+
+// Valores efectivos (los que respetan la landing y el backend).
+async function getFeatures() {
+  const data = await readRaw();
+  const aiEnabled = data.aiEnabled === true;
   return {
-    // Default habilitado: sólo se oculta si el admin lo apagó explícitamente.
-    cvCheckEnabled: data.cvCheckEnabled !== false,
+    aiEnabled,
+    cvCheckEnabled: aiEnabled && data.cvCheckEnabled !== false,
   };
+}
+
+// Para el admin: efectivos + lo guardado en crudo (para los switches).
+async function getAdminFeatures() {
+  const data = await readRaw();
+  const effective = await getFeatures();
+  return {
+    ...effective,
+    cvCheckEnabledRaw: data.cvCheckEnabled !== false,
+  };
+}
+
+async function isAiEnabled() {
+  const { aiEnabled } = await getFeatures();
+  return aiEnabled;
 }
 
 async function isCvCheckEnabled() {
@@ -20,12 +44,13 @@ async function isCvCheckEnabled() {
   return cvCheckEnabled;
 }
 
-async function setFeatures({ cvCheckEnabled, updatedBy }) {
+async function setFeatures({ cvCheckEnabled, aiEnabled, updatedBy }) {
   const db = getDb();
   const patch = { updatedAt: new Date(), updatedBy: updatedBy || null };
   if (typeof cvCheckEnabled === 'boolean') patch.cvCheckEnabled = cvCheckEnabled;
+  if (typeof aiEnabled === 'boolean') patch.aiEnabled = aiEnabled;
   await db.collection('appConfig').doc(FEATURES_DOC).set(patch, { merge: true });
-  return getFeatures();
+  return getAdminFeatures();
 }
 
-module.exports = { getFeatures, isCvCheckEnabled, setFeatures };
+module.exports = { getFeatures, getAdminFeatures, isAiEnabled, isCvCheckEnabled, setFeatures };

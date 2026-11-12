@@ -11,6 +11,7 @@ import {
   ListChecks,
 } from "lucide-react";
 import { EAppRole } from "@/types";
+import { isSuperuserEmail } from "@/config/constants";
 
 interface AdminLayoutProps {
   children: ReactNode;
@@ -39,15 +40,17 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
     }
   }, []);
 
-  const isSuperuser = userData?.role === "superuser";
+  // Además del rol, el email tiene que estar habilitado como admin (el backend
+  // es quien lo hace cumplir; esto evita mostrar el panel con cache viejo).
+  const isSuperuser = userData?.role === "superuser" && isSuperuserEmail(user?.email);
 
   useEffect(() => {
     if (!loading && !user) {
       router.push("/login");
-    } else if (!loading && user && userData?.role !== "superuser") {
+    } else if (!loading && user && !isSuperuser) {
       router.push("/home");
     }
-  }, [loading, user, userData, router]);
+  }, [loading, user, isSuperuser, router]);
 
   if (loading || !isSuperuser) {
     return (

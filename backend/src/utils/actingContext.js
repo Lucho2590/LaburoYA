@@ -1,4 +1,5 @@
 const { getDb } = require('../config/firebase');
+const { isAllowedAdminEmail } = require('./superuser');
 
 // Resuelve el "contexto efectivo" de una request para endpoints de negocio.
 //
@@ -18,6 +19,14 @@ async function resolveActingContext(req) {
   const userData = userDoc.exists ? userDoc.data() : null;
 
   if (userData && userData.role === 'superuser') {
+    // Superuser dado de baja (email fuera de la allowlist): sin privilegios,
+    // ni siquiera los de la empresa que haya quedado impersonando.
+    if (!isAllowedAdminEmail(req.user.email)) {
+      const err = new Error('Esta cuenta de administración fue dada de baja.');
+      err.status = 403;
+      err.code = 'admin_disabled';
+      throw err;
+    }
     if (userData.impersonatingCompanyId) {
       return {
         actingUid: userData.impersonatingCompanyId,

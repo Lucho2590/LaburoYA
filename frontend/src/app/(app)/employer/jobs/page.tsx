@@ -1592,7 +1592,11 @@ export default function EmployerJobsPage() {
                 <div key={p.id} className="border theme-border rounded-xl p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs theme-text-muted">
-                      {p.assessment.mode === 'ai' ? 'IA' : 'Básico'}{p.createdAt ? ` · ${new Date(p.createdAt).toLocaleDateString()}` : ''}
+                      {/* Sin IA global no mostramos "Básico": sólo se etiquetan resultados viejos hechos con IA. */}
+                      {[
+                        p.assessment.mode === 'ai' ? 'IA' : (aiOn ? 'Básico' : null),
+                        p.createdAt ? new Date(p.createdAt).toLocaleDateString() : null,
+                      ].filter(Boolean).join(' · ')}
                     </span>
                     <button
                       onClick={() => {
