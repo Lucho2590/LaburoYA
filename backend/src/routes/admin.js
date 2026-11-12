@@ -22,6 +22,7 @@ const {
 const { getDocMapByIds } = require('../utils/firestore');
 const profileBlocks = require('../services/profileBlocks');
 const appFeatures = require('../services/appFeatures');
+const { isAllowedAdminEmail } = require('../utils/superuser');
 const { normEmail, normPhone } = require('../services/companyCandidates');
 const offerAnalytics = require('../services/offerAnalytics');
 
@@ -568,6 +569,16 @@ router.patch('/users/:uid', async (req, res, next) => {
         return res.status(400).json({
           error: 'No se puede sacar el rol empresa desde acá: quedarían colgando el perfil, el equipo y el talent pool. Borrá la empresa si hace falta.'
         });
+      }
+      // Sólo los emails de la allowlist (utils/superuser.js) pueden ser admin.
+      if (role === 'superuser' && userDoc.data().role !== 'superuser') {
+        let targetEmail = userDoc.data().email || null;
+        if (!targetEmail) {
+          try { targetEmail = (await getAuth().getUser(uid)).email || null; } catch { targetEmail = null; }
+        }
+        if (!isAllowedAdminEmail(targetEmail)) {
+          return res.status(400).json({ error: 'Esta cuenta no puede ser superuser: el acceso de administración está restringido.' });
+        }
       }
       updates.role = role;
     }
@@ -2434,7 +2445,7 @@ router.put('/settings/terms', async (req, res, next) => {
 // GET /api/admin/settings/features - Feature flags de la app
 router.get('/settings/features', async (req, res, next) => {
   try {
-    const features = await appFeatures.getFeatures();
+    const features = await appFeatures.getAdminFeatures();
     res.json(features);
   } catch (error) {
     next(error);
@@ -2444,11 +2455,17 @@ router.get('/settings/features', async (req, res, next) => {
 // PUT /api/admin/settings/features - Prender/apagar feature flags
 router.put('/settings/features', async (req, res, next) => {
   try {
-    const { cvCheckEnabled } = req.body;
-    if (typeof cvCheckEnabled !== 'boolean') {
-      return res.status(400).json({ error: 'cvCheckEnabled debe ser booleano' });
+    const { cvCheckEnabled, aiEnabled } = req.body;
+    const hasCv = typeof cvCheckEnabled === 'boolean';
+    const hasAi = typeof aiEnabled === 'boolean';
+    if (!hasCv && !hasAi) {
+      return res.status(400).json({ error: 'cvCheckEnabled o aiEnabled deben ser booleanos' });
     }
-    const features = await appFeatures.setFeatures({ cvCheckEnabled, updatedBy: req.user.uid });
+    const features = await appFeatures.setFeatures({
+      ...(hasCv ? { cvCheckEnabled } : {}),
+      ...(hasAi ? { aiEnabled } : {}),
+      updatedBy: req.user.uid,
+    });
     res.json({ message: 'Configuración actualizada', ...features });
   } catch (error) {
     next(error);
@@ -2638,7 +2655,8 @@ router.post('/parse-cv', pdfUpload.single('pdf'), async (req, res, next) => {
     if (!req.file) {
       return res.status(400).json({ error: 'Falta el archivo PDF (campo "pdf")' });
     }
-    const useAi = req.body.useAi === 'true' || req.body.useAi === true;
+    // Con la IA global apagada, siempre el parse sin IA.
+    const useAi = (req.body.useAi === 'true' || req.body.useAi === true) && (await appFeatures.isAiEnabled());
 
     const heuristic = await pdfParser.parseHeuristic(req.file.buffer);
 

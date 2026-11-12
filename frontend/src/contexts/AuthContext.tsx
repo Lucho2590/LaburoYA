@@ -93,6 +93,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     writeCachedUserData(data);
   };
 
+  // Cuenta superuser dada de baja (fuera de la allowlist de admins): cerrar
+  // sesión y mandar al login con el aviso.
+  const handleAdminDisabled = async (err: unknown): Promise<boolean> => {
+    if ((err as { code?: string } | null)?.code !== 'admin_disabled') return false;
+    writeCachedUserData(null);
+    setUserDataState(null);
+    try {
+      if (auth) await firebaseSignOut(auth as Auth);
+    } catch {
+      // Ignorar: igual lo mandamos al login.
+    }
+    if (typeof window !== 'undefined') window.location.replace('/login?disabled=1');
+    return true;
+  };
+
   const refreshUserData = async () => {
     if (!user) {
       setUserData(null);
@@ -117,8 +132,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         onboardingCompleted: data.user?.onboardingCompleted,
         profileWizardSeenAt: data.user?.profileWizardSeenAt ?? null,
         aiCvEnabled: data.user?.aiCvEnabled,
+        aiEnabled: data.aiEnabled === true,
       });
-    } catch {
+    } catch (err) {
+      if (await handleAdminDisabled(err)) return;
       // User not registered in backend yet
       setUserData({
         uid: user.uid,
@@ -187,13 +204,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             onboardingCompleted: data.user?.onboardingCompleted,
         profileWizardSeenAt: data.user?.profileWizardSeenAt ?? null,
             aiCvEnabled: data.user?.aiCvEnabled,
+            aiEnabled: data.aiEnabled === true,
           });
 
           // Track login location (IP-based, silent)
           api.trackLogin().catch(() => {
             // Silently ignore - location tracking is not critical
           });
-        } catch {
+        } catch (err) {
+          if (await handleAdminDisabled(err)) return;
           setAuthReady(true);
           setUserData({
             uid: firebaseUser.uid,

@@ -71,6 +71,8 @@ export default function AiSettingsPage() {
 
   // Feature: análisis público de CV (/evaluar-cv)
   const [cvCheckEnabled, setCvCheckEnabled] = useState(true);
+  // Interruptor global de IA (appConfig/features.aiEnabled, default apagado).
+  const [aiEnabled, setAiEnabled] = useState(false);
   const [savingFeature, setSavingFeature] = useState(false);
 
   // Prompt tab state
@@ -128,7 +130,11 @@ export default function AiSettingsPage() {
     // `cvCheckEnabled` ya arranca en true, así que queda el default.
     api
       .getAdminFeatures()
-      .then((f) => setCvCheckEnabled(f.cvCheckEnabled))
+      .then((f) => {
+        setAiEnabled(f.aiEnabled === true);
+        // El switch muestra lo guardado; el efectivo además requiere la IA global.
+        setCvCheckEnabled(f.cvCheckEnabledRaw ?? f.cvCheckEnabled);
+      })
       .catch(() => {});
   }, []);
 
@@ -182,6 +188,21 @@ export default function AiSettingsPage() {
     );
     // setSavingProvider stays true until modal completes; reset on cancel:
     setTimeout(() => setSavingProvider(false), 100);
+  };
+
+  const handleToggleAi = async () => {
+    const next = !aiEnabled;
+    setSavingFeature(true);
+    setAiEnabled(next); // optimista
+    try {
+      await api.updateAdminFeatures({ aiEnabled: next });
+      toast.success(next ? 'IA habilitada en la app' : 'IA apagada en la app');
+    } catch (error) {
+      setAiEnabled(!next); // revertir
+      toast.error((error as Error).message || 'No se pudo actualizar');
+    } finally {
+      setSavingFeature(false);
+    }
   };
 
   const handleToggleCvCheck = async () => {
@@ -476,6 +497,37 @@ export default function AiSettingsPage() {
             <div className="theme-bg-card rounded-xl p-6 border theme-border">
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
+                  <h2 className="text-lg font-semibold theme-text-primary">IA habilitada en la app (global)</h2>
+                  <p className="text-sm theme-text-secondary mt-1">
+                    Interruptor general. Apagada, nada llama al proveedor de IA: la evaluación de CV de
+                    empresas y empleadores usa el modo básico, se oculta todo lo de IA fuera de este panel y
+                    la evaluación pública de CV queda desactivada.
+                  </p>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={aiEnabled}
+                  onClick={handleToggleAi}
+                  disabled={savingFeature}
+                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors cursor-pointer disabled:opacity-50 ${
+                    aiEnabled ? 'bg-[#E10600]' : 'bg-gray-300 dark:bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                      aiEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="text-xs theme-text-muted mt-3">
+                Estado actual: <span className="font-medium">{aiEnabled ? 'Encendida' : 'Apagada'}</span>.
+              </p>
+            </div>
+
+            <div className="theme-bg-card rounded-xl p-6 border theme-border">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
                   <h2 className="text-lg font-semibold theme-text-primary">Evaluación pública de CV</h2>
                   <p className="text-sm theme-text-secondary mt-1">
                     Muestra u oculta el botón <span className="font-medium">“Evaluá tu CV”</span> de la web pública
@@ -499,7 +551,8 @@ export default function AiSettingsPage() {
                 </button>
               </div>
               <p className="text-xs theme-text-muted mt-3">
-                Estado actual: <span className="font-medium">{cvCheckEnabled ? 'Visible' : 'Oculto'}</span>.
+                Estado actual: <span className="font-medium">{cvCheckEnabled && aiEnabled ? 'Visible' : 'Oculto'}</span>
+                {cvCheckEnabled && !aiEnabled && ' (requiere la IA global encendida)'}.
               </p>
             </div>
           </>

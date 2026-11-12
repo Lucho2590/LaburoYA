@@ -107,9 +107,10 @@ class ApiService {
 
     if (!response.ok) {
       const err = new Error(data.error || `API request failed with status ${response.status}`) as Error & {
-        status?: number; rateLimited?: boolean; retryable?: boolean; rateScope?: string; retryAfter?: number;
+        status?: number; code?: string; rateLimited?: boolean; retryable?: boolean; rateScope?: string; retryAfter?: number;
       };
       err.status = response.status;
+      err.code = typeof data.code === 'string' ? data.code : undefined;
       err.rateLimited = data.rateLimited;
       err.retryable = data.retryable;
       err.rateScope = data.rateScope;
@@ -197,6 +198,7 @@ class ApiService {
       profile: unknown;
       impersonating?: { companyId: string; businessName?: string | null };
       companySubscription?: ICompanySubscriptionSummary;
+      aiEnabled?: boolean;
     }>('/auth/me');
   }
 

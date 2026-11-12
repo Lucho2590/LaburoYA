@@ -156,8 +156,13 @@ export default function CompanyProfilePage() {
             <div className="theme-text-secondary">
               {periodEnd ? periodEnd.toLocaleDateString("es-AR") : "—"}
             </div>
-            <div className="theme-text-muted">IA análisis de CV</div>
-            <div className="theme-text-secondary">{sub.aiCvEnabled ? "Habilitada" : "No incluida"}</div>
+            {/* Con la IA global apagada no mostramos nada de IA. */}
+            {userData?.aiEnabled && (
+              <>
+                <div className="theme-text-muted">IA análisis de CV</div>
+                <div className="theme-text-secondary">{sub.aiCvEnabled ? "Habilitada" : "No incluida"}</div>
+              </>
+            )}
             <div className="theme-text-muted">CVs analizados</div>
             <div className="theme-text-secondary">
               {sub.cvAnalysesUsed}

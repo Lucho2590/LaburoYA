@@ -1,4 +1,5 @@
 const express = require('express');
+const appFeatures = require('../services/appFeatures');
 const multer = require('multer');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
@@ -544,6 +545,9 @@ router.post('/:offerId/assess-cv', authMiddleware, pdfUpload.single('cv'), async
       // Per-offer toggle: default ON when undefined (backward compatible).
       aiEnabled = userAi && offer.aiAssessEnabled !== false;
     }
+
+    // IA global apagada (appConfig/features.aiEnabled): siempre modo básico.
+    if (aiEnabled && !(await appFeatures.isAiEnabled())) aiEnabled = false;
 
     // b) Evaluate (AI or basic) and normalize into { mode, source, candidate, assessment }.
     let result;

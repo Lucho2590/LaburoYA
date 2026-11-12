@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { api } from "@/services/api";
@@ -105,6 +105,13 @@ function EvaluarCvContent() {
   const [checking, setChecking] = useState(true);
   // Feature flag: null = cargando, false = deshabilitado por el admin.
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const router = useRouter();
+
+  // Deshabilitado (IA global apagada o switch del admin): la página no existe
+  // para el público, volvemos a la landing.
+  useEffect(() => {
+    if (enabled === false) router.replace("/");
+  }, [enabled, router]);
 
   const runAnalyze = useCallback(async (rubroKey: string, cv: File, token: string) => {
     setStep("analyzing");

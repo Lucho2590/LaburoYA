@@ -235,7 +235,8 @@ async function getAiConfigPublic() {
 
 async function getAiApiKeyPlain() {
   const data = await getAiConfigDoc();
-  if (!data) return null;
+  // Sin key guardada (p. ej. se borró el campo): null en vez de reventar.
+  if (!data || !data.apiKeyEncrypted) return null;
   return decrypt(data.apiKeyEncrypted);
 }
 
